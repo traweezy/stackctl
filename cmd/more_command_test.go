@@ -555,7 +555,7 @@ func TestHealthChecksWarnWhenContainersMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("healthChecks returned error: %v", err)
 	}
-	if got := lines[len(lines)-1].Message; got != "no containers from this stack were found" {
+	if got := lines[len(lines)-1].Message; got != "pgadmin container not found" {
 		t.Fatalf("unexpected final health message: %s", got)
 	}
 }
@@ -573,8 +573,8 @@ func TestHealthChecksWarnWhenContainersNotRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("healthChecks returned error: %v", err)
 	}
-	if got := lines[len(lines)-1].Message; got != "some stack containers are not running" {
-		t.Fatalf("unexpected final health message: %s", got)
+	if got := lines[len(lines)-3].Message; got != "postgres not running (Exited)" {
+		t.Fatalf("unexpected postgres health message: %s", got)
 	}
 }
 

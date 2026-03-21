@@ -36,7 +36,8 @@ type dependencies struct {
 	openCommandName    func() string
 	cockpitStatus      func(context.Context) system.CockpitState
 	portInUse          func(int) (bool, error)
-	anyContainerExists func(context.Context, []string) (bool, error)
+	listContainers     func(context.Context) ([]system.Container, error)
+	redisOvercommit    func(context.Context) (system.OvercommitStatus, error)
 }
 
 func Run(ctx context.Context) (Report, error) {
@@ -55,7 +56,10 @@ func defaultDependencies() dependencies {
 		openCommandName:    system.OpenCommandName,
 		cockpitStatus:      system.CockpitStatus,
 		portInUse:          system.PortInUse,
-		anyContainerExists: system.AnyContainerExists,
+		listContainers: func(ctx context.Context) ([]system.Container, error) {
+			return system.ListContainers(ctx, system.CaptureResult)
+		},
+		redisOvercommit: system.RedisOvercommitStatus,
 	}
 }
 
@@ -147,42 +151,72 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 	}
 
 	if cfgLoaded {
-		for _, portCheck := range []struct {
-			name string
-			port int
-		}{
-			{name: "postgres", port: cfg.Ports.Postgres},
-			{name: "redis", port: cfg.Ports.Redis},
-			{name: "pgadmin", port: cfg.Ports.PgAdmin},
-			{name: "cockpit", port: cfg.Ports.Cockpit},
-		} {
-			inUse, err := deps.portInUse(portCheck.port)
+		containers := []system.Container(nil)
+		podmanAvailable := deps.commandExists("podman")
+		if podmanAvailable {
+			loadedContainers, err := deps.listContainers(ctx)
 			if err != nil {
-				report.add(output.StatusFail, fmt.Sprintf("port %d check failed: %v", portCheck.port, err))
+				report.add(output.StatusFail, fmt.Sprintf("container inspection failed: %v", err))
+			} else {
+				containers = system.FilterContainersByName(loadedContainers, configuredContainerNames(cfg))
+			}
+		}
+
+		containerByName := make(map[string]system.Container, len(containers))
+		for _, container := range containers {
+			for _, name := range container.Names {
+				containerByName[name] = container
+			}
+		}
+
+		for _, service := range configuredServices(cfg) {
+			inUse, err := deps.portInUse(service.Port)
+			if err != nil {
+				report.add(output.StatusFail, fmt.Sprintf("port %d check failed: %v", service.Port, err))
 				continue
 			}
-			if inUse {
-				report.add(output.StatusWarn, fmt.Sprintf("port %d already in use for %s", portCheck.port, portCheck.name))
-			} else {
-				report.add(output.StatusOK, fmt.Sprintf("port %d is free for %s", portCheck.port, portCheck.name))
+
+			container, ok := containerByName[service.ContainerName]
+			switch {
+			case ok && containerBindsHostPort(container, service.Port):
+				report.add(output.StatusOK, fmt.Sprintf("port %d is mapped by %s container", service.Port, service.Name))
+			case inUse:
+				report.add(output.StatusWarn, fmt.Sprintf("port %d is in use by another process or container, not %s", service.Port, service.Name))
+			default:
+				report.add(output.StatusOK, fmt.Sprintf("port %d is free for %s", service.Port, service.Name))
 			}
+
+			if !podmanAvailable {
+				continue
+			}
+			if !ok {
+				report.add(output.StatusWarn, fmt.Sprintf("%s container not found", service.Name))
+				continue
+			}
+			if container.State == "running" {
+				report.add(output.StatusOK, fmt.Sprintf("%s container running", service.Name))
+				continue
+			}
+
+			report.add(output.StatusWarn, fmt.Sprintf("%s container not running (%s)", service.Name, container.Status))
 		}
 
-		containerNames := []string{
-			cfg.Services.PostgresContainer,
-			cfg.Services.RedisContainer,
-		}
-		if cfg.Setup.IncludePgAdmin {
-			containerNames = append(containerNames, cfg.Services.PgAdminContainer)
-		}
-
-		exists, err := deps.anyContainerExists(ctx, containerNames)
+		cockpitInUse, err := deps.portInUse(cfg.Ports.Cockpit)
 		if err != nil {
-			report.add(output.StatusFail, fmt.Sprintf("container inspection failed: %v", err))
-		} else if exists {
-			report.add(output.StatusOK, "running containers from this stack exist")
+			report.add(output.StatusFail, fmt.Sprintf("port %d check failed: %v", cfg.Ports.Cockpit, err))
+		} else if cockpitInUse {
+			report.add(output.StatusWarn, fmt.Sprintf("port %d is already in use for cockpit", cfg.Ports.Cockpit))
 		} else {
-			report.add(output.StatusWarn, "no containers from this stack were found")
+			report.add(output.StatusOK, fmt.Sprintf("port %d is free for cockpit", cfg.Ports.Cockpit))
+		}
+
+		overcommit, err := deps.redisOvercommit(ctx)
+		if err == nil && overcommit.Supported {
+			if overcommit.Value == 1 {
+				report.add(output.StatusOK, "vm.overcommit_memory is set to 1 for Redis")
+			} else {
+				report.add(output.StatusWarn, "set vm.overcommit_memory=1 to avoid Redis memory overcommit warnings")
+			}
 		}
 	}
 
@@ -231,4 +265,44 @@ func configResult(deps dependencies, path string) (configpkg.Config, bool, error
 	}
 
 	return configpkg.Config{}, false, err
+}
+
+type configuredService struct {
+	Name          string
+	ContainerName string
+	Port          int
+}
+
+func configuredServices(cfg configpkg.Config) []configuredService {
+	services := []configuredService{
+		{Name: "postgres", ContainerName: cfg.Services.PostgresContainer, Port: cfg.Ports.Postgres},
+		{Name: "redis", ContainerName: cfg.Services.RedisContainer, Port: cfg.Ports.Redis},
+	}
+	if cfg.Setup.IncludePgAdmin {
+		services = append(services, configuredService{
+			Name:          "pgadmin",
+			ContainerName: cfg.Services.PgAdminContainer,
+			Port:          cfg.Ports.PgAdmin,
+		})
+	}
+
+	return services
+}
+
+func configuredContainerNames(cfg configpkg.Config) []string {
+	names := make([]string, 0, len(configuredServices(cfg)))
+	for _, service := range configuredServices(cfg) {
+		names = append(names, service.ContainerName)
+	}
+	return names
+}
+
+func containerBindsHostPort(container system.Container, port int) bool {
+	for _, mapping := range container.Ports {
+		if mapping.HostPort == port {
+			return true
+		}
+	}
+
+	return false
 }

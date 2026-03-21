@@ -374,7 +374,7 @@ func TestHealthReportsPortAndContainerStatus(t *testing.T) {
 		d.portListening = func(port int) bool { return port != 9090 }
 		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
 			return system.CommandResult{
-				Stdout: `[{"Names":["local-postgres"],"Image":"postgres:16","Status":"Up","State":"running","Ports":[]}]`,
+				Stdout: `[{"Names":["local-postgres"],"Image":"postgres:16","Status":"Up","State":"running","Ports":[]},{"Names":["local-redis"],"Image":"redis:7","Status":"Up","State":"running","Ports":[]},{"Names":["local-pgadmin"],"Image":"dpage/pgadmin4:latest","Status":"Up","State":"running","Ports":[]}]`,
 			}, nil
 		}
 	})
@@ -386,8 +386,14 @@ func TestHealthReportsPortAndContainerStatus(t *testing.T) {
 	if !strings.Contains(stdout, "[WARN] cockpit port listening") {
 		t.Fatalf("stdout missing cockpit warning: %s", stdout)
 	}
-	if !strings.Contains(stdout, "[OK  ] containers are running") {
-		t.Fatalf("stdout missing container ok line: %s", stdout)
+	if !strings.Contains(stdout, "[OK  ] postgres running") {
+		t.Fatalf("stdout missing postgres running line: %s", stdout)
+	}
+	if !strings.Contains(stdout, "[OK  ] redis running") {
+		t.Fatalf("stdout missing redis running line: %s", stdout)
+	}
+	if !strings.Contains(stdout, "[OK  ] pgadmin running") {
+		t.Fatalf("stdout missing pgadmin running line: %s", stdout)
 	}
 }
 

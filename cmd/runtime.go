@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,23 +12,8 @@ import (
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/output"
+	"github.com/traweezy/stackctl/internal/system"
 )
-
-type podmanContainer struct {
-	ID        string       `json:"Id"`
-	Image     string       `json:"Image"`
-	Names     []string     `json:"Names"`
-	Status    string       `json:"Status"`
-	State     string       `json:"State"`
-	Ports     []podmanPort `json:"Ports"`
-	CreatedAt string       `json:"CreatedAt"`
-}
-
-type podmanPort struct {
-	HostPort      int    `json:"host_port"`
-	ContainerPort int    `json:"container_port"`
-	Protocol      string `json:"protocol"`
-}
 
 func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config, error) {
 	path, err := deps.configFilePath()
@@ -125,39 +109,16 @@ func stackContainerNames(cfg configpkg.Config) []string {
 	return names
 }
 
-func loadStackContainers(ctx context.Context, cfg configpkg.Config) ([]podmanContainer, error) {
-	result, err := deps.captureResult(ctx, "", "podman", "ps", "-a", "--format", "json")
+func loadStackContainers(ctx context.Context, cfg configpkg.Config) ([]system.Container, error) {
+	containers, err := system.ListContainers(ctx, deps.captureResult)
 	if err != nil {
 		return nil, err
 	}
-	if result.ExitCode != 0 {
-		return nil, fmt.Errorf("podman ps failed: %s", strings.TrimSpace(result.Stderr))
-	}
 
-	containers := make([]podmanContainer, 0)
-	if err := json.Unmarshal([]byte(result.Stdout), &containers); err != nil {
-		return nil, fmt.Errorf("parse podman status output: %w", err)
-	}
-
-	nameSet := make(map[string]struct{}, len(stackContainerNames(cfg)))
-	for _, name := range stackContainerNames(cfg) {
-		nameSet[name] = struct{}{}
-	}
-
-	filtered := make([]podmanContainer, 0, len(nameSet))
-	for _, container := range containers {
-		for _, name := range container.Names {
-			if _, ok := nameSet[name]; ok {
-				filtered = append(filtered, container)
-				break
-			}
-		}
-	}
-
-	return filtered, nil
+	return system.FilterContainersByName(containers, stackContainerNames(cfg)), nil
 }
 
-func formatPorts(ports []podmanPort) string {
+func formatPorts(ports []system.ContainerPort) string {
 	if len(ports) == 0 {
 		return "-"
 	}
@@ -170,7 +131,7 @@ func formatPorts(ports []podmanPort) string {
 	return strings.Join(values, ", ")
 }
 
-func printStatusTable(cmd *cobra.Command, containers []podmanContainer, verbose bool) error {
+func printStatusTable(cmd *cobra.Command, containers []system.Container, verbose bool) error {
 	if len(containers) == 0 {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), "No containers from this stack were found.")
 		return err
@@ -246,22 +207,29 @@ func healthChecks(ctx context.Context, cfg configpkg.Config) ([]outputLine, erro
 		return lines, nil
 	}
 
-	if len(containers) == 0 {
-		lines = append(lines, outputLine{Status: output.StatusWarn, Message: "no containers from this stack were found"})
-		return lines, nil
-	}
-
-	allRunning := true
+	containerByName := make(map[string]system.Container, len(containers))
 	for _, container := range containers {
-		if container.State != "running" {
-			allRunning = false
-			break
+		for _, name := range container.Names {
+			containerByName[name] = container
 		}
 	}
-	if allRunning {
-		lines = append(lines, outputLine{Status: output.StatusOK, Message: "containers are running"})
-	} else {
-		lines = append(lines, outputLine{Status: output.StatusWarn, Message: "some stack containers are not running"})
+
+	for _, service := range configuredStackServices(cfg) {
+		container, ok := containerByName[service.ContainerName]
+		if !ok {
+			lines = append(lines, outputLine{Status: output.StatusWarn, Message: fmt.Sprintf("%s container not found", service.Name)})
+			continue
+		}
+
+		if container.State == "running" {
+			lines = append(lines, outputLine{Status: output.StatusOK, Message: fmt.Sprintf("%s running", service.Name)})
+			continue
+		}
+
+		lines = append(lines, outputLine{
+			Status:  output.StatusWarn,
+			Message: fmt.Sprintf("%s not running (%s)", service.Name, container.Status),
+		})
 	}
 
 	return lines, nil
@@ -278,6 +246,28 @@ func checkPort(port int, label string) outputLine {
 	}
 
 	return outputLine{Status: output.StatusWarn, Message: label}
+}
+
+type configuredService struct {
+	Name          string
+	ContainerName string
+	Port          int
+}
+
+func configuredStackServices(cfg configpkg.Config) []configuredService {
+	services := []configuredService{
+		{Name: "postgres", ContainerName: cfg.Services.PostgresContainer, Port: cfg.Ports.Postgres},
+		{Name: "redis", ContainerName: cfg.Services.RedisContainer, Port: cfg.Ports.Redis},
+	}
+	if cfg.Setup.IncludePgAdmin {
+		services = append(services, configuredService{
+			Name:          "pgadmin",
+			ContainerName: cfg.Services.PgAdminContainer,
+			Port:          cfg.Ports.PgAdmin,
+		})
+	}
+
+	return services
 }
 
 func shortID(value string) string {
