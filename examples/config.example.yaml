@@ -1,0 +1,32 @@
+stack:
+  name: dev-stack
+  dir: /absolute/path/to/stackctl/stacks/dev-stack
+  compose_file: compose.yaml
+
+services:
+  postgres_container: local-postgres
+  redis_container: local-redis
+  pgadmin_container: local-pgadmin
+
+ports:
+  postgres: 5432
+  redis: 6379
+  pgadmin: 8081
+  cockpit: 9090
+
+urls:
+  cockpit: https://localhost:9090
+  pgadmin: http://localhost:8081
+
+behavior:
+  open_cockpit_on_start: true
+  open_pgadmin_on_start: false
+  wait_for_services_on_start: true
+  startup_timeout_seconds: 30
+
+setup:
+  install_cockpit: true
+  include_pgadmin: true
+
+system:
+  package_manager: apt
