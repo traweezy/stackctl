@@ -29,6 +29,10 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 	testDeps.validateConfig = func(configpkg.Config) []configpkg.ValidationIssue { return nil }
 	testDeps.runWizard = func(_ io.Reader, _ io.Writer, cfg configpkg.Config) (configpkg.Config, error) { return cfg, nil }
 	testDeps.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return true, nil }
+	testDeps.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return false, nil }
+	testDeps.scaffoldManagedStack = func(cfg configpkg.Config, _ bool) (configpkg.ScaffoldResult, error) {
+		return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg)}, nil
+	}
 	testDeps.composePath = func(configpkg.Config) string { return "/tmp/stackctl/compose.yaml" }
 	testDeps.stat = func(string) (os.FileInfo, error) { return fakeFileInfo{name: "compose.yaml"}, nil }
 	testDeps.runDoctor = func(context.Context) (doctorpkg.Report, error) { return doctorpkg.Report{}, nil }

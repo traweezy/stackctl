@@ -18,7 +18,7 @@ import (
 
 func TestDefaultCommandDepsProvidesHooks(t *testing.T) {
 	value := defaultCommandDeps()
-	if value.configFilePath == nil || value.composeUp == nil || value.removeFile == nil {
+	if value.configFilePath == nil || value.composeUp == nil || value.removeFile == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
 		t.Fatal("default command deps should initialize function hooks")
 	}
 }

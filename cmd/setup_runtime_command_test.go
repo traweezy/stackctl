@@ -16,11 +16,16 @@ import (
 
 func TestSetupNonInteractiveCreatesConfigAndPrintsNextSteps(t *testing.T) {
 	var saved bool
+	scaffolded := false
 
 	withTestDeps(t, func(d *commandDeps) {
 		d.saveConfig = func(string, configpkg.Config) error {
 			saved = true
 			return nil
+		}
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
 		}
 		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
 			return newReport(
@@ -36,6 +41,9 @@ func TestSetupNonInteractiveCreatesConfigAndPrintsNextSteps(t *testing.T) {
 	}
 	if !saved {
 		t.Fatal("expected setup to save a config")
+	}
+	if !scaffolded {
+		t.Fatal("expected setup to scaffold the default managed stack")
 	}
 	if !strings.Contains(stdout, "created default config") {
 		t.Fatalf("stdout missing config creation message: %s", stdout)
@@ -218,6 +226,7 @@ func TestStartFirstRunDeclineReturnsGuidance(t *testing.T) {
 
 func TestStartFirstRunRunsWizardComposeWaitAndOpen(t *testing.T) {
 	var saved bool
+	scaffolded := false
 	var waitPorts []int
 	var opened []string
 	upCalled := false
@@ -233,6 +242,10 @@ func TestStartFirstRunRunsWizardComposeWaitAndOpen(t *testing.T) {
 		d.saveConfig = func(string, configpkg.Config) error {
 			saved = true
 			return nil
+		}
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
 		}
 		d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
 			upCalled = true
@@ -252,7 +265,7 @@ func TestStartFirstRunRunsWizardComposeWaitAndOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start returned error: %v", err)
 	}
-	if !saved || !upCalled {
+	if !saved || !upCalled || !scaffolded {
 		t.Fatal("expected wizard save and compose up to run")
 	}
 	if len(waitPorts) != 3 {
@@ -263,6 +276,37 @@ func TestStartFirstRunRunsWizardComposeWaitAndOpen(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "[OK  ] stack started") {
 		t.Fatalf("stdout missing success line: %s", stdout)
+	}
+}
+
+func TestSetupOffersScaffoldingForExistingManagedConfig(t *testing.T) {
+	scaffolded := false
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.isTerminal = func() bool { return true }
+		d.promptYesNo = func(_ io.Reader, _ io.Writer, question string, _ bool) (bool, error) {
+			return strings.Contains(question, "Create and scaffold the default stack now?"), nil
+		}
+		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+		}
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			return newReport(doctorpkg.Check{Status: output.StatusOK, Message: "config file found"}), nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "setup")
+	if err != nil {
+		t.Fatalf("setup returned error: %v", err)
+	}
+	if !scaffolded {
+		t.Fatal("expected setup to scaffold the managed stack when prompted")
+	}
+	if !strings.Contains(stdout, "wrote managed compose file") {
+		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }
 

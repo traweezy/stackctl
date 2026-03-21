@@ -13,12 +13,17 @@ import (
 func TestConfigInitNonInteractiveSavesConfig(t *testing.T) {
 	var savedPath string
 	var savedConfig configpkg.Config
+	scaffolded := false
 
 	withTestDeps(t, func(d *commandDeps) {
 		d.saveConfig = func(path string, cfg configpkg.Config) error {
 			savedPath = path
 			savedConfig = cfg
 			return nil
+		}
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
 		}
 	})
 
@@ -32,6 +37,12 @@ func TestConfigInitNonInteractiveSavesConfig(t *testing.T) {
 	}
 	if savedConfig.Stack.Name != "dev-stack" {
 		t.Fatalf("saved config stack name = %q", savedConfig.Stack.Name)
+	}
+	if !savedConfig.Stack.Managed || !savedConfig.Setup.ScaffoldDefaultStack {
+		t.Fatalf("saved config should use managed stack defaults: %+v", savedConfig)
+	}
+	if !scaffolded {
+		t.Fatal("expected config init to scaffold the managed stack")
 	}
 	if !strings.Contains(stdout, "Saved config to /tmp/stackctl/config.yaml") {
 		t.Fatalf("stdout missing save message: %s", stdout)
@@ -174,6 +185,45 @@ func TestConfigResetDeclineCancels(t *testing.T) {
 	_, _, err := executeRoot(t, "config", "reset")
 	if err == nil || !strings.Contains(err.Error(), "config reset cancelled") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConfigScaffoldRequiresManagedStack(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) {
+			cfg := configpkg.Default()
+			cfg.Stack.Managed = false
+			cfg.Setup.ScaffoldDefaultStack = false
+			return cfg, nil
+		}
+	})
+
+	_, _, err := executeRoot(t, "config", "scaffold")
+	if err == nil || !strings.Contains(err.Error(), "external stack") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConfigScaffoldRunsHelper(t *testing.T) {
+	scaffolded := false
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "config", "scaffold")
+	if err != nil {
+		t.Fatalf("config scaffold returned error: %v", err)
+	}
+	if !scaffolded {
+		t.Fatal("expected config scaffold to call the scaffold helper")
+	}
+	if !strings.Contains(stdout, "wrote managed compose file") {
+		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }
 
