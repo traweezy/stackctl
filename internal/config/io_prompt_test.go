@@ -1,0 +1,363 @@
+package config
+
+import (
+	"bufio"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestSaveLoadAndMarshalRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg := Default()
+
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loaded.Stack.Name != cfg.Stack.Name {
+		t.Fatalf("loaded config stack name = %q", loaded.Stack.Name)
+	}
+
+	data, err := Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	if !strings.Contains(string(data), "stack:") {
+		t.Fatalf("marshal output missing stack section: %s", string(data))
+	}
+}
+
+func TestLoadRejectsMalformedYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("stack: ["), 0o600); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "parse config") {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+}
+
+func TestLoadMissingConfigReturnsErrNotFound(t *testing.T) {
+	_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestLoadReturnsReadErrorForDirectoryPath(t *testing.T) {
+	_, err := Load(t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "read config") {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+}
+
+func TestSaveAndLoadUsingResolvedDefaultPath(t *testing.T) {
+	configRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+
+	cfg := Default()
+	if err := Save("", cfg); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	loaded, err := Load("")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loaded.Stack.Name != cfg.Stack.Name {
+		t.Fatalf("loaded config mismatch: %+v", loaded)
+	}
+}
+
+func TestConfigPathsRespectUserConfigDir(t *testing.T) {
+	configRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+
+	dirPath, err := ConfigDirPath()
+	if err != nil {
+		t.Fatalf("ConfigDirPath returned error: %v", err)
+	}
+	if dirPath != filepath.Join(configRoot, "stackctl") {
+		t.Fatalf("unexpected config dir path: %s", dirPath)
+	}
+
+	filePath, err := ConfigFilePath()
+	if err != nil {
+		t.Fatalf("ConfigFilePath returned error: %v", err)
+	}
+	if filePath != filepath.Join(configRoot, "stackctl", "config.yaml") {
+		t.Fatalf("unexpected config file path: %s", filePath)
+	}
+}
+
+func TestSaveCreatesNestedConfigDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "config.yaml")
+	if err := Save(path, Default()); err != nil {
+		t.Fatalf("Save returned error: %v", err)
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected saved file to exist: %v", err)
+	}
+}
+
+func TestSaveReturnsWriteErrorForDirectoryPath(t *testing.T) {
+	err := Save(t.TempDir(), Default())
+	if err == nil || !strings.Contains(err.Error(), "write config") {
+		t.Fatalf("unexpected save error: %v", err)
+	}
+}
+
+func TestComposePathAndValidateOrError(t *testing.T) {
+	cfg := Default()
+	cfg.Stack.Dir = filepath.Join(t.TempDir(), "stack")
+	if err := os.MkdirAll(cfg.Stack.Dir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	if got := ComposePath(cfg); got != filepath.Join(cfg.Stack.Dir, cfg.Stack.ComposeFile) {
+		t.Fatalf("unexpected compose path: %s", got)
+	}
+
+	if err := ValidateOrError(cfg); err != nil {
+		t.Fatalf("ValidateOrError returned error: %v", err)
+	}
+}
+
+func TestValidateOrErrorReportsInvalidDirectoryFile(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "not-a-dir")
+	if err := os.WriteFile(filePath, []byte("file"), 0o600); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg := Default()
+	cfg.Stack.Dir = filePath
+
+	err := ValidateOrError(cfg)
+	var validationErr ValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "directory does not exist") {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
+func TestRunWizardAcceptsDefaults(t *testing.T) {
+	cfg := Default()
+	cfg.Stack.Dir = t.TempDir()
+
+	input := strings.Repeat("\n", 17)
+	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
+	if err != nil {
+		t.Fatalf("RunWizard returned error: %v", err)
+	}
+
+	if got.Stack.Dir != cfg.Stack.Dir {
+		t.Fatalf("wizard changed stack dir: %s", got.Stack.Dir)
+	}
+	if got.URLs.Cockpit == "" || got.URLs.PgAdmin == "" {
+		t.Fatalf("wizard did not derive urls: %+v", got.URLs)
+	}
+}
+
+func TestPromptYesNoAndValidationHelpers(t *testing.T) {
+	yes, err := PromptYesNo(strings.NewReader("y\n"), io.Discard, "Continue?", false)
+	if err != nil {
+		t.Fatalf("PromptYesNo returned error: %v", err)
+	}
+	if !yes {
+		t.Fatal("expected yes response")
+	}
+
+	if err := nonEmpty(""); err == nil {
+		t.Fatal("expected nonEmpty to fail")
+	}
+	if err := positiveInt(0); err == nil {
+		t.Fatal("expected positiveInt to fail")
+	}
+	if err := validPort(70000); err == nil {
+		t.Fatal("expected validPort to fail")
+	}
+}
+
+func TestValidationErrorString(t *testing.T) {
+	err := ValidationError{
+		Issues: []ValidationIssue{{Field: "stack.dir", Message: "missing"}},
+	}
+
+	if !strings.Contains(err.Error(), "stack.dir: missing") {
+		t.Fatalf("unexpected validation error string: %s", err.Error())
+	}
+}
+
+func TestValidationErrorStringWithoutIssues(t *testing.T) {
+	if got := (ValidationError{}).Error(); got != "config validation failed" {
+		t.Fatalf("unexpected validation error string: %s", got)
+	}
+}
+
+func TestPromptSessionRetriesInvalidAnswers(t *testing.T) {
+	session := promptSession{
+		reader: bufio.NewReader(strings.NewReader("\ncustom\nabc\n42\nmaybe\ny\n\ny\n")),
+		out:    io.Discard,
+	}
+
+	value, err := session.askString("Name", "", nonEmpty)
+	if err != nil || value != "custom" {
+		t.Fatalf("askString returned %q, %v", value, err)
+	}
+
+	number, err := session.askInt("Timeout", 30, positiveInt)
+	if err != nil || number != 42 {
+		t.Fatalf("askInt returned %d, %v", number, err)
+	}
+
+	boolean, err := session.askBool("Open", false)
+	if err != nil || !boolean {
+		t.Fatalf("askBool returned %v, %v", boolean, err)
+	}
+
+	dir, err := session.askStackDir(filepath.Join(t.TempDir(), "missing"))
+	if err != nil || dir == "" {
+		t.Fatalf("askStackDir returned %q, %v", dir, err)
+	}
+}
+
+func TestPromptSessionAcceptsDefaultAnswers(t *testing.T) {
+	session := promptSession{
+		reader: bufio.NewReader(strings.NewReader("\n\n\n")),
+		out:    io.Discard,
+	}
+
+	value, err := session.askString("Name", "default", nonEmpty)
+	if err != nil || value != "default" {
+		t.Fatalf("askString default returned %q, %v", value, err)
+	}
+
+	number, err := session.askInt("Timeout", 30, positiveInt)
+	if err != nil || number != 30 {
+		t.Fatalf("askInt default returned %d, %v", number, err)
+	}
+
+	boolean, err := session.askBool("Open", true)
+	if err != nil || !boolean {
+		t.Fatalf("askBool default returned %v, %v", boolean, err)
+	}
+}
+
+func TestPromptSessionInvalidBooleanAtEOFReturnsError(t *testing.T) {
+	session := promptSession{
+		reader: bufio.NewReader(strings.NewReader("maybe")),
+		out:    io.Discard,
+	}
+
+	_, err := session.askBool("Open", false)
+	if err == nil || !strings.Contains(err.Error(), "invalid boolean answer") {
+		t.Fatalf("unexpected bool error: %v", err)
+	}
+}
+
+func TestRunWizardPropagatesPromptReadErrors(t *testing.T) {
+	cfg := Default()
+	cfg.Stack.Dir = t.TempDir()
+
+	cases := []struct {
+		name             string
+		completedPrompts int
+	}{
+		{name: "stack name", completedPrompts: 0},
+		{name: "stack dir", completedPrompts: 1},
+		{name: "compose file", completedPrompts: 2},
+		{name: "postgres container", completedPrompts: 3},
+		{name: "redis container", completedPrompts: 4},
+		{name: "pgadmin container", completedPrompts: 5},
+		{name: "postgres port", completedPrompts: 6},
+		{name: "redis port", completedPrompts: 7},
+		{name: "pgadmin port", completedPrompts: 8},
+		{name: "cockpit port", completedPrompts: 9},
+		{name: "open cockpit", completedPrompts: 10},
+		{name: "open pgadmin", completedPrompts: 11},
+		{name: "wait for services", completedPrompts: 12},
+		{name: "timeout", completedPrompts: 13},
+		{name: "install cockpit", completedPrompts: 14},
+		{name: "include pgadmin", completedPrompts: 15},
+		{name: "package manager", completedPrompts: 16},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := RunWizard(&failingLinesReader{
+				remaining: tc.completedPrompts,
+				err:       io.ErrUnexpectedEOF,
+			}, io.Discard, cfg)
+			if !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("expected read error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestDefaultStackDirFindsRepoFromWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	stackDir := filepath.Join(root, "stacks", "dev-stack")
+	if err := os.MkdirAll(filepath.Join(stackDir, "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	t.Chdir(filepath.Join(stackDir, "nested"))
+
+	if got := DefaultStackDir(); got != stackDir {
+		t.Fatalf("unexpected default stack dir: %s", got)
+	}
+}
+
+func TestDefaultStackDirFallsBackWhenNoRepoFound(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+
+	want := filepath.Join(root, "stacks", "dev-stack")
+	if got := DefaultStackDir(); got != want {
+		t.Fatalf("unexpected fallback default stack dir: %s", got)
+	}
+}
+
+func TestConfigPathsFailWithoutUserConfigDir(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+
+	if _, err := ConfigDirPath(); err == nil {
+		t.Fatal("expected ConfigDirPath to fail without a user config dir")
+	}
+	if _, err := ConfigFilePath(); err == nil {
+		t.Fatal("expected ConfigFilePath to fail without a user config dir")
+	}
+}
+
+type failingLinesReader struct {
+	remaining int
+	err       error
+}
+
+func (r *failingLinesReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if r.remaining == 0 {
+		return 0, r.err
+	}
+
+	p[0] = '\n'
+	r.remaining--
+	return 1, nil
+}
