@@ -1,18 +1,49 @@
 # stackctl
 
-`stackctl` is a Go CLI for running and inspecting a local Podman-based development stack.
+`stackctl` is a Linux CLI for bringing up and managing a local
+Podman-based development stack.
 
-It is designed for local development workflows, with:
+It is aimed at the "get my local services running quickly" path:
 
-- persistent user config
-- managed stack data under standard user directories
-- first-run setup and config bootstrapping
-- stack lifecycle commands
-- diagnostics, health, logs, and connection helpers
+- bootstrap config on first run
+- scaffold a managed local stack under standard XDG paths
+- start, stop, restart, and reset the stack
+- inspect status, health, diagnostics, and logs
+- print connection details for local services
 
-GitHub Releases now publish Linux tarballs, and a one-command installer is available for the latest release.
+The bundled managed stack currently includes:
 
-## Install (Linux)
+- PostgreSQL
+- Redis
+- pgAdmin
+
+Cockpit is also supported as a local management UI when it is installed on
+the host.
+
+> [!IMPORTANT]
+> `stackctl` is Linux-only right now.
+>
+> - GitHub release binaries are published for Linux `x86_64` and `arm64`
+> - the install script only supports Linux
+> - `setup --install` currently targets `apt`-based systems
+> - macOS and Windows are not supported yet
+
+## What You Get
+
+With `stackctl`, you can:
+
+- create and validate a persistent config
+- use a CLI-managed stack directory or point at your own compose project
+- start the local stack and wait for services to come up
+- tail all logs or a single service
+- inspect health and run read-only diagnostics
+- print ready-to-use URLs and DSNs
+
+## Install
+
+### Quick install from GitHub Releases
+
+Install the latest release to `~/.local/bin`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | bash
@@ -24,166 +55,269 @@ Install to `/usr/local/bin` instead:
 curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | bash -s -- --system
 ```
 
-## Manual Download
+Install a specific release:
 
-Download the latest release assets from:
+```bash
+curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | \
+  bash -s -- --version v0.1.0
+```
+
+Manual downloads are available from:
 
 https://github.com/traweezy/stackctl/releases/latest
 
-## Commands
+### Build from source
 
-The CLI currently provides:
-
-- `stackctl setup`
-- `stackctl doctor`
-- `stackctl config`
-- `stackctl start`
-- `stackctl stop`
-- `stackctl restart`
-- `stackctl status`
-- `stackctl logs`
-- `stackctl open`
-- `stackctl health`
-- `stackctl connect`
-- `stackctl reset`
-- `stackctl version`
-
-## First Run
-
-The CLI stores user config at:
-
-- Linux: `~/.config/stackctl/config.yaml`
-
-When you use the managed stack flow, `stackctl` stores runtime stack files at:
-
-- Linux: `~/.local/share/stackctl/stacks/dev-stack/compose.yaml`
-
-You can create config explicitly:
+If you already have a recent Go toolchain:
 
 ```bash
-go run . config init
+git clone https://github.com/traweezy/stackctl.git
+cd stackctl
+go build ./...
+go run . --help
 ```
 
-Or let the CLI help on first run. For example, if you run:
+## Prerequisites
 
-```bash
-go run . start
-```
+`stackctl` expects a Linux machine with Podman available.
 
-and no config exists yet, `stackctl` will explain that, offer interactive setup, and offer to scaffold a managed stack into the standard user data directory.
-
-## Setup
-
-Use setup to prepare the environment and config:
-
-```bash
-go run . setup
-go run . setup --non-interactive
-go run . setup --install
-```
-
-`setup --install` supports `apt`-based systems and installs the packages described in the spec:
+For the managed local stack, the practical requirements are:
 
 - `podman`
-- `podman-compose`
-- `buildah`
-- `skopeo`
-- `cockpit`
-- `cockpit-podman`
+- `podman compose`
 
-If the current config is using a managed stack and the managed files are missing, `setup` can scaffold them from the embedded default template.
-
-## Config
-
-Manage config after first run with:
+If you want `stackctl` to try installing missing packages for you, use:
 
 ```bash
-go run . config path
-go run . config view
-go run . config validate
-go run . config edit
-go run . config scaffold
-go run . config reset
+stackctl setup --install
 ```
 
-An example config is bundled at [examples/config.example.yaml](/home/tylers/Dev/go/github.com/traweezy/stackctl/examples/config.example.yaml).
+That installer flow is currently intended for `apt`-based Linux systems.
 
-`managed: true` means the CLI owns the stack path under `~/.local/share/stackctl/...` and can scaffold the embedded default compose file there. When `managed: false`, the config points at a custom external stack directory that you manage yourself.
+## Getting Started
 
-The embedded source template for the managed stack lives at [templates/dev-stack/compose.yaml](/home/tylers/Dev/go/github.com/traweezy/stackctl/templates/dev-stack/compose.yaml).
-
-## Custom Stack Paths
-
-The interactive config flow lets you switch between:
-
-- a managed stack under `~/.local/share/stackctl/stacks/dev-stack`
-- an external custom stack directory
-
-If you choose an external stack, `stackctl` saves that path in config and does not treat the stack files as CLI-managed.
-
-## Runtime
-
-Typical commands:
+The fastest path is:
 
 ```bash
-go run . start
-go run . status
-go run . stop
-go run . restart
-go run . reset --volumes --force
+stackctl setup
+stackctl start
+stackctl status
+stackctl connect
 ```
 
-`start` and `restart` print the configured DSNs and URLs after the stack is ready. They do not try to open browser tabs automatically.
+If you are working from source instead of an installed binary, replace
+`stackctl` with `go run .`.
 
-## Logs And Health
+### First run behavior
 
-Useful examples:
+On first run, `stackctl` can create config for you and scaffold a managed
+stack into your user data directory.
+
+Common first-run commands:
 
 ```bash
-go run . logs
-go run . logs -s postgres -w
-go run . logs -s redis -n 50
-go run . health
-go run . health -w -i 2
+stackctl setup
+stackctl config init
+stackctl start
 ```
 
-## Connection Info
-
-Print ready-to-use local endpoints with:
+Useful setup variants:
 
 ```bash
-go run . connect
-go run . open
-go run . open pgadmin
-go run . open all
+stackctl setup --non-interactive
+stackctl setup --install
+stackctl setup --install --yes
 ```
 
-`connect` prints DSNs and URLs derived from the current config. `open` is the explicit browser action; if launching a browser is unavailable, it prints the URL instead.
+## Where stackctl stores files
 
-## Manual Testing
+By default, `stackctl` uses standard Linux user directories:
 
-Useful manual checks for the managed stack model:
+- config: `~/.config/stackctl/config.yaml`
+- managed data root: `~/.local/share/stackctl`
+- managed stack directory: `~/.local/share/stackctl/stacks/dev-stack`
+- managed compose file:
+  `~/.local/share/stackctl/stacks/dev-stack/compose.yaml`
 
-- delete `~/.config/stackctl/config.yaml`, run `go run . start`, and verify the config is recreated under `~/.config/stackctl`
-- verify the managed stack is scaffolded under `~/.local/share/stackctl/stacks/dev-stack/compose.yaml`
-- delete only the config file, keep the managed stack data, rerun setup, and verify the existing managed stack is reused cleanly
-- delete only the managed stack data, keep the config file, and verify `go run . doctor` and `go run . config validate` fail clearly
-- run `go run . config scaffold` to recreate the managed compose file from the embedded template
+If `XDG_DATA_HOME` is set, managed stack data is stored under
+`$XDG_DATA_HOME/stackctl` instead.
 
-## Build
+## Managed stack vs external stack
 
-The repo is intended to work directly with standard Go tooling:
+`stackctl` supports two modes:
+
+### Managed stack
+
+In managed mode, `stackctl` owns the stack directory and can scaffold the
+compose file from the embedded template.
+
+This is the default and the easiest path to get started.
+
+### External stack
+
+In external mode, your config points at an existing compose directory that
+you manage yourself.
+
+Use that if you already have a custom stack and just want `stackctl` to act
+as the operator CLI.
+
+## Common commands
+
+### Setup and config
 
 ```bash
-go mod tidy
+stackctl setup
+stackctl config path
+stackctl config view
+stackctl config validate
+stackctl config edit
+stackctl config scaffold
+stackctl config reset
+```
+
+The example config is in
+[`examples/config.example.yaml`](examples/config.example.yaml).
+
+### Stack lifecycle
+
+```bash
+stackctl start
+stackctl stop
+stackctl restart
+stackctl status
+stackctl reset --volumes --force
+```
+
+`start` and `restart` print connection info after the stack is ready. They
+do not automatically open browser windows.
+
+### Logs
+
+```bash
+stackctl logs
+stackctl logs -n 50
+stackctl logs -w
+stackctl logs -s postgres -n 50
+stackctl logs -s redis -w
+```
+
+By default, `stackctl logs` prints the last 100 lines and exits.
+
+Supported service filters are:
+
+- `postgres` or `pg`
+- `redis` or `rd`
+- `pgadmin`
+
+### Diagnostics and health
+
+```bash
+stackctl doctor
+stackctl health
+stackctl health -w -i 2
+```
+
+Use `doctor` when something looks wrong before changing anything. It is a
+read-only diagnostic command.
+
+### URLs and connection details
+
+```bash
+stackctl connect
+stackctl open
+stackctl open pgadmin
+stackctl open all
+```
+
+`connect` prints the configured DSNs and URLs.
+
+`open` is the explicit browser-opening command. If browser launch is not
+available, `stackctl` prints the URL instead of failing.
+
+## Suggested first workflow
+
+If you are starting from a clean Linux machine:
+
+1. Install `stackctl`
+2. Run `stackctl setup`
+3. Run `stackctl start`
+4. Check `stackctl status`
+5. Check `stackctl health`
+6. Run `stackctl connect`
+7. Use `stackctl logs -w` while bringing up your app
+
+## Troubleshooting
+
+### No config exists yet
+
+Run one of:
+
+```bash
+stackctl setup
+stackctl config init
+```
+
+### Managed stack files are missing
+
+Recreate them with:
+
+```bash
+stackctl config scaffold
+```
+
+Then validate the config:
+
+```bash
+stackctl config validate
+```
+
+### Something is already using one of the expected ports
+
+Run:
+
+```bash
+stackctl doctor
+```
+
+This will tell you whether the port is owned by an expected local service or
+by something unrelated.
+
+### Browser launch fails
+
+Use:
+
+```bash
+stackctl open
+```
+
+If `stackctl` cannot open the browser automatically, it prints the URL so
+you can open it yourself.
+
+## Next steps
+
+After the initial setup is working, the usual next commands are:
+
+- `stackctl logs -w` while developing
+- `stackctl status` to confirm container state
+- `stackctl connect` to copy DSNs and URLs into your app config
+- `stackctl doctor` when the stack behaves unexpectedly
+- `stackctl config edit` if you want to switch to an external stack path
+
+## Development
+
+For local development on the CLI itself:
+
+```bash
 go test ./...
 go build ./...
 go run . --help
 ```
 
-## Release
+## Release flow
 
-Tagged releases are published by the GitHub Actions release workflow using GoReleaser. To create a release:
+Releases are created from tags that match `v*`.
+
+Example:
 
 ```bash
 git tag v0.1.0
