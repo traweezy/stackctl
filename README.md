@@ -115,6 +115,8 @@ go run . restart
 go run . reset --volumes --force
 ```
 
+`start` and `restart` print the configured DSNs and URLs after the stack is ready. They do not try to open browser tabs automatically.
+
 ## Logs And Health
 
 Useful examples:
@@ -133,9 +135,12 @@ Print ready-to-use local endpoints with:
 
 ```bash
 go run . connect
+go run . open
+go run . open pgadmin
+go run . open all
 ```
 
-This prints DSNs and URLs derived from the current config.
+`connect` prints DSNs and URLs derived from the current config. `open` is the explicit browser action; if launching a browser is unavailable, it prints the URL instead.
 
 ## Manual Testing
 

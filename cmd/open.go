@@ -6,13 +6,20 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/traweezy/stackctl/internal/output"
 )
 
 func newOpenCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "open [cockpit|pgadmin|all]",
 		Short: "Open configured web UIs",
-		Args:  cobra.MaximumNArgs(1),
+		Long:  "Open configured stack web UIs. If browser launch is unavailable, stackctl prints the URL instead.",
+		Example: "  stackctl open\n" +
+			"  stackctl open cockpit\n" +
+			"  stackctl open pgadmin\n" +
+			"  stackctl open all",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
@@ -26,18 +33,18 @@ func newOpenCmd() *cobra.Command {
 
 			switch target {
 			case "cockpit":
-				return deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.Cockpit)
+				return openConfiguredURL(cmd, "cockpit", cfg.URLs.Cockpit)
 			case "pgadmin":
 				if !cfg.Setup.IncludePgAdmin {
 					return fmt.Errorf("pgadmin is disabled in config")
 				}
-				return deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.PgAdmin)
+				return openConfiguredURL(cmd, "pgadmin", cfg.URLs.PgAdmin)
 			case "all":
-				if err := deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.Cockpit); err != nil {
+				if err := openConfiguredURL(cmd, "cockpit", cfg.URLs.Cockpit); err != nil {
 					return err
 				}
 				if cfg.Setup.IncludePgAdmin {
-					return deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.PgAdmin)
+					return openConfiguredURL(cmd, "pgadmin", cfg.URLs.PgAdmin)
 				}
 				return nil
 			default:
@@ -45,4 +52,16 @@ func newOpenCmd() *cobra.Command {
 			}
 		},
 	}
+}
+
+func openConfiguredURL(cmd *cobra.Command, name, target string) error {
+	if err := deps.openURL(context.Background(), runnerFor(cmd), target); err == nil {
+		return nil
+	}
+
+	if err := output.StatusLine(cmd.OutOrStdout(), output.StatusWarn, fmt.Sprintf("could not open %s automatically; use this URL", name)); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n", target)
+	return err
 }
