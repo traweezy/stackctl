@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -16,21 +17,11 @@ type Client struct {
 }
 
 func (c Client) Up(ctx context.Context, cfg configpkg.Config) error {
-	return c.runCompose(ctx, cfg.Stack.Dir,
-		"-f",
-		configpkg.ComposePath(cfg),
-		"up",
-		"-d",
-	)
+	return c.runCompose(ctx, cfg.Stack.Dir, composeArgs(cfg, "up", "-d")...)
 }
 
 func (c Client) Down(ctx context.Context, cfg configpkg.Config, removeVolumes bool) error {
-	args := []string{
-		"compose",
-		"-f",
-		configpkg.ComposePath(cfg),
-		"down",
-	}
+	args := composeArgs(cfg, "down")
 	if removeVolumes {
 		args = append(args, "-v")
 	}
@@ -39,17 +30,11 @@ func (c Client) Down(ctx context.Context, cfg configpkg.Config, removeVolumes bo
 }
 
 func (c Client) Logs(ctx context.Context, cfg configpkg.Config, tail int, follow bool, since string) error {
-	args := []string{
-		"compose",
-		"-f",
-		configpkg.ComposePath(cfg),
-		"logs",
-		"--tail",
-		strconv.Itoa(tail),
-	}
+	args := composeArgs(cfg, "logs")
 	if follow {
-		args = append(args, "--follow")
+		args = append(args, "-f")
 	}
+	args = append(args, "--tail", strconv.Itoa(tail))
 	if since != "" {
 		args = append(args, "--since", since)
 	}
@@ -60,12 +45,11 @@ func (c Client) Logs(ctx context.Context, cfg configpkg.Config, tail int, follow
 func (c Client) ContainerLogs(ctx context.Context, containerName string, tail int, follow bool, since string) error {
 	args := []string{
 		"logs",
-		"--tail",
-		strconv.Itoa(tail),
 	}
 	if follow {
-		args = append(args, "--follow")
+		args = append(args, "-f")
 	}
+	args = append(args, "--tail", strconv.Itoa(tail))
 	if since != "" {
 		args = append(args, "--since", since)
 	}
@@ -76,13 +60,24 @@ func (c Client) ContainerLogs(ctx context.Context, containerName string, tail in
 
 func (c Client) runCompose(ctx context.Context, dir string, args ...string) error {
 	runner, flush := filteredRunner(c.Runner)
-	err := runner.Run(ctx, dir, "podman", append([]string{"compose"}, args...)...)
+	err := runner.Run(ctx, dir, "podman", args...)
 	flushErr := flush()
 	if err != nil {
 		return err
 	}
 
 	return flushErr
+}
+
+func composeArgs(cfg configpkg.Config, subcommand string, extra ...string) []string {
+	args := []string{
+		"compose",
+		"-f",
+		configpkg.ComposePath(cfg),
+		subcommand,
+	}
+
+	return append(args, extra...)
 }
 
 func filteredRunner(runner system.Runner) (system.Runner, func() error) {
@@ -160,5 +155,8 @@ func (f *composeNoiseFilter) writeReadyLines() error {
 }
 
 func shouldSkipComposeLine(line string) bool {
-	return strings.HasPrefix(strings.TrimSpace(line), ">>>> Executing external compose provider")
+	cleaned := strings.TrimSpace(composeANSIPattern.ReplaceAllString(line, ""))
+	return cleaned == "" || strings.HasPrefix(cleaned, ">>>> Executing external compose provider")
 }
+
+var composeANSIPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
