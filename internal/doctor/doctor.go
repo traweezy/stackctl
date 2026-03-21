@@ -25,15 +25,49 @@ type Report struct {
 	FailCount int
 }
 
+type dependencies struct {
+	configFilePath     func() (string, error)
+	loadConfig         func(string) (configpkg.Config, error)
+	validateConfig     func(configpkg.Config) []configpkg.ValidationIssue
+	composePath        func(configpkg.Config) string
+	stat               func(string) (os.FileInfo, error)
+	commandExists      func(string) bool
+	podmanComposeAvail func(context.Context) bool
+	openCommandName    func() string
+	cockpitStatus      func(context.Context) system.CockpitState
+	portInUse          func(int) (bool, error)
+	anyContainerExists func(context.Context, []string) (bool, error)
+}
+
 func Run(ctx context.Context) (Report, error) {
+	return runWithDeps(ctx, defaultDependencies())
+}
+
+func defaultDependencies() dependencies {
+	return dependencies{
+		configFilePath:     configpkg.ConfigFilePath,
+		loadConfig:         configpkg.Load,
+		validateConfig:     configpkg.Validate,
+		composePath:        configpkg.ComposePath,
+		stat:               os.Stat,
+		commandExists:      system.CommandExists,
+		podmanComposeAvail: system.PodmanComposeAvailable,
+		openCommandName:    system.OpenCommandName,
+		cockpitStatus:      system.CockpitStatus,
+		portInUse:          system.PortInUse,
+		anyContainerExists: system.AnyContainerExists,
+	}
+}
+
+func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 	report := Report{Checks: make([]Check, 0, 16)}
 
-	path, err := configpkg.ConfigFilePath()
+	path, err := deps.configFilePath()
 	if err != nil {
 		return report, err
 	}
 
-	cfg, cfgLoaded, err := configResult(path)
+	cfg, cfgLoaded, err := configResult(deps, path)
 	if err != nil {
 		return report, err
 	}
@@ -41,21 +75,21 @@ func Run(ctx context.Context) (Report, error) {
 	if cfgLoaded {
 		report.add(output.StatusOK, fmt.Sprintf("config file found: %s", path))
 
-		issues := configpkg.Validate(cfg)
+		issues := deps.validateConfig(cfg)
 		if len(issues) == 0 {
 			report.add(output.StatusOK, "config is valid")
 		} else {
 			report.add(output.StatusFail, fmt.Sprintf("config invalid (%d issue(s))", len(issues)))
 		}
 
-		if info, err := os.Stat(cfg.Stack.Dir); err == nil && info.IsDir() {
+		if info, err := deps.stat(cfg.Stack.Dir); err == nil && info.IsDir() {
 			report.add(output.StatusOK, fmt.Sprintf("stack directory exists: %s", cfg.Stack.Dir))
 		} else {
 			report.add(output.StatusFail, fmt.Sprintf("stack directory missing: %s", cfg.Stack.Dir))
 		}
 
-		composePath := configpkg.ComposePath(cfg)
-		if info, err := os.Stat(composePath); err == nil && !info.IsDir() {
+		composePath := deps.composePath(cfg)
+		if info, err := deps.stat(composePath); err == nil && !info.IsDir() {
 			report.add(output.StatusOK, fmt.Sprintf("compose file found: %s", composePath))
 		} else {
 			report.add(output.StatusFail, fmt.Sprintf("compose file missing: %s", composePath))
@@ -64,43 +98,43 @@ func Run(ctx context.Context) (Report, error) {
 		report.add(output.StatusMiss, fmt.Sprintf("config file not found: %s", path))
 	}
 
-	if system.CommandExists("podman") {
+	if deps.commandExists("podman") {
 		report.add(output.StatusOK, "podman installed")
 	} else {
 		report.add(output.StatusMiss, "podman installed")
 	}
 
-	if system.PodmanComposeAvailable(ctx) {
+	if deps.podmanComposeAvail(ctx) {
 		report.add(output.StatusOK, "podman compose available")
 	} else {
 		report.add(output.StatusMiss, "podman compose available")
 	}
 
-	if system.CommandExists("buildah") {
+	if deps.commandExists("buildah") {
 		report.add(output.StatusOK, "buildah installed")
 	} else {
 		report.add(output.StatusMiss, "buildah installed")
 	}
 
-	if system.CommandExists("skopeo") {
+	if deps.commandExists("skopeo") {
 		report.add(output.StatusOK, "skopeo installed")
 	} else {
 		report.add(output.StatusMiss, "skopeo installed")
 	}
 
-	if system.CommandExists("ss") {
+	if deps.commandExists("ss") {
 		report.add(output.StatusOK, "ss available")
 	} else {
 		report.add(output.StatusMiss, "ss available")
 	}
 
-	if opener := system.OpenCommandName(); opener != "" {
+	if opener := deps.openCommandName(); opener != "" {
 		report.add(output.StatusOK, fmt.Sprintf("%s available", opener))
 	} else {
 		report.add(output.StatusMiss, "browser opener available")
 	}
 
-	cockpit := system.CockpitStatus(ctx)
+	cockpit := deps.cockpitStatus(ctx)
 	if cockpit.Installed {
 		report.add(output.StatusOK, "cockpit.socket installed")
 		if cockpit.Active {
@@ -122,7 +156,7 @@ func Run(ctx context.Context) (Report, error) {
 			{name: "pgadmin", port: cfg.Ports.PgAdmin},
 			{name: "cockpit", port: cfg.Ports.Cockpit},
 		} {
-			inUse, err := system.PortInUse(portCheck.port)
+			inUse, err := deps.portInUse(portCheck.port)
 			if err != nil {
 				report.add(output.StatusFail, fmt.Sprintf("port %d check failed: %v", portCheck.port, err))
 				continue
@@ -142,7 +176,7 @@ func Run(ctx context.Context) (Report, error) {
 			containerNames = append(containerNames, cfg.Services.PgAdminContainer)
 		}
 
-		exists, err := system.AnyContainerExists(ctx, containerNames)
+		exists, err := deps.anyContainerExists(ctx, containerNames)
 		if err != nil {
 			report.add(output.StatusFail, fmt.Sprintf("container inspection failed: %v", err))
 		} else if exists {
@@ -184,8 +218,8 @@ func (r *Report) add(status, message string) {
 	}
 }
 
-func configResult(path string) (configpkg.Config, bool, error) {
-	cfg, err := configpkg.Load(path)
+func configResult(deps dependencies, path string) (configpkg.Config, bool, error) {
+	cfg, err := deps.loadConfig(path)
 	if err == nil {
 		return cfg, true, nil
 	}

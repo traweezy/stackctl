@@ -6,8 +6,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-
-	"github.com/traweezy/stackctl/internal/system"
 )
 
 func newOpenCmd() *cobra.Command {
@@ -28,18 +26,18 @@ func newOpenCmd() *cobra.Command {
 
 			switch target {
 			case "cockpit":
-				return system.OpenURL(context.Background(), runnerFor(cmd), cfg.URLs.Cockpit)
+				return deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.Cockpit)
 			case "pgadmin":
 				if !cfg.Setup.IncludePgAdmin {
 					return fmt.Errorf("pgadmin is disabled in config")
 				}
-				return system.OpenURL(context.Background(), runnerFor(cmd), cfg.URLs.PgAdmin)
+				return deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.PgAdmin)
 			case "all":
-				if err := system.OpenURL(context.Background(), runnerFor(cmd), cfg.URLs.Cockpit); err != nil {
+				if err := deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.Cockpit); err != nil {
 					return err
 				}
 				if cfg.Setup.IncludePgAdmin {
-					return system.OpenURL(context.Background(), runnerFor(cmd), cfg.URLs.PgAdmin)
+					return deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.PgAdmin)
 				}
 				return nil
 			default:

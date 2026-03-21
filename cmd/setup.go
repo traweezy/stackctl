@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,7 +11,6 @@ import (
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	doctorpkg "github.com/traweezy/stackctl/internal/doctor"
 	"github.com/traweezy/stackctl/internal/output"
-	"github.com/traweezy/stackctl/internal/system"
 )
 
 func newSetupCmd() *cobra.Command {
@@ -29,7 +27,7 @@ func newSetupCmd() *cobra.Command {
 				return errors.New("--interactive and --non-interactive cannot be used together")
 			}
 
-			path, err := configpkg.ConfigFilePath()
+			path, err := deps.configFilePath()
 			if err != nil {
 				return err
 			}
@@ -46,15 +44,15 @@ func newSetupCmd() *cobra.Command {
 
 				switch {
 				case nonInteractive:
-					cfg = configpkg.Default()
-					if err := configpkg.Save(path, cfg); err != nil {
+					cfg = deps.defaultConfig()
+					if err := deps.saveConfig(path, cfg); err != nil {
 						return err
 					}
 					exists = true
 					if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("created default config at %s", path)); err != nil {
 						return err
 					}
-				case interactive || terminalInteractive():
+				case interactive || deps.isTerminal():
 					ok := true
 					if !interactive {
 						ok, err = confirmWithPrompt(cmd, "No stackctl config was found. Run interactive setup now?", true)
@@ -63,11 +61,11 @@ func newSetupCmd() *cobra.Command {
 						}
 					}
 					if ok {
-						cfg, err = configpkg.RunWizard(os.Stdin, cmd.OutOrStdout(), configpkg.Default())
+						cfg, err = deps.runWizard(deps.stdin, cmd.OutOrStdout(), deps.defaultConfig())
 						if err != nil {
 							return err
 						}
-						if err := configpkg.Save(path, cfg); err != nil {
+						if err := deps.saveConfig(path, cfg); err != nil {
 							return err
 						}
 						exists = true
@@ -81,10 +79,10 @@ func newSetupCmd() *cobra.Command {
 			}
 
 			if !exists {
-				cfg = configpkg.Default()
+				cfg = deps.defaultConfig()
 			}
 
-			report, err := doctorpkg.Run(context.Background())
+			report, err := deps.runDoctor(context.Background())
 			if err != nil {
 				return err
 			}
@@ -119,13 +117,13 @@ func newSetupCmd() *cobra.Command {
 					}
 				}
 
-				installed, err := system.InstallPackages(context.Background(), runnerFor(cmd), cfg.System.PackageManager, missing)
+				installed, err := deps.installPackages(context.Background(), runnerFor(cmd), cfg.System.PackageManager, missing)
 				if err != nil {
 					return err
 				}
 
 				if cfg.Setup.InstallCockpit {
-					if err := system.EnableCockpit(context.Background(), runnerFor(cmd)); err != nil {
+					if err := deps.enableCockpit(context.Background(), runnerFor(cmd)); err != nil {
 						return err
 					}
 				}

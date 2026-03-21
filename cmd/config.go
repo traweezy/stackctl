@@ -35,7 +35,7 @@ func newConfigInitCmd() *cobra.Command {
 		Use:   "init",
 		Short: "Create a new stackctl config",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path, err := configpkg.ConfigFilePath()
+			path, err := deps.configFilePath()
 			if err != nil {
 				return err
 			}
@@ -55,7 +55,7 @@ func newConfigInitCmd() *cobra.Command {
 				}
 			}
 
-			base := configpkg.Default()
+			base := deps.defaultConfig()
 			if exists {
 				base = current
 			}
@@ -65,7 +65,7 @@ func newConfigInitCmd() *cobra.Command {
 				return err
 			}
 
-			if err := configpkg.Save(path, cfg); err != nil {
+			if err := deps.saveConfig(path, cfg); err != nil {
 				return err
 			}
 
@@ -85,12 +85,12 @@ func newConfigViewCmd() *cobra.Command {
 		Use:   "view",
 		Short: "Print the current config in YAML format",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := configpkg.Load("")
+			cfg, err := deps.loadConfig("")
 			if err != nil {
 				return missingConfigHint(err)
 			}
 
-			data, err := configpkg.Marshal(cfg)
+			data, err := deps.marshalConfig(cfg)
 			if err != nil {
 				return err
 			}
@@ -106,7 +106,7 @@ func newConfigPathCmd() *cobra.Command {
 		Use:   "path",
 		Short: "Print the resolved config path",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path, err := configpkg.ConfigFilePath()
+			path, err := deps.configFilePath()
 			if err != nil {
 				return err
 			}
@@ -124,12 +124,12 @@ func newConfigEditCmd() *cobra.Command {
 		Use:   "edit",
 		Short: "Edit the current config using the interactive wizard",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path, err := configpkg.ConfigFilePath()
+			path, err := deps.configFilePath()
 			if err != nil {
 				return err
 			}
 
-			current, err := configpkg.Load(path)
+			current, err := deps.loadConfig(path)
 			if err != nil {
 				return missingConfigHint(err)
 			}
@@ -139,7 +139,7 @@ func newConfigEditCmd() *cobra.Command {
 				return err
 			}
 
-			if err := configpkg.Save(path, cfg); err != nil {
+			if err := deps.saveConfig(path, cfg); err != nil {
 				return err
 			}
 
@@ -158,12 +158,12 @@ func newConfigValidateCmd() *cobra.Command {
 		Use:   "validate",
 		Short: "Validate the current config",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := configpkg.Load("")
+			cfg, err := deps.loadConfig("")
 			if err != nil {
 				return missingConfigHint(err)
 			}
 
-			issues := configpkg.Validate(cfg)
+			issues := deps.validateConfig(cfg)
 			if len(issues) == 0 {
 				return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "config is valid")
 			}
@@ -186,7 +186,7 @@ func newConfigResetCmd() *cobra.Command {
 		Use:   "reset",
 		Short: "Reset the config to defaults or delete it",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path, err := configpkg.ConfigFilePath()
+			path, err := deps.configFilePath()
 			if err != nil {
 				return err
 			}
@@ -202,7 +202,7 @@ func newConfigResetCmd() *cobra.Command {
 					}
 				}
 
-				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				if err := deps.removeFile(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 					return fmt.Errorf("delete config %s: %w", path, err)
 				}
 
@@ -220,8 +220,8 @@ func newConfigResetCmd() *cobra.Command {
 				}
 			}
 
-			cfg := configpkg.Default()
-			if err := configpkg.Save(path, cfg); err != nil {
+			cfg := deps.defaultConfig()
+			if err := deps.saveConfig(path, cfg); err != nil {
 				return err
 			}
 
@@ -243,15 +243,15 @@ func resolveConfigFromFlags(cmd *cobra.Command, base configpkg.Config, nonIntera
 		return base, nil
 	}
 
-	if !terminalInteractive() {
+	if !deps.isTerminal() {
 		return configpkg.Config{}, errors.New("interactive config requires a terminal; rerun with --non-interactive")
 	}
 
-	return configpkg.RunWizard(os.Stdin, cmd.OutOrStdout(), base)
+	return deps.runWizard(deps.stdin, cmd.OutOrStdout(), base)
 }
 
 func loadExistingConfig(path string) (configpkg.Config, bool, error) {
-	cfg, err := configpkg.Load(path)
+	cfg, err := deps.loadConfig(path)
 	if err == nil {
 		return cfg, true, nil
 	}

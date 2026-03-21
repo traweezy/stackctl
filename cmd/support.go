@@ -20,16 +20,16 @@ func runnerFor(cmd *cobra.Command) system.Runner {
 	}
 }
 
-func terminalInteractive() bool {
+func defaultTerminalInteractive() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 func confirmWithPrompt(cmd *cobra.Command, message string, defaultYes bool) (bool, error) {
-	if !terminalInteractive() {
+	if !deps.isTerminal() {
 		return false, errors.New("interactive confirmation requested without a terminal")
 	}
 
-	return configpkg.PromptYesNo(os.Stdin, cmd.OutOrStdout(), message, defaultYes)
+	return deps.promptYesNo(deps.stdin, cmd.OutOrStdout(), message, defaultYes)
 }
 
 func printValidationIssues(cmd *cobra.Command, issues []configpkg.ValidationIssue) error {

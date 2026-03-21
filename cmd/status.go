@@ -6,8 +6,6 @@ import (
 	"errors"
 
 	"github.com/spf13/cobra"
-
-	"github.com/traweezy/stackctl/internal/system"
 )
 
 func newStatusCmd() *cobra.Command {
@@ -22,7 +20,7 @@ func newStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !system.CommandExists("podman") {
+			if !deps.commandExists("podman") {
 				return errors.New("podman is not installed; run `stackctl setup --install` or install it manually")
 			}
 

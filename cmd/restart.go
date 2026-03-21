@@ -7,9 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/traweezy/stackctl/internal/compose"
 	"github.com/traweezy/stackctl/internal/output"
-	"github.com/traweezy/stackctl/internal/system"
 )
 
 func newRestartCmd() *cobra.Command {
@@ -25,11 +23,10 @@ func newRestartCmd() *cobra.Command {
 				return err
 			}
 
-			client := compose.Client{Runner: runnerFor(cmd)}
-			if err := client.Down(context.Background(), cfg, false); err != nil {
+			if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, false); err != nil {
 				return err
 			}
-			if err := client.Up(context.Background(), cfg); err != nil {
+			if err := deps.composeUp(context.Background(), runnerFor(cmd), cfg); err != nil {
 				return err
 			}
 
@@ -43,12 +40,12 @@ func newRestartCmd() *cobra.Command {
 			}
 
 			if cfg.Behavior.OpenCockpitOnStart {
-				if err := system.OpenURL(context.Background(), runnerFor(cmd), cfg.URLs.Cockpit); err != nil {
+				if err := deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.Cockpit); err != nil {
 					return err
 				}
 			}
 			if cfg.Setup.IncludePgAdmin && cfg.Behavior.OpenPgAdminOnStart {
-				if err := system.OpenURL(context.Background(), runnerFor(cmd), cfg.URLs.PgAdmin); err != nil {
+				if err := deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.PgAdmin); err != nil {
 					return err
 				}
 			}

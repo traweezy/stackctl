@@ -6,8 +6,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-
-	"github.com/traweezy/stackctl/internal/compose"
 )
 
 func newResetCmd() *cobra.Command {
@@ -36,8 +34,7 @@ func newResetCmd() *cobra.Command {
 				}
 			}
 
-			client := compose.Client{Runner: runnerFor(cmd)}
-			return client.Down(context.Background(), cfg, volumes)
+			return deps.composeDown(context.Background(), runnerFor(cmd), cfg, volumes)
 		},
 	}
 

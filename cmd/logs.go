@@ -4,8 +4,6 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
-
-	"github.com/traweezy/stackctl/internal/compose"
 )
 
 func newLogsCmd() *cobra.Command {
@@ -26,9 +24,8 @@ func newLogsCmd() *cobra.Command {
 				return err
 			}
 
-			client := compose.Client{Runner: runnerFor(cmd)}
 			if service == "" {
-				return client.Logs(context.Background(), cfg, tail, watch, since)
+				return deps.composeLogs(context.Background(), runnerFor(cmd), cfg, tail, watch, since)
 			}
 
 			containerName, err := serviceContainer(cfg, service)
@@ -36,7 +33,7 @@ func newLogsCmd() *cobra.Command {
 				return err
 			}
 
-			return client.ContainerLogs(context.Background(), containerName, tail, watch, since)
+			return deps.containerLogs(context.Background(), runnerFor(cmd), containerName, tail, watch, since)
 		},
 	}
 

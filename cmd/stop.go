@@ -4,8 +4,6 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
-
-	"github.com/traweezy/stackctl/internal/compose"
 )
 
 func newStopCmd() *cobra.Command {
@@ -21,8 +19,7 @@ func newStopCmd() *cobra.Command {
 				return err
 			}
 
-			client := compose.Client{Runner: runnerFor(cmd)}
-			return client.Down(context.Background(), cfg, false)
+			return deps.composeDown(context.Background(), runnerFor(cmd), cfg, false)
 		},
 	}
 }

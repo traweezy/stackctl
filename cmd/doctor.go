@@ -6,7 +6,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	doctorpkg "github.com/traweezy/stackctl/internal/doctor"
 	"github.com/traweezy/stackctl/internal/output"
 )
 
@@ -15,7 +14,7 @@ func newDoctorCmd() *cobra.Command {
 		Use:   "doctor",
 		Short: "Run read-only diagnostics for the local stack",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			report, err := doctorpkg.Run(context.Background())
+			report, err := deps.runDoctor(context.Background())
 			if err != nil {
 				return err
 			}

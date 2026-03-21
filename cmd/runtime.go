@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -14,7 +13,6 @@ import (
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/output"
-	"github.com/traweezy/stackctl/internal/system"
 )
 
 type podmanContainer struct {
@@ -34,12 +32,12 @@ type podmanPort struct {
 }
 
 func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config, error) {
-	path, err := configpkg.ConfigFilePath()
+	path, err := deps.configFilePath()
 	if err != nil {
 		return configpkg.Config{}, err
 	}
 
-	cfg, err := configpkg.Load(path)
+	cfg, err := deps.loadConfig(path)
 	if err != nil {
 		if !errors.Is(err, configpkg.ErrNotFound) {
 			return configpkg.Config{}, err
@@ -47,7 +45,7 @@ func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config
 		if !allowFirstRun {
 			return configpkg.Config{}, missingConfigHint(err)
 		}
-		if !terminalInteractive() {
+		if !deps.isTerminal() {
 			return configpkg.Config{}, missingConfigHint(err)
 		}
 
@@ -62,11 +60,11 @@ func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config
 			return configpkg.Config{}, errors.New("run `stackctl setup` or `stackctl config init`")
 		}
 
-		cfg, err = configpkg.RunWizard(os.Stdin, cmd.OutOrStdout(), configpkg.Default())
+		cfg, err = deps.runWizard(deps.stdin, cmd.OutOrStdout(), deps.defaultConfig())
 		if err != nil {
 			return configpkg.Config{}, err
 		}
-		if err := configpkg.Save(path, cfg); err != nil {
+		if err := deps.saveConfig(path, cfg); err != nil {
 			return configpkg.Config{}, err
 		}
 		if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("saved config to %s", path)); err != nil {
@@ -74,7 +72,7 @@ func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config
 		}
 	}
 
-	issues := configpkg.Validate(cfg)
+	issues := deps.validateConfig(cfg)
 	if len(issues) > 0 {
 		if err := printValidationIssues(cmd, issues); err != nil {
 			return configpkg.Config{}, err
@@ -86,14 +84,14 @@ func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config
 }
 
 func ensureComposeRuntime(cmd *cobra.Command, cfg configpkg.Config) error {
-	if !system.CommandExists("podman") {
+	if !deps.commandExists("podman") {
 		return errors.New("podman is not installed; run `stackctl setup --install` or install it manually")
 	}
-	if !system.PodmanComposeAvailable(context.Background()) {
+	if !deps.podmanComposeAvail(context.Background()) {
 		return errors.New("podman compose is not available; run `stackctl setup --install` or install podman-compose manually")
 	}
-	if _, err := os.Stat(configpkg.ComposePath(cfg)); err != nil {
-		return fmt.Errorf("compose file %s is not available: %w", configpkg.ComposePath(cfg), err)
+	if _, err := deps.stat(deps.composePath(cfg)); err != nil {
+		return fmt.Errorf("compose file %s is not available: %w", deps.composePath(cfg), err)
 	}
 
 	return nil
@@ -125,7 +123,7 @@ func stackContainerNames(cfg configpkg.Config) []string {
 }
 
 func loadStackContainers(ctx context.Context, cfg configpkg.Config) ([]podmanContainer, error) {
-	result, err := system.CaptureResult(ctx, "", "podman", "ps", "-a", "--format", "json")
+	result, err := deps.captureResult(ctx, "", "podman", "ps", "-a", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +270,7 @@ type outputLine struct {
 }
 
 func checkPort(port int, label string) outputLine {
-	if system.PortListening(port) {
+	if deps.portListening(port) {
 		return outputLine{Status: output.StatusOK, Message: label}
 	}
 
@@ -294,7 +292,7 @@ func waitForConfiguredServices(ctx context.Context, cfg configpkg.Config) error 
 	}
 
 	for _, port := range ports {
-		if err := system.WaitForPort(ctx, port, 500*time.Millisecond); err != nil {
+		if err := deps.waitForPort(ctx, port, 500*time.Millisecond); err != nil {
 			return err
 		}
 	}
