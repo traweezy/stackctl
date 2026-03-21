@@ -5,7 +5,7 @@ project_name: stackctl
 release:
   github:
     owner: traweezy
-    name: stackctrl
+    name: stackctl
 
 before:
   hooks:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${STACKCTL_INSTALL_REPO:-traweezy/stackctrl}"
+REPO="${STACKCTL_INSTALL_REPO:-traweezy/stackctl}"
 INSTALL_DIR="${STACKCTL_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${STACKCTL_INSTALL_VERSION:-}"
 USE_SUDO=0
@@ -17,7 +17,7 @@ Options:
   --system       Install to /usr/local/bin using sudo.
   --dir DIR      Install to a custom directory.
   --version TAG  Install a specific release tag instead of the latest release.
-  --repo REPO    Override the GitHub repository (default: traweezy/stackctrl).
+  --repo REPO    Override the GitHub repository (default: traweezy/stackctl).
   --help         Show this help text.
 EOF
 }

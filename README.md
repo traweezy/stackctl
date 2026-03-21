@@ -15,20 +15,20 @@ GitHub Releases now publish Linux tarballs, and a one-command installer is avail
 ## Install (Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/traweezy/stackctrl/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | bash
 ```
 
 Install to `/usr/local/bin` instead:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/traweezy/stackctrl/master/scripts/install.sh | bash -s -- --system
+curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | bash -s -- --system
 ```
 
 ## Manual Download
 
 Download the latest release assets from:
 
-https://github.com/traweezy/stackctrl/releases/latest
+https://github.com/traweezy/stackctl/releases/latest
 
 ## Commands
 
