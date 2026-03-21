@@ -67,6 +67,7 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 
+	// #nosec G304 -- config paths are chosen explicitly by the local CLI user.
 	data, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -93,7 +94,7 @@ func Save(path string, cfg Config) error {
 
 	cfg.ApplyDerivedFields()
 
-	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o750); err != nil {
 		return fmt.Errorf("create config directory for %q: %w", resolvedPath, err)
 	}
 

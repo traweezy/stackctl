@@ -21,7 +21,17 @@ func runnerFor(cmd *cobra.Command) system.Runner {
 }
 
 func defaultTerminalInteractive() bool {
-	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+	stdinFD, ok := fileDescriptor(os.Stdin)
+	if !ok {
+		return false
+	}
+
+	stdoutFD, ok := fileDescriptor(os.Stdout)
+	if !ok {
+		return false
+	}
+
+	return term.IsTerminal(stdinFD) && term.IsTerminal(stdoutFD)
 }
 
 func confirmWithPrompt(cmd *cobra.Command, message string, defaultYes bool) (bool, error) {
@@ -74,4 +84,15 @@ func scaffoldManagedStack(cmd *cobra.Command, cfg configpkg.Config, force bool) 
 	}
 
 	return nil
+}
+
+func fileDescriptor(file *os.File) (int, bool) {
+	fd := file.Fd()
+	maxInt := ^uint(0) >> 1
+	if fd > uintptr(maxInt) {
+		return 0, false
+	}
+
+	// #nosec G115 -- fd is range-checked against the platform int size above.
+	return int(fd), true
 }

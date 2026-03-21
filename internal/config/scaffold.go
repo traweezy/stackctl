@@ -61,7 +61,7 @@ func ScaffoldManagedStack(cfg Config, force bool) (ScaffoldResult, error) {
 			return result, fmt.Errorf("managed stack path %s is not a directory", cfg.Stack.Dir)
 		}
 	} else if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(cfg.Stack.Dir, 0o755); err != nil {
+		if err := os.MkdirAll(cfg.Stack.Dir, 0o750); err != nil {
 			return result, fmt.Errorf("create managed stack directory %s: %w", cfg.Stack.Dir, err)
 		}
 		result.CreatedDir = true
@@ -81,7 +81,7 @@ func ScaffoldManagedStack(cfg Config, force bool) (ScaffoldResult, error) {
 		return result, fmt.Errorf("inspect managed compose file %s: %w", result.ComposePath, err)
 	}
 
-	if err := os.WriteFile(result.ComposePath, embedded.DevStackComposeYAML(), 0o644); err != nil {
+	if err := os.WriteFile(result.ComposePath, embedded.DevStackComposeYAML(), 0o600); err != nil {
 		return result, fmt.Errorf("write managed compose file %s: %w", result.ComposePath, err)
 	}
 	result.WroteCompose = true

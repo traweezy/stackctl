@@ -22,6 +22,11 @@ type CommandResult struct {
 }
 
 func (r Runner) Run(ctx context.Context, dir, name string, args ...string) error {
+	if err := validateExecutable(name); err != nil {
+		return err
+	}
+
+	// #nosec G204 -- executable names are restricted to an internal allowlist.
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = dir
 	command.Stdout = r.Stdout
@@ -54,6 +59,11 @@ func (r Runner) Capture(ctx context.Context, dir, name string, args ...string) (
 }
 
 func CaptureResult(ctx context.Context, dir, name string, args ...string) (CommandResult, error) {
+	if err := validateExecutable(name); err != nil {
+		return CommandResult{}, err
+	}
+
+	// #nosec G204 -- executable names are restricted to an internal allowlist.
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = dir
 
@@ -86,4 +96,21 @@ func formatCommand(name string, args []string) string {
 	parts = append(parts, name)
 	parts = append(parts, args...)
 	return strings.Join(parts, " ")
+}
+
+func validateExecutable(name string) error {
+	if _, ok := allowedExecutables[name]; ok {
+		return nil
+	}
+
+	return fmt.Errorf("unsupported executable %q", name)
+}
+
+var allowedExecutables = map[string]struct{}{
+	"open":      {},
+	"podman":    {},
+	"sudo":      {},
+	"systemctl": {},
+	"sysctl":    {},
+	"xdg-open":  {},
 }
