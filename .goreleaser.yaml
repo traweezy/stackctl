@@ -1,0 +1,50 @@
+version: 2
+
+project_name: stackctl
+
+release:
+  github:
+    owner: traweezy
+    name: stackctrl
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: stackctl
+    main: .
+    binary: stackctl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitDate }}"
+    ldflags:
+      - >-
+        -s -w
+        -X main.version={{ .Version }}
+        -X main.gitCommit={{ .Commit }}
+        -X main.buildDate={{ .Date }}
+
+archives:
+  - id: release-archive
+    ids:
+      - stackctl
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
