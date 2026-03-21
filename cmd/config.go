@@ -23,6 +23,7 @@ func newConfigCmd() *cobra.Command {
 	cmd.AddCommand(newConfigEditCmd())
 	cmd.AddCommand(newConfigValidateCmd())
 	cmd.AddCommand(newConfigResetCmd())
+	cmd.AddCommand(newConfigScaffoldCmd())
 
 	return cmd
 }
@@ -62,6 +63,9 @@ func newConfigInitCmd() *cobra.Command {
 
 			cfg, err := resolveConfigFromFlags(cmd, base, nonInteractive)
 			if err != nil {
+				return err
+			}
+			if err := scaffoldManagedStack(cmd, cfg, force); err != nil {
 				return err
 			}
 
@@ -136,6 +140,9 @@ func newConfigEditCmd() *cobra.Command {
 
 			cfg, err := resolveConfigFromFlags(cmd, current, nonInteractive)
 			if err != nil {
+				return err
+			}
+			if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
 				return err
 			}
 
@@ -233,6 +240,30 @@ func newConfigResetCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Assume yes for confirmation prompts")
 	cmd.Flags().BoolVar(&deleteConfig, "delete", false, "Delete the config file instead of resetting it")
+
+	return cmd
+}
+
+func newConfigScaffoldCmd() *cobra.Command {
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "scaffold",
+		Short: "Create or refresh the managed stack files from embedded templates",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := deps.loadConfig("")
+			if err != nil {
+				return missingConfigHint(err)
+			}
+			if !cfg.Stack.Managed {
+				return errors.New("config is using an external stack; switch to a managed stack before scaffolding")
+			}
+
+			return scaffoldManagedStack(cmd, cfg, force)
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite managed stack files from embedded templates")
 
 	return cmd
 }

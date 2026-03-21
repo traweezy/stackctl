@@ -23,6 +23,8 @@ func newSetupCmd() *cobra.Command {
 		Use:   "setup",
 		Short: "Prepare the local machine and stackctl config",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			createdConfig := false
+
 			if interactive && nonInteractive {
 				return errors.New("--interactive and --non-interactive cannot be used together")
 			}
@@ -45,10 +47,14 @@ func newSetupCmd() *cobra.Command {
 				switch {
 				case nonInteractive:
 					cfg = deps.defaultConfig()
+					if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+						return err
+					}
 					if err := deps.saveConfig(path, cfg); err != nil {
 						return err
 					}
 					exists = true
+					createdConfig = true
 					if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("created default config at %s", path)); err != nil {
 						return err
 					}
@@ -65,10 +71,14 @@ func newSetupCmd() *cobra.Command {
 						if err != nil {
 							return err
 						}
+						if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+							return err
+						}
 						if err := deps.saveConfig(path, cfg); err != nil {
 							return err
 						}
 						exists = true
+						createdConfig = true
 						if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("saved config to %s", path)); err != nil {
 							return err
 						}
@@ -80,6 +90,28 @@ func newSetupCmd() *cobra.Command {
 
 			if !exists {
 				cfg = deps.defaultConfig()
+			}
+			if exists && !createdConfig && cfg.Stack.Managed && cfg.Setup.ScaffoldDefaultStack {
+				needsScaffold, err := deps.managedStackNeedsScaffold(cfg)
+				if err != nil {
+					return err
+				}
+				if needsScaffold {
+					shouldScaffold := nonInteractive || yes
+					if !shouldScaffold && deps.isTerminal() {
+						shouldScaffold, err = confirmWithPrompt(cmd, managedStackPrompt(cfg), true)
+						if err != nil {
+							return err
+						}
+					}
+					if shouldScaffold {
+						if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+							return err
+						}
+					} else if err := output.StatusLine(cmd.OutOrStdout(), output.StatusWarn, "managed stack files are missing"); err != nil {
+						return err
+					}
+				}
 			}
 
 			report, err := deps.runDoctor(context.Background())

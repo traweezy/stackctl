@@ -64,6 +64,9 @@ func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config
 		if err != nil {
 			return configpkg.Config{}, err
 		}
+		if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+			return configpkg.Config{}, err
+		}
 		if err := deps.saveConfig(path, cfg); err != nil {
 			return configpkg.Config{}, err
 		}
