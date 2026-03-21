@@ -31,7 +31,8 @@ jobs:
         run: go install github.com/securego/gosec/v2/cmd/gosec@latest
 
       - name: Run gosec
-        run: "$(go env GOPATH)/bin/gosec" ./...
+        run: |
+          "$(go env GOPATH)/bin/gosec" ./...
 
   govulncheck:
     name: Security / govulncheck
@@ -50,7 +51,8 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
-        run: "$(go env GOPATH)/bin/govulncheck" ./...
+        run: |
+          "$(go env GOPATH)/bin/govulncheck" ./...
 
   gitleaks:
     name: Security / gitleaks
@@ -125,7 +127,8 @@ jobs:
         run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
       - name: Run golangci-lint
-        run: "$(go env GOPATH)/bin/golangci-lint" run ./...
+        run: |
+          "$(go env GOPATH)/bin/golangci-lint" run ./...
 
   mod-tidy-check:
     name: Quality / mod tidy
