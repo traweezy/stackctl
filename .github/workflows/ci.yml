@@ -1,0 +1,226 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gosec:
+    name: Security / gosec
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec
+        run: "$(go env GOPATH)/bin/gosec" ./...
+
+  govulncheck:
+    name: Security / govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: "$(go env GOPATH)/bin/govulncheck" ./...
+
+  gitleaks:
+    name: Security / gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  fmt-check:
+    name: Quality / format
+    runs-on: ubuntu-latest
+    needs: [gosec, govulncheck, gitleaks]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify formatting
+        shell: bash
+        run: |
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "These files need formatting:"
+            echo "$files"
+            exit 1
+          fi
+
+  vet:
+    name: Quality / vet
+    runs-on: ubuntu-latest
+    needs: [gosec, govulncheck, gitleaks]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run go vet
+        run: go vet ./...
+
+  lint:
+    name: Quality / golangci-lint
+    runs-on: ubuntu-latest
+    needs: [gosec, govulncheck, gitleaks]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+      - name: Run golangci-lint
+        run: "$(go env GOPATH)/bin/golangci-lint" run ./...
+
+  mod-tidy-check:
+    name: Quality / mod tidy
+    runs-on: ubuntu-latest
+    needs: [gosec, govulncheck, gitleaks]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify go.mod and go.sum are tidy
+        shell: bash
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+  unit-tests:
+    name: Test / unit
+    runs-on: ubuntu-latest
+    needs: [fmt-check, vet, lint, mod-tidy-check]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests
+        run: go test ./... -count=1
+
+  race-tests:
+    name: Test / race
+    runs-on: ubuntu-latest
+    needs: [fmt-check, vet, lint, mod-tidy-check]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run race tests
+        run: go test ./... -race -count=1
+
+  integration-tests:
+    name: Test / integration
+    runs-on: ubuntu-latest
+    needs: [fmt-check, vet, lint, mod-tidy-check]
+    # No integration-tagged tests exist in this repo yet.
+    if: ${{ false }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run integration tests
+        run: go test ./... -tags=integration -count=1
+
+  build:
+    name: Build / binary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, race-tests]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        run: |
+          mkdir -p dist
+          go build -o dist/stackctl .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stackctl-linux-amd64
+          path: dist/stackctl
