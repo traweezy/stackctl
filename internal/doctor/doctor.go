@@ -105,37 +105,37 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 	if deps.commandExists("podman") {
 		report.add(output.StatusOK, "podman installed")
 	} else {
-		report.add(output.StatusMiss, "podman installed")
+		report.add(output.StatusMiss, "podman not installed")
 	}
 
 	if deps.podmanComposeAvail(ctx) {
 		report.add(output.StatusOK, "podman compose available")
 	} else {
-		report.add(output.StatusMiss, "podman compose available")
+		report.add(output.StatusMiss, "podman compose not available")
 	}
 
 	if deps.commandExists("buildah") {
 		report.add(output.StatusOK, "buildah installed")
 	} else {
-		report.add(output.StatusMiss, "buildah installed")
+		report.add(output.StatusMiss, "buildah not installed")
 	}
 
 	if deps.commandExists("skopeo") {
 		report.add(output.StatusOK, "skopeo installed")
 	} else {
-		report.add(output.StatusMiss, "skopeo installed")
+		report.add(output.StatusMiss, "skopeo not installed")
 	}
 
 	if deps.commandExists("ss") {
 		report.add(output.StatusOK, "ss available")
 	} else {
-		report.add(output.StatusMiss, "ss available")
+		report.add(output.StatusMiss, "ss not available")
 	}
 
 	if opener := deps.openCommandName(); opener != "" {
 		report.add(output.StatusOK, fmt.Sprintf("%s available", opener))
 	} else {
-		report.add(output.StatusMiss, "browser opener available")
+		report.add(output.StatusMiss, "browser opener not available")
 	}
 
 	cockpit := deps.cockpitStatus(ctx)
@@ -147,7 +147,7 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 			report.add(output.StatusWarn, fmt.Sprintf("cockpit.socket %s", cockpit.State))
 		}
 	} else {
-		report.add(output.StatusMiss, "cockpit.socket installed")
+		report.add(output.StatusMiss, "cockpit.socket not installed")
 	}
 
 	if cfgLoaded {
@@ -204,8 +204,10 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 		cockpitInUse, err := deps.portInUse(cfg.Ports.Cockpit)
 		if err != nil {
 			report.add(output.StatusFail, fmt.Sprintf("port %d check failed: %v", cfg.Ports.Cockpit, err))
+		} else if cockpitInUse && cockpit.Active {
+			report.add(output.StatusOK, fmt.Sprintf("port %d is in use by cockpit", cfg.Ports.Cockpit))
 		} else if cockpitInUse {
-			report.add(output.StatusWarn, fmt.Sprintf("port %d is already in use for cockpit", cfg.Ports.Cockpit))
+			report.add(output.StatusWarn, fmt.Sprintf("port %d is in use by another process, not cockpit", cfg.Ports.Cockpit))
 		} else {
 			report.add(output.StatusOK, fmt.Sprintf("port %d is free for cockpit", cfg.Ports.Cockpit))
 		}
