@@ -1,0 +1,271 @@
+package cmd
+
+import (
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+
+	configpkg "github.com/traweezy/stackctl/internal/config"
+	"github.com/traweezy/stackctl/internal/output"
+)
+
+func newConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Manage persistent stack configuration",
+	}
+
+	cmd.AddCommand(newConfigInitCmd())
+	cmd.AddCommand(newConfigViewCmd())
+	cmd.AddCommand(newConfigPathCmd())
+	cmd.AddCommand(newConfigEditCmd())
+	cmd.AddCommand(newConfigValidateCmd())
+	cmd.AddCommand(newConfigResetCmd())
+
+	return cmd
+}
+
+func newConfigInitCmd() *cobra.Command {
+	var force bool
+	var nonInteractive bool
+
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Create a new stackctl config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, err := configpkg.ConfigFilePath()
+			if err != nil {
+				return err
+			}
+
+			current, exists, err := loadExistingConfig(path)
+			if err != nil {
+				return err
+			}
+
+			if exists && !force {
+				ok, err := confirmWithPrompt(cmd, "A stackctl config already exists. Overwrite it?", false)
+				if err != nil {
+					return fmt.Errorf("config already exists at %s; rerun with --force or use an interactive terminal to confirm", path)
+				}
+				if !ok {
+					return errors.New("config init cancelled")
+				}
+			}
+
+			base := configpkg.Default()
+			if exists {
+				base = current
+			}
+
+			cfg, err := resolveConfigFromFlags(cmd, base, nonInteractive)
+			if err != nil {
+				return err
+			}
+
+			if err := configpkg.Save(path, cfg); err != nil {
+				return err
+			}
+
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Saved config to %s\n", path)
+			return err
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Overwrite an existing config without prompting")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Create the config from defaults without prompts")
+
+	return cmd
+}
+
+func newConfigViewCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "view",
+		Short: "Print the current config in YAML format",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := configpkg.Load("")
+			if err != nil {
+				return missingConfigHint(err)
+			}
+
+			data, err := configpkg.Marshal(cfg)
+			if err != nil {
+				return err
+			}
+
+			_, err = cmd.OutOrStdout().Write(data)
+			return err
+		},
+	}
+}
+
+func newConfigPathCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "path",
+		Short: "Print the resolved config path",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, err := configpkg.ConfigFilePath()
+			if err != nil {
+				return err
+			}
+
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), path)
+			return err
+		},
+	}
+}
+
+func newConfigEditCmd() *cobra.Command {
+	var nonInteractive bool
+
+	cmd := &cobra.Command{
+		Use:   "edit",
+		Short: "Edit the current config using the interactive wizard",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, err := configpkg.ConfigFilePath()
+			if err != nil {
+				return err
+			}
+
+			current, err := configpkg.Load(path)
+			if err != nil {
+				return missingConfigHint(err)
+			}
+
+			cfg, err := resolveConfigFromFlags(cmd, current, nonInteractive)
+			if err != nil {
+				return err
+			}
+
+			if err := configpkg.Save(path, cfg); err != nil {
+				return err
+			}
+
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Updated config at %s\n", path)
+			return err
+		},
+	}
+
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Save the current config after applying derived defaults")
+
+	return cmd
+}
+
+func newConfigValidateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate",
+		Short: "Validate the current config",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := configpkg.Load("")
+			if err != nil {
+				return missingConfigHint(err)
+			}
+
+			issues := configpkg.Validate(cfg)
+			if len(issues) == 0 {
+				return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "config is valid")
+			}
+
+			if err := printValidationIssues(cmd, issues); err != nil {
+				return err
+			}
+
+			return fmt.Errorf("config validation failed with %d issue(s)", len(issues))
+		},
+	}
+}
+
+func newConfigResetCmd() *cobra.Command {
+	var force bool
+	var yes bool
+	var deleteConfig bool
+
+	cmd := &cobra.Command{
+		Use:   "reset",
+		Short: "Reset the config to defaults or delete it",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path, err := configpkg.ConfigFilePath()
+			if err != nil {
+				return err
+			}
+
+			if deleteConfig {
+				if !force && !yes {
+					ok, err := confirmWithPrompt(cmd, "Delete the stackctl config file?", false)
+					if err != nil {
+						return fmt.Errorf("delete confirmation required; rerun with --force or --yes")
+					}
+					if !ok {
+						return errors.New("config reset cancelled")
+					}
+				}
+
+				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("delete config %s: %w", path, err)
+				}
+
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted config at %s\n", path)
+				return err
+			}
+
+			if !force && !yes {
+				ok, err := confirmWithPrompt(cmd, "Reset the stackctl config to defaults?", false)
+				if err != nil {
+					return fmt.Errorf("reset confirmation required; rerun with --force or --yes")
+				}
+				if !ok {
+					return errors.New("config reset cancelled")
+				}
+			}
+
+			cfg := configpkg.Default()
+			if err := configpkg.Save(path, cfg); err != nil {
+				return err
+			}
+
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Reset config at %s to defaults\n", path)
+			return err
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Skip confirmation")
+	cmd.Flags().BoolVar(&yes, "yes", false, "Assume yes for confirmation prompts")
+	cmd.Flags().BoolVar(&deleteConfig, "delete", false, "Delete the config file instead of resetting it")
+
+	return cmd
+}
+
+func resolveConfigFromFlags(cmd *cobra.Command, base configpkg.Config, nonInteractive bool) (configpkg.Config, error) {
+	if nonInteractive {
+		base.ApplyDerivedFields()
+		return base, nil
+	}
+
+	if !terminalInteractive() {
+		return configpkg.Config{}, errors.New("interactive config requires a terminal; rerun with --non-interactive")
+	}
+
+	return configpkg.RunWizard(os.Stdin, cmd.OutOrStdout(), base)
+}
+
+func loadExistingConfig(path string) (configpkg.Config, bool, error) {
+	cfg, err := configpkg.Load(path)
+	if err == nil {
+		return cfg, true, nil
+	}
+	if errors.Is(err, configpkg.ErrNotFound) {
+		return configpkg.Config{}, false, nil
+	}
+
+	return configpkg.Config{}, false, err
+}
+
+func missingConfigHint(err error) error {
+	if !errors.Is(err, configpkg.ErrNotFound) {
+		return err
+	}
+
+	return errors.New("no stackctl config was found; run `stackctl setup` or `stackctl config init`")
+}

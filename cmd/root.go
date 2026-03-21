@@ -27,6 +27,10 @@ func NewRootCmd(app *App) *cobra.Command {
 		Version:       app.Version,
 	}
 
+	cmd.CompletionOptions.HiddenDefaultCmd = true
+	cmd.AddCommand(newConfigCmd())
+	cmd.AddCommand(newDoctorCmd())
+	cmd.AddCommand(newSetupCmd())
 	cmd.AddCommand(newVersionCmd(app))
 	cmd.SetVersionTemplate(versionTemplate(app))
 
