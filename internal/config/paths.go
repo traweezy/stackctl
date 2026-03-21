@@ -4,6 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+)
+
+const (
+	DefaultStackName       = "dev-stack"
+	DefaultComposeFileName = "compose.yaml"
 )
 
 func ConfigDirPath() (string, error) {
@@ -24,53 +30,51 @@ func ConfigFilePath() (string, error) {
 	return filepath.Join(dir, "config.yaml"), nil
 }
 
-func ComposePath(cfg Config) string {
-	return filepath.Join(cfg.Stack.Dir, cfg.Stack.ComposeFile)
+func DataDirPath() (string, error) {
+	if root := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); root != "" {
+		return filepath.Join(root, "stackctl"), nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home directory: %w", err)
+	}
+
+	return filepath.Join(home, ".local", "share", "stackctl"), nil
 }
 
-func DefaultStackDir() string {
-	wd, err := os.Getwd()
-	if err == nil {
-		if found, ok := findStackDir(wd); ok {
-			return found
-		}
+func ManagedStacksDirPath() (string, error) {
+	root, err := DataDirPath()
+	if err != nil {
+		return "", err
 	}
 
-	exePath, err := os.Executable()
-	if err == nil {
-		if found, ok := findStackDir(filepath.Dir(exePath)); ok {
-			return found
-		}
+	return filepath.Join(root, "stacks"), nil
+}
+
+func ManagedStackDir(stackName string) (string, error) {
+	root, err := ManagedStacksDirPath()
+	if err != nil {
+		return "", err
 	}
 
-	if wd == "" {
+	name := strings.TrimSpace(stackName)
+	if name == "" {
+		name = DefaultStackName
+	}
+
+	return filepath.Join(root, name), nil
+}
+
+func DefaultManagedStackDir() string {
+	dir, err := ManagedStackDir(DefaultStackName)
+	if err != nil {
 		return ""
 	}
 
-	absPath, err := filepath.Abs(filepath.Join(wd, "stacks", "dev-stack"))
-	if err != nil {
-		return filepath.Join(wd, "stacks", "dev-stack")
-	}
-
-	return absPath
+	return dir
 }
 
-func findStackDir(start string) (string, bool) {
-	current := start
-	for {
-		candidate := filepath.Join(current, "stacks", "dev-stack")
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			absPath, err := filepath.Abs(candidate)
-			if err != nil {
-				return candidate, true
-			}
-			return absPath, true
-		}
-
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", false
-		}
-		current = parent
-	}
+func ComposePath(cfg Config) string {
+	return filepath.Join(cfg.Stack.Dir, cfg.Stack.ComposeFile)
 }

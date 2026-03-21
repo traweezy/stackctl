@@ -3,9 +3,10 @@ package config
 func Default() Config {
 	cfg := Config{
 		Stack: StackConfig{
-			Name:        "dev-stack",
-			Dir:         DefaultStackDir(),
-			ComposeFile: "compose.yaml",
+			Name:        DefaultStackName,
+			Dir:         DefaultManagedStackDir(),
+			ComposeFile: DefaultComposeFileName,
+			Managed:     true,
 		},
 		Services: ServicesConfig{
 			PostgresContainer: "local-postgres",
@@ -25,8 +26,9 @@ func Default() Config {
 			StartupTimeoutSec:    30,
 		},
 		Setup: SetupConfig{
-			InstallCockpit: true,
-			IncludePgAdmin: true,
+			InstallCockpit:       true,
+			IncludePgAdmin:       true,
+			ScaffoldDefaultStack: true,
 		},
 		System: SystemConfig{
 			PackageManager: "apt",

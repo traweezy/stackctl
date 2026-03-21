@@ -24,17 +24,39 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	}
 	cfg.Stack.Name = stackName
 
-	stackDir, err := session.askStackDir(cfg.Stack.Dir)
+	managedDefaultDir, err := ManagedStackDir(cfg.Stack.Name)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.Stack.Dir = stackDir
 
-	composeFile, err := session.askString("Compose file name", cfg.Stack.ComposeFile, nonEmpty)
+	manageStack, err := session.askBool(
+		fmt.Sprintf("Create and manage the default stack in %s", managedDefaultDir),
+		cfg.Stack.Managed && cfg.Setup.ScaffoldDefaultStack,
+	)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.Stack.ComposeFile = composeFile
+
+	if manageStack {
+		cfg.Stack.Managed = true
+		cfg.Stack.Dir = managedDefaultDir
+		cfg.Stack.ComposeFile = DefaultComposeFileName
+		cfg.Setup.ScaffoldDefaultStack = true
+	} else {
+		stackDir, err := session.askStackDir(cfg.Stack.Dir)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Stack.Dir = stackDir
+
+		composeFile, err := session.askString("Compose file name", cfg.Stack.ComposeFile, nonEmpty)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Stack.ComposeFile = composeFile
+		cfg.Stack.Managed = false
+		cfg.Setup.ScaffoldDefaultStack = false
+	}
 
 	postgresContainer, err := session.askString("Postgres container name", cfg.Services.PostgresContainer, nonEmpty)
 	if err != nil {
@@ -113,6 +135,10 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Setup.IncludePgAdmin = includePgAdmin
+
+	if !cfg.Stack.Managed {
+		cfg.Setup.ScaffoldDefaultStack = false
+	}
 
 	packageManager, err := session.askString("Package manager", cfg.System.PackageManager, nonEmpty)
 	if err != nil {

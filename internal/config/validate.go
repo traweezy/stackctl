@@ -50,6 +50,25 @@ func Validate(cfg Config) []ValidationIssue {
 	if strings.TrimSpace(cfg.Stack.ComposeFile) == "" {
 		issues = append(issues, ValidationIssue{Field: "stack.compose_file", Message: "must not be empty"})
 	}
+	if cfg.Stack.Managed {
+		expectedDir, err := ManagedStackDir(cfg.Stack.Name)
+		if err != nil {
+			issues = append(issues, ValidationIssue{Field: "stack.dir", Message: fmt.Sprintf("resolve managed stack path: %v", err)})
+		} else if cfg.Stack.Dir != expectedDir {
+			issues = append(issues, ValidationIssue{Field: "stack.dir", Message: fmt.Sprintf("managed stack must use %s", expectedDir)})
+		}
+		if cfg.Stack.ComposeFile != DefaultComposeFileName {
+			issues = append(issues, ValidationIssue{Field: "stack.compose_file", Message: fmt.Sprintf("managed stack must use %s", DefaultComposeFileName)})
+		}
+	}
+	if strings.TrimSpace(cfg.Stack.Dir) != "" && filepath.IsAbs(cfg.Stack.Dir) && strings.TrimSpace(cfg.Stack.ComposeFile) != "" {
+		composePath := ComposePath(cfg)
+		if info, err := os.Stat(composePath); err != nil {
+			issues = append(issues, ValidationIssue{Field: "stack.compose_file", Message: fmt.Sprintf("file does not exist: %s", composePath)})
+		} else if info.IsDir() {
+			issues = append(issues, ValidationIssue{Field: "stack.compose_file", Message: fmt.Sprintf("path is a directory: %s", composePath)})
+		}
+	}
 
 	for field, value := range map[string]string{
 		"services.postgres_container": cfg.Services.PostgresContainer,

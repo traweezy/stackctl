@@ -25,6 +25,7 @@ type StackConfig struct {
 	Name        string `yaml:"name"`
 	Dir         string `yaml:"dir"`
 	ComposeFile string `yaml:"compose_file"`
+	Managed     bool   `yaml:"managed"`
 }
 
 type ServicesConfig struct {
@@ -53,8 +54,9 @@ type BehaviorConfig struct {
 }
 
 type SetupConfig struct {
-	InstallCockpit bool `yaml:"install_cockpit"`
-	IncludePgAdmin bool `yaml:"include_pgadmin"`
+	InstallCockpit       bool `yaml:"install_cockpit"`
+	IncludePgAdmin       bool `yaml:"include_pgadmin"`
+	ScaffoldDefaultStack bool `yaml:"scaffold_default_stack"`
 }
 
 type SystemConfig struct {
