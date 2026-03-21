@@ -2,15 +2,18 @@ package config
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 )
 
 func TestValidateAcceptsDefaultConfig(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
 	cfg := Default()
-	cfg.Stack.Dir = filepath.Join(t.TempDir(), "stacks", "dev-stack")
 
 	if err := validateWithDir(cfg.Stack.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ComposePath(cfg), []byte("services: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

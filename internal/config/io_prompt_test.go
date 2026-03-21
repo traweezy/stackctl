@@ -119,9 +119,14 @@ func TestSaveReturnsWriteErrorForDirectoryPath(t *testing.T) {
 
 func TestComposePathAndValidateOrError(t *testing.T) {
 	cfg := Default()
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
 	cfg.Stack.Dir = filepath.Join(t.TempDir(), "stack")
 	if err := os.MkdirAll(cfg.Stack.Dir, 0o755); err != nil {
 		t.Fatalf("mkdir failed: %v", err)
+	}
+	if err := os.WriteFile(ComposePath(cfg), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatalf("write compose file failed: %v", err)
 	}
 
 	if got := ComposePath(cfg); got != filepath.Join(cfg.Stack.Dir, cfg.Stack.ComposeFile) {
@@ -141,6 +146,8 @@ func TestValidateOrErrorReportsInvalidDirectoryFile(t *testing.T) {
 	}
 
 	cfg := Default()
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
 	cfg.Stack.Dir = filePath
 
 	err := ValidateOrError(cfg)
@@ -154,20 +161,55 @@ func TestValidateOrErrorReportsInvalidDirectoryFile(t *testing.T) {
 }
 
 func TestRunWizardAcceptsDefaults(t *testing.T) {
-	cfg := Default()
-	cfg.Stack.Dir = t.TempDir()
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	input := strings.Repeat("\n", 17)
+	cfg := Default()
+
+	input := strings.Repeat("\n", 16)
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
 	if err != nil {
 		t.Fatalf("RunWizard returned error: %v", err)
 	}
 
-	if got.Stack.Dir != cfg.Stack.Dir {
+	wantDir, err := ManagedStackDir(cfg.Stack.Name)
+	if err != nil {
+		t.Fatalf("ManagedStackDir returned error: %v", err)
+	}
+	if got.Stack.Dir != wantDir {
 		t.Fatalf("wizard changed stack dir: %s", got.Stack.Dir)
+	}
+	if !got.Stack.Managed || !got.Setup.ScaffoldDefaultStack {
+		t.Fatalf("wizard did not keep managed stack defaults: %+v", got)
 	}
 	if got.URLs.Cockpit == "" || got.URLs.PgAdmin == "" {
 		t.Fatalf("wizard did not derive urls: %+v", got.URLs)
+	}
+}
+
+func TestRunWizardCanSwitchToExternalStack(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	externalDir := filepath.Join(t.TempDir(), "external-stack")
+	if err := os.MkdirAll(externalDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	cfg := Default()
+	input := "dev-stack\nn\n" + externalDir + "\ncompose.custom.yaml\n" + strings.Repeat("\n", 14)
+
+	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
+	if err != nil {
+		t.Fatalf("RunWizard returned error: %v", err)
+	}
+
+	if got.Stack.Managed {
+		t.Fatalf("expected external stack config, got %+v", got.Stack)
+	}
+	if got.Setup.ScaffoldDefaultStack {
+		t.Fatalf("expected scaffolding to be disabled for external stack: %+v", got.Setup)
+	}
+	if got.Stack.Dir != externalDir || got.Stack.ComposeFile != "compose.custom.yaml" {
+		t.Fatalf("unexpected external stack config: %+v", got.Stack)
 	}
 }
 
@@ -269,30 +311,30 @@ func TestPromptSessionInvalidBooleanAtEOFReturnsError(t *testing.T) {
 }
 
 func TestRunWizardPropagatesPromptReadErrors(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
 	cfg := Default()
-	cfg.Stack.Dir = t.TempDir()
 
 	cases := []struct {
 		name             string
 		completedPrompts int
 	}{
 		{name: "stack name", completedPrompts: 0},
-		{name: "stack dir", completedPrompts: 1},
-		{name: "compose file", completedPrompts: 2},
-		{name: "postgres container", completedPrompts: 3},
-		{name: "redis container", completedPrompts: 4},
-		{name: "pgadmin container", completedPrompts: 5},
-		{name: "postgres port", completedPrompts: 6},
-		{name: "redis port", completedPrompts: 7},
-		{name: "pgadmin port", completedPrompts: 8},
-		{name: "cockpit port", completedPrompts: 9},
-		{name: "open cockpit", completedPrompts: 10},
-		{name: "open pgadmin", completedPrompts: 11},
-		{name: "wait for services", completedPrompts: 12},
-		{name: "timeout", completedPrompts: 13},
-		{name: "install cockpit", completedPrompts: 14},
-		{name: "include pgadmin", completedPrompts: 15},
-		{name: "package manager", completedPrompts: 16},
+		{name: "manage stack", completedPrompts: 1},
+		{name: "postgres container", completedPrompts: 2},
+		{name: "redis container", completedPrompts: 3},
+		{name: "pgadmin container", completedPrompts: 4},
+		{name: "postgres port", completedPrompts: 5},
+		{name: "redis port", completedPrompts: 6},
+		{name: "pgadmin port", completedPrompts: 7},
+		{name: "cockpit port", completedPrompts: 8},
+		{name: "open cockpit", completedPrompts: 9},
+		{name: "open pgadmin", completedPrompts: 10},
+		{name: "wait for services", completedPrompts: 11},
+		{name: "timeout", completedPrompts: 12},
+		{name: "install cockpit", completedPrompts: 13},
+		{name: "include pgadmin", completedPrompts: 14},
+		{name: "package manager", completedPrompts: 15},
 	}
 
 	for _, tc := range cases {
@@ -308,27 +350,37 @@ func TestRunWizardPropagatesPromptReadErrors(t *testing.T) {
 	}
 }
 
-func TestDefaultStackDirFindsRepoFromWorkingDirectory(t *testing.T) {
-	root := t.TempDir()
-	stackDir := filepath.Join(root, "stacks", "dev-stack")
-	if err := os.MkdirAll(filepath.Join(stackDir, "nested"), 0o755); err != nil {
-		t.Fatalf("mkdir failed: %v", err)
+func TestManagedStackDirUsesXDGDataHome(t *testing.T) {
+	dataRoot := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	got, err := ManagedStackDir(DefaultStackName)
+	if err != nil {
+		t.Fatalf("ManagedStackDir returned error: %v", err)
 	}
 
-	t.Chdir(filepath.Join(stackDir, "nested"))
-
-	if got := DefaultStackDir(); got != stackDir {
-		t.Fatalf("unexpected default stack dir: %s", got)
+	want := filepath.Join(dataRoot, "stackctl", "stacks", DefaultStackName)
+	if got != want {
+		t.Fatalf("unexpected managed stack dir: %s", got)
+	}
+	if DefaultManagedStackDir() != want {
+		t.Fatalf("unexpected default managed stack dir: %s", DefaultManagedStackDir())
 	}
 }
 
-func TestDefaultStackDirFallsBackWhenNoRepoFound(t *testing.T) {
-	root := t.TempDir()
-	t.Chdir(root)
+func TestDataDirFallsBackToHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("HOME", home)
 
-	want := filepath.Join(root, "stacks", "dev-stack")
-	if got := DefaultStackDir(); got != want {
-		t.Fatalf("unexpected fallback default stack dir: %s", got)
+	got, err := DataDirPath()
+	if err != nil {
+		t.Fatalf("DataDirPath returned error: %v", err)
+	}
+
+	want := filepath.Join(home, ".local", "share", "stackctl")
+	if got != want {
+		t.Fatalf("unexpected data dir: %s", got)
 	}
 }
 
@@ -341,6 +393,9 @@ func TestConfigPathsFailWithoutUserConfigDir(t *testing.T) {
 	}
 	if _, err := ConfigFilePath(); err == nil {
 		t.Fatal("expected ConfigFilePath to fail without a user config dir")
+	}
+	if _, err := DataDirPath(); err == nil {
+		t.Fatal("expected DataDirPath to fail without a user home dir")
 	}
 }
 
