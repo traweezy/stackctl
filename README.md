@@ -10,7 +10,25 @@ It is designed for local development workflows, with:
 - stack lifecycle commands
 - diagnostics, health, logs, and connection helpers
 
-Distribution and release automation are not set up yet. This repo is focused on a solid local CLI foundation.
+GitHub Releases now publish Linux tarballs, and a one-command installer is available for the latest release.
+
+## Install (Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/traweezy/stackctrl/master/scripts/install.sh | bash
+```
+
+Install to `/usr/local/bin` instead:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/traweezy/stackctrl/master/scripts/install.sh | bash -s -- --system
+```
+
+## Manual Download
+
+Download the latest release assets from:
+
+https://github.com/traweezy/stackctrl/releases/latest
 
 ## Commands
 
@@ -161,4 +179,13 @@ go mod tidy
 go test ./...
 go build ./...
 go run . --help
+```
+
+## Release
+
+Tagged releases are published by the GitHub Actions release workflow using GoReleaser. To create a release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
 ```
