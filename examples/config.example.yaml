@@ -1,7 +1,8 @@
 stack:
   name: dev-stack
-  dir: /absolute/path/to/stackctl/stacks/dev-stack
+  dir: /home/user/.local/share/stackctl/stacks/dev-stack
   compose_file: compose.yaml
+  managed: true
 
 services:
   postgres_container: local-postgres
@@ -27,6 +28,7 @@ behavior:
 setup:
   install_cockpit: true
   include_pgadmin: true
+  scaffold_default_stack: true
 
 system:
   package_manager: apt

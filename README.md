@@ -5,6 +5,7 @@
 It is designed for local development workflows, with:
 
 - persistent user config
+- managed stack data under standard user directories
 - first-run setup and config bootstrapping
 - stack lifecycle commands
 - diagnostics, health, logs, and connection helpers
@@ -33,7 +34,11 @@ The CLI currently provides:
 
 The CLI stores user config at:
 
-- Linux and macOS: `~/.config/stackctl/config.yaml`
+- Linux: `~/.config/stackctl/config.yaml`
+
+When you use the managed stack flow, `stackctl` stores runtime stack files at:
+
+- Linux: `~/.local/share/stackctl/stacks/dev-stack/compose.yaml`
 
 You can create config explicitly:
 
@@ -47,7 +52,7 @@ Or let the CLI help on first run. For example, if you run:
 go run . start
 ```
 
-and no config exists yet, `stackctl` will explain that and offer to launch the interactive setup flow.
+and no config exists yet, `stackctl` will explain that, offer interactive setup, and offer to scaffold a managed stack into the standard user data directory.
 
 ## Setup
 
@@ -68,6 +73,8 @@ go run . setup --install
 - `cockpit`
 - `cockpit-podman`
 
+If the current config is using a managed stack and the managed files are missing, `setup` can scaffold them from the embedded default template.
+
 ## Config
 
 Manage config after first run with:
@@ -77,14 +84,26 @@ go run . config path
 go run . config view
 go run . config validate
 go run . config edit
+go run . config scaffold
 go run . config reset
 ```
 
 An example config is bundled at [examples/config.example.yaml](/home/tylers/Dev/go/github.com/traweezy/stackctl/examples/config.example.yaml).
 
-## Local Stack
+`managed: true` means the CLI owns the stack path under `~/.local/share/stackctl/...` and can scaffold the embedded default compose file there. When `managed: false`, the config points at a custom external stack directory that you manage yourself.
 
-The bundled development stack lives at [stacks/dev-stack/compose.yaml](/home/tylers/Dev/go/github.com/traweezy/stackctl/stacks/dev-stack/compose.yaml).
+The embedded source template for the managed stack lives at [templates/dev-stack/compose.yaml](/home/tylers/Dev/go/github.com/traweezy/stackctl/templates/dev-stack/compose.yaml).
+
+## Custom Stack Paths
+
+The interactive config flow lets you switch between:
+
+- a managed stack under `~/.local/share/stackctl/stacks/dev-stack`
+- an external custom stack directory
+
+If you choose an external stack, `stackctl` saves that path in config and does not treat the stack files as CLI-managed.
+
+## Runtime
 
 Typical commands:
 
@@ -117,6 +136,16 @@ go run . connect
 ```
 
 This prints DSNs and URLs derived from the current config.
+
+## Manual Testing
+
+Useful manual checks for the managed stack model:
+
+- delete `~/.config/stackctl/config.yaml`, run `go run . start`, and verify the config is recreated under `~/.config/stackctl`
+- verify the managed stack is scaffolded under `~/.local/share/stackctl/stacks/dev-stack/compose.yaml`
+- delete only the config file, keep the managed stack data, rerun setup, and verify the existing managed stack is reused cleanly
+- delete only the managed stack data, keep the config file, and verify `go run . doctor` and `go run . config validate` fail clearly
+- run `go run . config scaffold` to recreate the managed compose file from the embedded template
 
 ## Build
 
