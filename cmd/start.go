@@ -36,17 +36,6 @@ func newStartCmd() *cobra.Command {
 				}
 			}
 
-			if cfg.Behavior.OpenCockpitOnStart {
-				if err := deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.Cockpit); err != nil {
-					return err
-				}
-			}
-			if cfg.Setup.IncludePgAdmin && cfg.Behavior.OpenPgAdminOnStart {
-				if err := deps.openURL(context.Background(), runnerFor(cmd), cfg.URLs.PgAdmin); err != nil {
-					return err
-				}
-			}
-
 			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "stack started"); err != nil {
 				return err
 			}

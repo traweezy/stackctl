@@ -224,21 +224,16 @@ func TestStartFirstRunDeclineReturnsGuidance(t *testing.T) {
 	}
 }
 
-func TestStartFirstRunRunsWizardComposeWaitAndOpen(t *testing.T) {
+func TestStartFirstRunRunsWizardComposeWaitAndPrintsEndpoints(t *testing.T) {
 	var saved bool
 	scaffolded := false
 	var waitPorts []int
-	var opened []string
 	upCalled := false
 
 	withTestDeps(t, func(d *commandDeps) {
 		d.isTerminal = func() bool { return true }
 		d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return true, nil }
-		d.runWizard = func(io.Reader, io.Writer, configpkg.Config) (configpkg.Config, error) {
-			cfg := configpkg.Default()
-			cfg.Behavior.OpenPgAdminOnStart = true
-			return cfg, nil
-		}
+		d.runWizard = func(_ io.Reader, _ io.Writer, cfg configpkg.Config) (configpkg.Config, error) { return cfg, nil }
 		d.saveConfig = func(string, configpkg.Config) error {
 			saved = true
 			return nil
@@ -255,10 +250,6 @@ func TestStartFirstRunRunsWizardComposeWaitAndOpen(t *testing.T) {
 			waitPorts = append(waitPorts, port)
 			return nil
 		}
-		d.openURL = func(_ context.Context, _ system.Runner, target string) error {
-			opened = append(opened, target)
-			return nil
-		}
 	})
 
 	stdout, _, err := executeRoot(t, "start")
@@ -271,11 +262,14 @@ func TestStartFirstRunRunsWizardComposeWaitAndOpen(t *testing.T) {
 	if len(waitPorts) != 3 {
 		t.Fatalf("wait ports = %v", waitPorts)
 	}
-	if len(opened) != 2 {
-		t.Fatalf("opened urls = %v", opened)
-	}
 	if !strings.Contains(stdout, "[OK  ] stack started") {
 		t.Fatalf("stdout missing success line: %s", stdout)
+	}
+	if !strings.Contains(stdout, "Postgres\n  DSN: postgres://app:app@localhost:5432/app") {
+		t.Fatalf("stdout missing postgres connection info: %s", stdout)
+	}
+	if !strings.Contains(stdout, "Cockpit\n  URL: https://localhost:9090") {
+		t.Fatalf("stdout missing cockpit connection info: %s", stdout)
 	}
 }
 

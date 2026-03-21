@@ -100,18 +100,6 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	}
 	cfg.Ports.Cockpit = cockpitPort
 
-	openCockpit, err := session.askBool("Open Cockpit on start", cfg.Behavior.OpenCockpitOnStart)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Behavior.OpenCockpitOnStart = openCockpit
-
-	openPgAdmin, err := session.askBool("Open pgAdmin on start", cfg.Behavior.OpenPgAdminOnStart)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Behavior.OpenPgAdminOnStart = openPgAdmin
-
 	waitForServices, err := session.askBool("Wait for services on start", cfg.Behavior.WaitForServicesStart)
 	if err != nil {
 		return Config{}, err

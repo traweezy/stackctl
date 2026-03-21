@@ -339,15 +339,11 @@ func TestSetupInstallWithNothingMissingExitsCleanly(t *testing.T) {
 	}
 }
 
-func TestRestartRunsDownUpWaitAndOpen(t *testing.T) {
-	calls := make([]string, 0, 4)
+func TestRestartRunsDownUpWaitAndPrintsEndpoints(t *testing.T) {
+	calls := make([]string, 0, 2)
 
 	withTestDeps(t, func(d *commandDeps) {
-		d.loadConfig = func(string) (configpkg.Config, error) {
-			cfg := configpkg.Default()
-			cfg.Behavior.OpenPgAdminOnStart = true
-			return cfg, nil
-		}
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
 		d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
 			calls = append(calls, "down")
 			return nil
@@ -357,21 +353,20 @@ func TestRestartRunsDownUpWaitAndOpen(t *testing.T) {
 			return nil
 		}
 		d.waitForPort = func(context.Context, int, time.Duration) error { return nil }
-		d.openURL = func(_ context.Context, _ system.Runner, target string) error {
-			calls = append(calls, target)
-			return nil
-		}
 	})
 
 	stdout, _, err := executeRoot(t, "restart")
 	if err != nil {
 		t.Fatalf("restart returned error: %v", err)
 	}
-	if len(calls) < 4 || calls[0] != "down" || calls[1] != "up" {
+	if len(calls) != 2 || calls[0] != "down" || calls[1] != "up" {
 		t.Fatalf("unexpected restart call order: %v", calls)
 	}
 	if !strings.Contains(stdout, "[OK  ] stack restarted") {
 		t.Fatalf("unexpected restart output: %s", stdout)
+	}
+	if !strings.Contains(stdout, "Cockpit\n  URL: https://localhost:9090") {
+		t.Fatalf("restart should print connection info: %s", stdout)
 	}
 }
 

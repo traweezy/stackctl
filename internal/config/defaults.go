@@ -20,8 +20,6 @@ func Default() Config {
 			Cockpit:  9090,
 		},
 		Behavior: BehaviorConfig{
-			OpenCockpitOnStart:   true,
-			OpenPgAdminOnStart:   false,
 			WaitForServicesStart: true,
 			StartupTimeoutSec:    30,
 		},

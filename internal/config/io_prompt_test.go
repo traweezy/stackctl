@@ -33,6 +33,9 @@ func TestSaveLoadAndMarshalRoundTrip(t *testing.T) {
 	if !strings.Contains(string(data), "stack:") {
 		t.Fatalf("marshal output missing stack section: %s", string(data))
 	}
+	if strings.Contains(string(data), "open_cockpit_on_start") || strings.Contains(string(data), "open_pgadmin_on_start") {
+		t.Fatalf("marshal output should not include removed open-on-start fields: %s", string(data))
+	}
 }
 
 func TestLoadRejectsMalformedYAML(t *testing.T) {
@@ -43,6 +46,50 @@ func TestLoadRejectsMalformedYAML(t *testing.T) {
 
 	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "parse config") {
 		t.Fatalf("unexpected load error: %v", err)
+	}
+}
+
+func TestLoadIgnoresLegacyOpenOnStartFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := `stack:
+  name: dev-stack
+  dir: /tmp/dev-stack
+  compose_file: compose.yaml
+  managed: false
+services:
+  postgres_container: local-postgres
+  redis_container: local-redis
+  pgadmin_container: local-pgadmin
+ports:
+  postgres: 5432
+  redis: 6379
+  pgadmin: 8081
+  cockpit: 9090
+urls:
+  cockpit: https://localhost:9090
+  pgadmin: http://localhost:8081
+behavior:
+  open_cockpit_on_start: true
+  open_pgadmin_on_start: false
+  wait_for_services_on_start: true
+  startup_timeout_seconds: 30
+setup:
+  install_cockpit: true
+  include_pgadmin: true
+  scaffold_default_stack: false
+system:
+  package_manager: apt
+`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if !cfg.Behavior.WaitForServicesStart || cfg.Behavior.StartupTimeoutSec != 30 {
+		t.Fatalf("unexpected behavior config: %+v", cfg.Behavior)
 	}
 }
 
@@ -165,7 +212,7 @@ func TestRunWizardAcceptsDefaults(t *testing.T) {
 
 	cfg := Default()
 
-	input := strings.Repeat("\n", 16)
+	input := strings.Repeat("\n", 14)
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
 	if err != nil {
 		t.Fatalf("RunWizard returned error: %v", err)
@@ -195,7 +242,7 @@ func TestRunWizardCanSwitchToExternalStack(t *testing.T) {
 	}
 
 	cfg := Default()
-	input := "dev-stack\nn\n" + externalDir + "\ncompose.custom.yaml\n" + strings.Repeat("\n", 14)
+	input := "dev-stack\nn\n" + externalDir + "\ncompose.custom.yaml\n" + strings.Repeat("\n", 10)
 
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
 	if err != nil {
@@ -352,13 +399,11 @@ func TestRunWizardPropagatesPromptReadErrors(t *testing.T) {
 		{name: "redis port", completedPrompts: 6},
 		{name: "pgadmin port", completedPrompts: 7},
 		{name: "cockpit port", completedPrompts: 8},
-		{name: "open cockpit", completedPrompts: 9},
-		{name: "open pgadmin", completedPrompts: 10},
-		{name: "wait for services", completedPrompts: 11},
-		{name: "timeout", completedPrompts: 12},
-		{name: "install cockpit", completedPrompts: 13},
-		{name: "include pgadmin", completedPrompts: 14},
-		{name: "package manager", completedPrompts: 15},
+		{name: "wait for services", completedPrompts: 9},
+		{name: "timeout", completedPrompts: 10},
+		{name: "install cockpit", completedPrompts: 11},
+		{name: "include pgadmin", completedPrompts: 12},
+		{name: "package manager", completedPrompts: 13},
 	}
 
 	for _, tc := range cases {

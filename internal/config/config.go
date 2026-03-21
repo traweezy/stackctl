@@ -47,8 +47,6 @@ type URLsConfig struct {
 }
 
 type BehaviorConfig struct {
-	OpenCockpitOnStart   bool `yaml:"open_cockpit_on_start"`
-	OpenPgAdminOnStart   bool `yaml:"open_pgadmin_on_start"`
 	WaitForServicesStart bool `yaml:"wait_for_services_on_start"`
 	StartupTimeoutSec    int  `yaml:"startup_timeout_seconds"`
 }

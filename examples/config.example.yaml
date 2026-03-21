@@ -20,8 +20,6 @@ urls:
   pgadmin: http://localhost:8081
 
 behavior:
-  open_cockpit_on_start: true
-  open_pgadmin_on_start: false
   wait_for_services_on_start: true
   startup_timeout_seconds: 30
 
