@@ -42,6 +42,10 @@ func confirmWithPrompt(cmd *cobra.Command, message string, defaultYes bool) (boo
 	return deps.promptYesNo(deps.stdin, cmd.OutOrStdout(), message, defaultYes)
 }
 
+func userCancelled(cmd *cobra.Command, message string) error {
+	return output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, message)
+}
+
 func printValidationIssues(cmd *cobra.Command, issues []configpkg.ValidationIssue) error {
 	for _, issue := range issues {
 		if err := output.StatusLine(cmd.OutOrStdout(), output.StatusFail, fmt.Sprintf("%s: %s", issue.Field, issue.Message)); err != nil {

@@ -23,6 +23,9 @@ func newRestartCmd() *cobra.Command {
 				return err
 			}
 
+			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusAction, "restarting containers..."); err != nil {
+				return err
+			}
 			if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, false); err != nil {
 				return err
 			}

@@ -40,7 +40,7 @@ func newSetupCmd() *cobra.Command {
 			}
 
 			if !exists {
-				if err := output.StatusLine(cmd.OutOrStdout(), output.StatusMiss, "config file not found"); err != nil {
+				if err := output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, "config file not found"); err != nil {
 					return err
 				}
 
@@ -145,7 +145,7 @@ func newSetupCmd() *cobra.Command {
 						return err
 					}
 					if !ok {
-						return errors.New("setup install cancelled")
+						return userCancelled(cmd, "setup install cancelled")
 					}
 				}
 

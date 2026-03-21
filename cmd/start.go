@@ -23,6 +23,9 @@ func newStartCmd() *cobra.Command {
 				return err
 			}
 
+			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusAction, "starting containers..."); err != nil {
+				return err
+			}
 			if err := deps.composeUp(context.Background(), runnerFor(cmd), cfg); err != nil {
 				return err
 			}

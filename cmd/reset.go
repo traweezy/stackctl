@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/traweezy/stackctl/internal/output"
 )
 
 func newResetCmd() *cobra.Command {
@@ -30,11 +31,22 @@ func newResetCmd() *cobra.Command {
 					return fmt.Errorf("volume wipe confirmation required; rerun with --force")
 				}
 				if !ok {
-					return errors.New("reset cancelled")
+					return userCancelled(cmd, "reset cancelled")
 				}
 			}
 
-			return deps.composeDown(context.Background(), runnerFor(cmd), cfg, volumes)
+			action := "stopping containers..."
+			if volumes {
+				action = "stopping containers and removing volumes..."
+			}
+			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusAction, action); err != nil {
+				return err
+			}
+			if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, volumes); err != nil {
+				return err
+			}
+
+			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "stack reset")
 		},
 	}
 

@@ -52,7 +52,7 @@ func newConfigInitCmd() *cobra.Command {
 					return fmt.Errorf("config already exists at %s; rerun with --force or use an interactive terminal to confirm", path)
 				}
 				if !ok {
-					return errors.New("config init cancelled")
+					return userCancelled(cmd, "config init cancelled")
 				}
 			}
 
@@ -205,7 +205,7 @@ func newConfigResetCmd() *cobra.Command {
 						return fmt.Errorf("delete confirmation required; rerun with --force or --yes")
 					}
 					if !ok {
-						return errors.New("config reset cancelled")
+						return userCancelled(cmd, "config reset cancelled")
 					}
 				}
 
@@ -223,7 +223,7 @@ func newConfigResetCmd() *cobra.Command {
 					return fmt.Errorf("reset confirmation required; rerun with --force or --yes")
 				}
 				if !ok {
-					return errors.New("config reset cancelled")
+					return userCancelled(cmd, "config reset cancelled")
 				}
 			}
 

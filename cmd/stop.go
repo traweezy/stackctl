@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
+
+	"github.com/traweezy/stackctl/internal/output"
 )
 
 func newStopCmd() *cobra.Command {
@@ -19,7 +21,14 @@ func newStopCmd() *cobra.Command {
 				return err
 			}
 
-			return deps.composeDown(context.Background(), runnerFor(cmd), cfg, false)
+			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusAction, "stopping containers..."); err != nil {
+				return err
+			}
+			if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, false); err != nil {
+				return err
+			}
+
+			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "stack stopped")
 		},
 	}
 }

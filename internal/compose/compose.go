@@ -17,7 +17,7 @@ type Client struct {
 }
 
 func (c Client) Up(ctx context.Context, cfg configpkg.Config) error {
-	return c.runCompose(ctx, cfg.Stack.Dir, composeArgs(cfg, "up", "-d")...)
+	return c.runComposeQuiet(ctx, cfg.Stack.Dir, composeArgs(cfg, "up", "-d")...)
 }
 
 func (c Client) Down(ctx context.Context, cfg configpkg.Config, removeVolumes bool) error {
@@ -26,7 +26,7 @@ func (c Client) Down(ctx context.Context, cfg configpkg.Config, removeVolumes bo
 		args = append(args, "-v")
 	}
 
-	return c.runCompose(ctx, cfg.Stack.Dir, args...)
+	return c.runComposeQuiet(ctx, cfg.Stack.Dir, args...)
 }
 
 func (c Client) Logs(ctx context.Context, cfg configpkg.Config, tail int, follow bool, since string) error {
@@ -62,6 +62,31 @@ func (c Client) runCompose(ctx context.Context, dir string, args ...string) erro
 	runner, flush := filteredRunner(c.Runner)
 	err := runner.Run(ctx, dir, "podman", args...)
 	flushErr := flush()
+	if err != nil {
+		return err
+	}
+
+	return flushErr
+}
+
+func (c Client) runComposeQuiet(ctx context.Context, dir string, args ...string) error {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	runner, flush := filteredRunner(system.Runner{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	err := runner.Run(ctx, dir, "podman", args...)
+	flushErr := flush()
+	if err != nil || flushErr != nil {
+		if c.Runner.Stdout != nil {
+			_, _ = io.Copy(c.Runner.Stdout, &stdout)
+		}
+		if c.Runner.Stderr != nil {
+			_, _ = io.Copy(c.Runner.Stderr, &stderr)
+		}
+	}
 	if err != nil {
 		return err
 	}
