@@ -1,0 +1,55 @@
+package cmd
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/spf13/cobra"
+
+	"github.com/traweezy/stackctl/internal/system"
+)
+
+func newStatusCmd() *cobra.Command {
+	var verbose bool
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show status for containers in this stack",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := loadRuntimeConfig(cmd, false)
+			if err != nil {
+				return err
+			}
+			if !system.CommandExists("podman") {
+				return errors.New("podman is not installed; run `stackctl setup --install` or install it manually")
+			}
+
+			containers, err := loadStackContainers(context.Background(), cfg)
+			if err != nil {
+				return err
+			}
+
+			if jsonOutput {
+				data, err := json.MarshalIndent(containers, "", "  ")
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write(data)
+				if err != nil {
+					return err
+				}
+				_, err = cmd.OutOrStdout().Write([]byte("\n"))
+				return err
+			}
+
+			return printStatusTable(cmd, containers, verbose)
+		},
+	}
+
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show extra container details")
+	cmd.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Print container status as JSON")
+
+	return cmd
+}

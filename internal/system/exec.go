@@ -62,12 +62,11 @@ func CaptureResult(ctx context.Context, dir, name string, args ...string) (Comma
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 
-	result := CommandResult{
-		Stdout: stdout.String(),
-		Stderr: stderr.String(),
-	}
-
 	if err := command.Run(); err != nil {
+		result := CommandResult{
+			Stdout: stdout.String(),
+			Stderr: stderr.String(),
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
@@ -76,7 +75,10 @@ func CaptureResult(ctx context.Context, dir, name string, args ...string) (Comma
 		return result, fmt.Errorf("run %s: %w", formatCommand(name, args), err)
 	}
 
-	return result, nil
+	return CommandResult{
+		Stdout: stdout.String(),
+		Stderr: stderr.String(),
+	}, nil
 }
 
 func formatCommand(name string, args []string) string {

@@ -28,6 +28,15 @@ func NewRootCmd(app *App) *cobra.Command {
 	}
 
 	cmd.CompletionOptions.HiddenDefaultCmd = true
+	cmd.AddCommand(newStartCmd())
+	cmd.AddCommand(newStopCmd())
+	cmd.AddCommand(newRestartCmd())
+	cmd.AddCommand(newStatusCmd())
+	cmd.AddCommand(newLogsCmd())
+	cmd.AddCommand(newOpenCmd())
+	cmd.AddCommand(newHealthCmd())
+	cmd.AddCommand(newConnectCmd())
+	cmd.AddCommand(newResetCmd())
 	cmd.AddCommand(newConfigCmd())
 	cmd.AddCommand(newDoctorCmd())
 	cmd.AddCommand(newSetupCmd())
