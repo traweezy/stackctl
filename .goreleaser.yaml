@@ -24,7 +24,7 @@ builds:
       - arm64
     flags:
       - -trimpath
-    mod_timestamp: "{{ .CommitDate }}"
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - >-
         -s -w
