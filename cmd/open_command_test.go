@@ -20,7 +20,7 @@ func TestOpenPrintsURLWhenBrowserLaunchFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open returned error: %v", err)
 	}
-	if !strings.Contains(stdout, "[WARN] could not open cockpit automatically; use this URL") {
+	if !strings.Contains(stdout, "⚠️ could not open cockpit automatically; use this URL") {
 		t.Fatalf("stdout missing fallback warning: %s", stdout)
 	}
 	if !strings.Contains(stdout, "https://localhost:9090") {

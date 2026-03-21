@@ -133,13 +133,58 @@ func TestDownRunsSingleComposeSubcommand(t *testing.T) {
 	})
 }
 
+func TestUpSuppressesComposeOutputOnSuccess(t *testing.T) {
+	cfg, _ := writeFakePodmanScript(t, "#!/bin/sh\necho created container\necho attached warning >&2\n")
+
+	var stdout strings.Builder
+	var stderr strings.Builder
+	client := Client{Runner: system.Runner{Stdout: &stdout, Stderr: &stderr}}
+	if err := client.Up(context.Background(), cfg); err != nil {
+		t.Fatalf("Up returned error: %v", err)
+	}
+
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("expected quiet compose output, got stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestUpForwardsComposeOutputOnFailure(t *testing.T) {
+	cfg, _ := writeFakePodmanScript(t, "#!/bin/sh\necho failed to pull image >&2\nexit 1\n")
+
+	var stdout strings.Builder
+	var stderr strings.Builder
+	client := Client{Runner: system.Runner{Stdout: &stdout, Stderr: &stderr}}
+	err := client.Up(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected Up to fail")
+	}
+	if !strings.Contains(stderr.String(), "failed to pull image") {
+		t.Fatalf("stderr missing compose failure output: %q", stderr.String())
+	}
+}
+
 func writeFakePodman(t *testing.T) (configpkg.Config, string) {
 	t.Helper()
 
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "podman-args.log")
-	scriptPath := filepath.Join(dir, "podman")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shellQuote(logPath) + "\n"
+
+	return writeFakePodmanScriptInDir(t, dir, script)
+}
+
+func writeFakePodmanScript(t *testing.T, script string) (configpkg.Config, string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	return writeFakePodmanScriptInDir(t, dir, script)
+}
+
+func writeFakePodmanScriptInDir(t *testing.T, dir, script string) (configpkg.Config, string) {
+	t.Helper()
+
+	logPath := filepath.Join(dir, "podman-args.log")
+	scriptPath := filepath.Join(dir, "podman")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake podman: %v", err)
 	}

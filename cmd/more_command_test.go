@@ -362,8 +362,11 @@ func TestRestartRunsDownUpWaitAndPrintsEndpoints(t *testing.T) {
 	if len(calls) != 2 || calls[0] != "down" || calls[1] != "up" {
 		t.Fatalf("unexpected restart call order: %v", calls)
 	}
-	if !strings.Contains(stdout, "[OK  ] stack restarted") {
+	if !strings.Contains(stdout, "✅ stack restarted") {
 		t.Fatalf("unexpected restart output: %s", stdout)
+	}
+	if !strings.Contains(stdout, "🚀 restarting containers...") {
+		t.Fatalf("unexpected restart action output: %s", stdout)
 	}
 	if !strings.Contains(stdout, "Cockpit\n  URL: https://localhost:9090") {
 		t.Fatalf("restart should print connection info: %s", stdout)

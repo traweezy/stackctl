@@ -167,9 +167,12 @@ func TestSetupInstallPromptDeclineCancels(t *testing.T) {
 		}
 	})
 
-	_, _, err := executeRoot(t, "setup", "--install")
-	if err == nil || !strings.Contains(err.Error(), "setup install cancelled") {
+	stdout, _, err := executeRoot(t, "setup", "--install")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, "ℹ️ setup install cancelled") {
+		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }
 
@@ -262,8 +265,11 @@ func TestStartFirstRunRunsWizardComposeWaitAndPrintsEndpoints(t *testing.T) {
 	if len(waitPorts) != 3 {
 		t.Fatalf("wait ports = %v", waitPorts)
 	}
-	if !strings.Contains(stdout, "[OK  ] stack started") {
+	if !strings.Contains(stdout, "✅ stack started") {
 		t.Fatalf("stdout missing success line: %s", stdout)
+	}
+	if !strings.Contains(stdout, "🚀 starting containers...") {
+		t.Fatalf("stdout missing action line: %s", stdout)
 	}
 	if !strings.Contains(stdout, "Postgres\n  DSN: postgres://app:app@localhost:5432/app") {
 		t.Fatalf("stdout missing postgres connection info: %s", stdout)
@@ -377,16 +383,16 @@ func TestHealthReportsPortAndContainerStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("health returned error: %v", err)
 	}
-	if !strings.Contains(stdout, "[WARN] cockpit port listening") {
+	if !strings.Contains(stdout, "⚠️ cockpit port listening") {
 		t.Fatalf("stdout missing cockpit warning: %s", stdout)
 	}
-	if !strings.Contains(stdout, "[OK  ] postgres running") {
+	if !strings.Contains(stdout, "✅ postgres running") {
 		t.Fatalf("stdout missing postgres running line: %s", stdout)
 	}
-	if !strings.Contains(stdout, "[OK  ] redis running") {
+	if !strings.Contains(stdout, "✅ redis running") {
 		t.Fatalf("stdout missing redis running line: %s", stdout)
 	}
-	if !strings.Contains(stdout, "[OK  ] pgadmin running") {
+	if !strings.Contains(stdout, "✅ pgadmin running") {
 		t.Fatalf("stdout missing pgadmin running line: %s", stdout)
 	}
 }
@@ -404,15 +410,15 @@ func TestResetVolumesDeclineCancels(t *testing.T) {
 		}
 	})
 
-	_, _, err := executeRoot(t, "reset", "--volumes")
-	if err == nil {
-		t.Fatal("expected reset to cancel")
-	}
-	if !strings.Contains(err.Error(), "reset cancelled") {
+	stdout, _, err := executeRoot(t, "reset", "--volumes")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if downCalled {
 		t.Fatal("compose down should not have been called")
+	}
+	if !strings.Contains(stdout, "ℹ️ reset cancelled") {
+		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }
 

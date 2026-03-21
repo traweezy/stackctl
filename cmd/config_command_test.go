@@ -68,9 +68,12 @@ func TestConfigInitExistingDeclineCancels(t *testing.T) {
 		d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return false, nil }
 	})
 
-	_, _, err := executeRoot(t, "config", "init", "--non-interactive")
-	if err == nil || !strings.Contains(err.Error(), "config init cancelled") {
+	stdout, _, err := executeRoot(t, "config", "init", "--non-interactive")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, "ℹ️ config init cancelled") {
+		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }
 
@@ -124,7 +127,7 @@ func TestConfigValidatePrintsSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config validate returned error: %v", err)
 	}
-	if !strings.Contains(stdout, "[OK  ] config is valid") {
+	if !strings.Contains(stdout, "✅ config is valid") {
 		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }
@@ -182,9 +185,12 @@ func TestConfigResetDeclineCancels(t *testing.T) {
 		d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return false, nil }
 	})
 
-	_, _, err := executeRoot(t, "config", "reset")
-	if err == nil || !strings.Contains(err.Error(), "config reset cancelled") {
+	stdout, _, err := executeRoot(t, "config", "reset")
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, "ℹ️ config reset cancelled") {
+		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }
 

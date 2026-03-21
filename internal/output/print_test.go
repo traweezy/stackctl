@@ -12,7 +12,7 @@ func TestStatusLineFormatsOutput(t *testing.T) {
 		t.Fatalf("StatusLine returned error: %v", err)
 	}
 
-	if buf.String() != "[OK  ] config file found\n" {
+	if buf.String() != "✅ config file found\n" {
 		t.Fatalf("unexpected output: %q", buf.String())
 	}
 }
