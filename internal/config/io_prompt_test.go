@@ -233,6 +233,30 @@ func TestPromptYesNoAndValidationHelpers(t *testing.T) {
 	}
 }
 
+func TestPromptSessionFormatsBooleanDefaultsConsistently(t *testing.T) {
+	var out strings.Builder
+
+	session := promptSession{
+		reader: bufio.NewReader(strings.NewReader("\n\n")),
+		out:    &out,
+	}
+
+	if _, err := session.askBool("Proceed", true); err != nil {
+		t.Fatalf("askBool returned error: %v", err)
+	}
+	if _, err := session.askBool("Proceed", false); err != nil {
+		t.Fatalf("askBool returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "Proceed [Y/n]: ") {
+		t.Fatalf("missing [Y/n] prompt: %q", got)
+	}
+	if !strings.Contains(got, "Proceed [y/N]: ") {
+		t.Fatalf("missing [y/N] prompt: %q", got)
+	}
+}
+
 func TestValidationErrorString(t *testing.T) {
 	err := ValidationError{
 		Issues: []ValidationIssue{{Field: "stack.dir", Message: "missing"}},
