@@ -509,9 +509,14 @@ Examples:
 
 ```bash
 stackctl services
+stackctl services --json
 ```
 
-Flags: `-h`, `--help` only.
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-j`, `--json` | Print service details as JSON |
 
 ### `stackctl connect`
 
@@ -719,9 +724,15 @@ For local development on `stackctl` itself:
 
 ```bash
 go test ./...
+go test ./integration -tags=integration -count=1
 go build ./...
 go run . --help
 ```
+
+The default test suite includes unit tests, script-driven CLI tests, and
+interactive PTY coverage for the config wizard. The integration suite is
+Linux-only and runs the real binary against real Podman-managed services in
+isolated temp XDG directories.
 
 ## Release flow
 
@@ -757,6 +768,8 @@ Available today:
 - configurable Postgres database, username, password, and ports
 - optional Redis auth that flows through generated compose and DSNs
 - configurable pgAdmin login details that stay in sync with the managed stack
+- machine-readable service output with `stackctl services --json`
+- live Podman integration coverage for the managed-stack lifecycle
 
 Current CLI surface:
 
@@ -797,8 +810,6 @@ Resulting target stack:
 
 #### More day-to-day CLI helpers
 
-- `stackctl services --json`
-  Why: machine-readable automation output
 - `stackctl services --copy <target>`
   Why: quick copy helpers for DSNs and URLs
 - `stackctl exec <service> ...`
@@ -830,9 +841,6 @@ commands are in place.
 - better support for non-managed custom stacks
   Why: external compose users should be able to keep using `stackctl`
   without losing as much configuration awareness
-- stronger live integration coverage against real Podman environments
-  Why: customized credentials and service settings should be proven against
-  real stack startup behavior, not just unit-level rendering tests
 
 - multi-stack support such as `stackctl start dev` and
   `stackctl start staging`
