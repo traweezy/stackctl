@@ -281,6 +281,7 @@ Once the stack is configured, the most common day-to-day flow looks like this:
 
 ```bash
 stackctl start
+stackctl tui
 stackctl services
 stackctl connect
 stackctl logs --watch
@@ -303,6 +304,37 @@ Root flags:
 | --- | --- |
 | `-h`, `--help` | Show help for `stackctl` |
 | `-v`, `--version` | Print the short version string |
+
+### `stackctl tui`
+
+Open the interactive terminal dashboard.
+
+Phase one is intentionally read-only. It gives you a full-screen overview of
+the current stack config and runtime state without changing the stack.
+
+Examples:
+
+```bash
+stackctl tui
+```
+
+Keys:
+
+- `tab`, `j`, `right` to move to the next section
+- `shift+tab`, `k`, `left` to move to the previous section
+- `r` to refresh
+- `s` to show or hide secrets in the dashboard
+- `?` to toggle the expanded help footer
+- `q`, `esc`, `ctrl+c` to quit
+
+Sections:
+
+- `Overview`: stack paths, mode, service counts, and startup behavior
+- `Services`: read-only runtime details for each service
+- `Health`: current health and reachability checks
+- `Connections`: DSNs and URLs with secrets masked by default
+
+Flags: `-h`, `--help` only.
 
 ### `stackctl setup`
 
