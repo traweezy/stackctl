@@ -309,10 +309,12 @@ Root flags:
 
 Open the interactive terminal dashboard.
 
-Phase one is intentionally read-only. It gives you a full-screen overview of
-the current stack config and runtime state without changing the stack. It now
-includes a compact mode, optional background refresh, and read-only copy
-placeholders for the most useful DSNs and URLs.
+The TUI now includes the phase-two operator workflow. It gives you a
+full-screen dashboard for the current stack config and runtime state, plus
+panel-scoped actions for `start`, `stop`, `restart`, `open`, and `doctor`.
+Lifecycle actions run in the background, show optimistic state while they are
+in progress, and write a session-local action history you can review inside the
+dashboard.
 
 Examples:
 
@@ -324,6 +326,9 @@ Keys:
 
 - `tab`, `j`, `right` to move to the next section
 - `shift+tab`, `k`, `left` to move to the previous section
+- `1` through `5` to run the actions shown for the current panel
+- `y`, `enter` to confirm a stop or restart action
+- `n`, `esc` to cancel a pending confirmation
 - `r` to refresh
 - `a` to toggle conservative auto-refresh (`30s`)
 - `m` to toggle expanded vs compact density
@@ -334,17 +339,27 @@ Keys:
 Sections:
 
 - `Overview`: stack paths, mode, stack-managed service counts, and startup behavior
-- `Services`: read-only runtime details for each service, with friendlier stopped-state UX
+- `Services`: runtime details for each service, with cleaner transitional and stopped-state UX
 - `Health`: a service-by-service health summary with runtime and reachability status
 - `Connections`: DSNs and URLs with secrets masked by default
+- `History`: the current session’s action log, including cancellations, warnings, and doctor summaries
 
 Notes:
 
 - auto-refresh is on by default and can be turned off inside the TUI
 - compact mode trims less important runtime fields so the dashboard is easier
   to scan on smaller terminals
+- while an action is running, the TUI pauses manual and automatic refresh until
+  the action completes and then reloads the snapshot when needed
+- `stop` and `restart` require an in-TUI confirmation so accidental key presses
+  do not interrupt the running stack
+- `doctor` runs diagnostics without applying fixes; it stores the summary and
+  any warnings or failures in the history panel
 - services and connections panels now show copy placeholders for the DSNs and
   URLs that will become real copy actions in a later phase
+- long-running actions usually mean image pulls, Podman startup, or service
+  readiness waits; leave the TUI open and let the action finish before forcing
+  another lifecycle operation
 
 Flags: `-h`, `--help` only.
 
@@ -1073,7 +1088,9 @@ commands are in place.
 
 These are appealing, but not ahead of the higher-value local-platform work.
 
-- a TUI dashboard such as `stackctl ui`
+- deeper TUI inspection views for logs, service detail, ports, and doctor detail
+- in-TUI config editing, validation, and managed-stack scaffolding
+- TUI power-user workflows such as copy actions, a command palette, and quick jumps
 - a self-update flow such as `stackctl update`
 - a plugin model for optional service packs
 - non-Linux support once runtime and install behavior are abstracted well
