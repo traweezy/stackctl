@@ -324,15 +324,15 @@ func TestLogsInvalidServiceReturnsError(t *testing.T) {
 	}
 }
 
-func TestLogsServiceUsesMappedContainer(t *testing.T) {
-	var capturedContainer string
+func TestLogsServiceUsesComposeServiceFilter(t *testing.T) {
+	var capturedService string
 	var capturedTail int
 	var follow bool
 
 	withTestDeps(t, func(d *commandDeps) {
 		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
-		d.containerLogs = func(_ context.Context, _ system.Runner, container string, tail int, watch bool, _ string) error {
-			capturedContainer = container
+		d.composeLogs = func(_ context.Context, _ system.Runner, _ configpkg.Config, tail int, watch bool, _ string, service string) error {
+			capturedService = service
 			capturedTail = tail
 			follow = watch
 			return nil
@@ -343,8 +343,8 @@ func TestLogsServiceUsesMappedContainer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("logs returned error: %v", err)
 	}
-	if capturedContainer != "local-postgres" || capturedTail != 200 || !follow {
-		t.Fatalf("unexpected log call: container=%s tail=%d follow=%v", capturedContainer, capturedTail, follow)
+	if capturedService != "postgres" || capturedTail != 200 || !follow {
+		t.Fatalf("unexpected log call: service=%s tail=%d follow=%v", capturedService, capturedTail, follow)
 	}
 }
 

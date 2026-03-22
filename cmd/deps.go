@@ -43,7 +43,7 @@ type commandDeps struct {
 	openCommandName           func() string
 	composeUp                 func(context.Context, system.Runner, configpkg.Config) error
 	composeDown               func(context.Context, system.Runner, configpkg.Config, bool) error
-	composeLogs               func(context.Context, system.Runner, configpkg.Config, int, bool, string) error
+	composeLogs               func(context.Context, system.Runner, configpkg.Config, int, bool, string, string) error
 	containerLogs             func(context.Context, system.Runner, string, int, bool, string) error
 }
 
@@ -83,8 +83,8 @@ func defaultCommandDeps() commandDeps {
 		composeDown: func(ctx context.Context, runner system.Runner, cfg configpkg.Config, removeVolumes bool) error {
 			return compose.Client{Runner: runner}.Down(ctx, cfg, removeVolumes)
 		},
-		composeLogs: func(ctx context.Context, runner system.Runner, cfg configpkg.Config, tail int, follow bool, since string) error {
-			return compose.Client{Runner: runner}.Logs(ctx, cfg, tail, follow, since)
+		composeLogs: func(ctx context.Context, runner system.Runner, cfg configpkg.Config, tail int, follow bool, since, service string) error {
+			return compose.Client{Runner: runner}.Logs(ctx, cfg, tail, follow, since, service)
 		},
 		containerLogs: func(ctx context.Context, runner system.Runner, containerName string, tail int, follow bool, since string) error {
 			return compose.Client{Runner: runner}.ContainerLogs(ctx, containerName, tail, follow, since)

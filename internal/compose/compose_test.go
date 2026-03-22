@@ -67,7 +67,7 @@ func TestLogsRunsPodmanComposeLogsCommand(t *testing.T) {
 	cfg, logPath := writeFakePodman(t)
 
 	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
-	if err := client.Logs(context.Background(), cfg, 100, false, ""); err != nil {
+	if err := client.Logs(context.Background(), cfg, 100, false, "", ""); err != nil {
 		t.Fatalf("Logs returned error: %v", err)
 	}
 
@@ -81,11 +81,70 @@ func TestLogsRunsPodmanComposeLogsCommand(t *testing.T) {
 	})
 }
 
+func TestListContainersParsesComposeJSONStream(t *testing.T) {
+	cfg := configpkg.Default()
+
+	containers, err := ListContainers(context.Background(), cfg.Stack.Dir, configpkg.ComposePath(cfg), func(context.Context, string, string, ...string) (system.CommandResult, error) {
+		return system.CommandResult{
+			Stdout: "\x1b[4m>>>> Executing external compose provider \"/usr/libexec/docker/cli-plugins/docker-compose\". Please refer to the documentation for details. <<<<\n\n" +
+				"\x1b[0m" +
+				"{\"ID\":\"postgres123\",\"Image\":\"postgres:16\",\"Name\":\"local-postgres\",\"Names\":\"local-postgres\",\"Status\":\"Up\",\"State\":\"running\",\"Publishers\":[{\"PublishedPort\":5432,\"TargetPort\":5432,\"Protocol\":\"tcp\"}],\"CreatedAt\":\"now\"}\n" +
+				"{\"ID\":\"redis123\",\"Image\":\"redis:7\",\"Name\":\"local-redis\",\"Names\":\"local-redis\",\"Status\":\"Exited\",\"State\":\"exited\",\"Publishers\":[{\"PublishedPort\":6379,\"TargetPort\":6379,\"Protocol\":\"tcp\"}],\"CreatedAt\":\"later\"}\n",
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("ListContainers returned error: %v", err)
+	}
+
+	want := []system.Container{
+		{
+			ID:        "postgres123",
+			Image:     "postgres:16",
+			Names:     []string{"local-postgres"},
+			Status:    "Up",
+			State:     "running",
+			Ports:     []system.ContainerPort{{HostPort: 5432, ContainerPort: 5432, Protocol: "tcp"}},
+			CreatedAt: "now",
+		},
+		{
+			ID:        "redis123",
+			Image:     "redis:7",
+			Names:     []string{"local-redis"},
+			Status:    "Exited",
+			State:     "exited",
+			Ports:     []system.ContainerPort{{HostPort: 6379, ContainerPort: 6379, Protocol: "tcp"}},
+			CreatedAt: "later",
+		},
+	}
+	if !reflect.DeepEqual(containers, want) {
+		t.Fatalf("unexpected containers:\n got: %#v\nwant: %#v", containers, want)
+	}
+}
+
+func TestListContainersParsesArrayOutputWithLegacyPortShape(t *testing.T) {
+	cfg := configpkg.Default()
+
+	containers, err := ListContainers(context.Background(), cfg.Stack.Dir, configpkg.ComposePath(cfg), func(context.Context, string, string, ...string) (system.CommandResult, error) {
+		return system.CommandResult{
+			Stdout: `[{"ID":"postgres123","Image":"postgres:16","Names":["local-postgres"],"Status":"Up","State":"running","Ports":[{"host_port":5432,"container_port":5432,"protocol":"tcp"}],"CreatedAt":"now"}]`,
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("ListContainers returned error: %v", err)
+	}
+	if len(containers) != 1 {
+		t.Fatalf("unexpected container count: %d", len(containers))
+	}
+	if got := containers[0].Ports[0].HostPort; got != 5432 {
+		t.Fatalf("unexpected host port: %d", got)
+	}
+}
+
 func TestLogsRunsFollowComposeCommand(t *testing.T) {
 	cfg, logPath := writeFakePodman(t)
 
 	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
-	if err := client.Logs(context.Background(), cfg, 50, true, ""); err != nil {
+	if err := client.Logs(context.Background(), cfg, 50, true, "", ""); err != nil {
 		t.Fatalf("Logs returned error: %v", err)
 	}
 
@@ -97,6 +156,25 @@ func TestLogsRunsFollowComposeCommand(t *testing.T) {
 		"-f",
 		"--tail",
 		"50",
+	})
+}
+
+func TestLogsRunsServiceSpecificComposeCommand(t *testing.T) {
+	cfg, logPath := writeFakePodman(t)
+
+	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
+	if err := client.Logs(context.Background(), cfg, 25, false, "", "postgres"); err != nil {
+		t.Fatalf("Logs returned error: %v", err)
+	}
+
+	assertRecordedArgs(t, logPath, []string{
+		"compose",
+		"-f",
+		configpkg.ComposePath(cfg),
+		"logs",
+		"--tail",
+		"25",
+		"postgres",
 	})
 }
 

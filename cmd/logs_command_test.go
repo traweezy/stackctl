@@ -32,10 +32,13 @@ func TestLogsAllServicesUsesComposeLogsDefaults(t *testing.T) {
 
 	withTestDeps(t, func(d *commandDeps) {
 		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
-		d.composeLogs = func(_ context.Context, _ system.Runner, _ configpkg.Config, tail int, watch bool, _ string) error {
+		d.composeLogs = func(_ context.Context, _ system.Runner, _ configpkg.Config, tail int, watch bool, _, service string) error {
 			called = true
 			capturedTail = tail
 			follow = watch
+			if service != "" {
+				t.Fatalf("expected no service filter, got %q", service)
+			}
 			return nil
 		}
 	})
@@ -59,10 +62,13 @@ func TestLogsAllServicesWatchUsesComposeLogs(t *testing.T) {
 
 	withTestDeps(t, func(d *commandDeps) {
 		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
-		d.composeLogs = func(_ context.Context, _ system.Runner, _ configpkg.Config, tail int, watch bool, _ string) error {
+		d.composeLogs = func(_ context.Context, _ system.Runner, _ configpkg.Config, tail int, watch bool, _, service string) error {
 			called = true
 			capturedTail = tail
 			follow = watch
+			if service != "" {
+				t.Fatalf("expected no service filter, got %q", service)
+			}
 			return nil
 		}
 	})

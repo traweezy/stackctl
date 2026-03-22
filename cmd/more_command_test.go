@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func TestDefaultCommandDepsClosuresExecuteAgainstFakeBinaries(t *testing.T) {
 	if err := value.composeDown(context.Background(), runner, cfg, true); err != nil {
 		t.Fatalf("composeDown returned error: %v", err)
 	}
-	if err := value.composeLogs(context.Background(), runner, cfg, 10, true, "1m"); err != nil {
+	if err := value.composeLogs(context.Background(), runner, cfg, 10, true, "1m", "postgres"); err != nil {
 		t.Fatalf("composeLogs returned error: %v", err)
 	}
 	if err := value.containerLogs(context.Background(), runner, "local-postgres", 5, false, ""); err != nil {
@@ -214,6 +215,35 @@ func TestConnectPrintsConnectionInfo(t *testing.T) {
 	}
 	if strings.Contains(stdout, "DSN:") || strings.Contains(stdout, "URL:") {
 		t.Fatalf("connect should stay minimal, got: %s", stdout)
+	}
+}
+
+func TestConnectUsesConfigWithoutRuntimeInspection(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Connection.RedisPassword = "redispass"
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			t.Fatal("connect should not inspect podman runtime")
+			return system.CommandResult{}, nil
+		}
+		d.cockpitStatus = func(context.Context) system.CockpitState {
+			t.Fatal("connect should not inspect cockpit runtime")
+			return system.CockpitState{}
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "connect")
+	if err != nil {
+		t.Fatalf("connect returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "Cockpit\n  https://devbox:9090") {
+		t.Fatalf("expected cockpit URL in connect output: %s", stdout)
+	}
+	if !strings.Contains(stdout, "pgAdmin\n  http://devbox:8081") {
+		t.Fatalf("expected pgadmin URL in connect output: %s", stdout)
 	}
 }
 
@@ -547,8 +577,36 @@ func TestLoadStackContainersReturnsParseError(t *testing.T) {
 	})
 
 	_, err := loadStackContainers(context.Background(), configpkg.Default())
-	if err == nil || !strings.Contains(err.Error(), "parse podman status output") {
+	if err == nil || !strings.Contains(err.Error(), "parse compose status output") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadStackContainersUsesComposePSWhenAvailable(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.captureResult = func(_ context.Context, dir, name string, args ...string) (system.CommandResult, error) {
+			if dir != configpkg.Default().Stack.Dir {
+				t.Fatalf("unexpected working dir: %q", dir)
+			}
+			if name != "podman" {
+				t.Fatalf("unexpected executable: %q", name)
+			}
+			want := []string{"compose", "-f", "/tmp/stackctl/compose.yaml", "ps", "--format", "json"}
+			if !reflect.DeepEqual(args, want) {
+				t.Fatalf("unexpected args:\n got: %q\nwant: %q", args, want)
+			}
+			return system.CommandResult{
+				Stdout: "{\"ID\":\"postgres123\",\"Names\":\"local-postgres\",\"Status\":\"Up\",\"State\":\"running\"}\n",
+			}, nil
+		}
+	})
+
+	containers, err := loadStackContainers(context.Background(), configpkg.Default())
+	if err != nil {
+		t.Fatalf("loadStackContainers returned error: %v", err)
+	}
+	if len(containers) != 1 || containers[0].Names[0] != "local-postgres" {
+		t.Fatalf("unexpected containers: %+v", containers)
 	}
 }
 

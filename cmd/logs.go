@@ -28,6 +28,14 @@ func newLogsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			var serviceName string
+			if service != "" {
+				serviceName, err = canonicalServiceName(service)
+				if err != nil {
+					return err
+				}
+			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
 				return err
 			}
@@ -39,16 +47,7 @@ func newLogsCmd() *cobra.Command {
 				ctx = watchCtx
 			}
 
-			if service == "" {
-				err = deps.composeLogs(ctx, runnerFor(cmd), cfg, tail, watch, since)
-			} else {
-				containerName, containerErr := serviceContainer(cfg, service)
-				if containerErr != nil {
-					return containerErr
-				}
-
-				err = deps.containerLogs(ctx, runnerFor(cmd), containerName, tail, watch, since)
-			}
+			err = deps.composeLogs(ctx, runnerFor(cmd), cfg, tail, watch, since, serviceName)
 			if watch && ctx.Err() != nil {
 				return nil
 			}

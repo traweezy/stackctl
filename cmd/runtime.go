@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/traweezy/stackctl/internal/compose"
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/output"
 	"github.com/traweezy/stackctl/internal/system"
@@ -86,13 +88,31 @@ func ensureComposeRuntime(cmd *cobra.Command, cfg configpkg.Config) error {
 }
 
 func serviceContainer(cfg configpkg.Config, service string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(service)) {
-	case "postgres", "pg":
+	name, err := canonicalServiceName(service)
+	if err != nil {
+		return "", err
+	}
+
+	switch name {
+	case "postgres":
 		return cfg.Services.PostgresContainer, nil
-	case "redis", "rd":
+	case "redis":
 		return cfg.Services.RedisContainer, nil
 	case "pgadmin":
 		return cfg.Services.PgAdminContainer, nil
+	default:
+		return "", fmt.Errorf("invalid service %q; valid values: postgres, redis, pgadmin", service)
+	}
+}
+
+func canonicalServiceName(service string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(service)) {
+	case "postgres", "pg":
+		return "postgres", nil
+	case "redis", "rd":
+		return "redis", nil
+	case "pgadmin":
+		return "pgadmin", nil
 	default:
 		return "", fmt.Errorf("invalid service %q; valid values: postgres, redis, pgadmin", service)
 	}
@@ -111,6 +131,13 @@ func stackContainerNames(cfg configpkg.Config) []string {
 }
 
 func loadStackContainers(ctx context.Context, cfg configpkg.Config) ([]system.Container, error) {
+	composePath := deps.composePath(cfg)
+	if deps.podmanComposeAvail(ctx) {
+		if _, err := deps.stat(composePath); err == nil {
+			return compose.ListContainers(ctx, cfg.Stack.Dir, composePath, deps.captureResult)
+		}
+	}
+
 	containers, err := system.ListContainers(ctx, deps.captureResult)
 	if err != nil {
 		return nil, err
@@ -179,22 +206,7 @@ func printStatusTable(cmd *cobra.Command, containers []system.Container, verbose
 }
 
 func printConnectionInfo(cmd *cobra.Command, cfg configpkg.Config) error {
-	services, err := runtimeServices(context.Background(), cfg)
-	if err != nil {
-		return err
-	}
-
-	entries := make([]connectionEntry, 0, len(services))
-	for _, service := range services {
-		switch {
-		case service.DSN != "":
-			entries = append(entries, connectionEntry{Name: service.DisplayName, Value: service.DSN})
-		case service.URL != "":
-			entries = append(entries, connectionEntry{Name: service.DisplayName, Value: service.URL})
-		}
-	}
-
-	return printConnectionEntries(cmd, entries)
+	return printConnectionEntries(cmd, connectionEntries(cfg))
 }
 
 func healthChecks(ctx context.Context, cfg configpkg.Config) ([]outputLine, error) {
@@ -261,19 +273,20 @@ type configuredService struct {
 }
 
 type runtimeService struct {
-	Icon          string
-	DisplayName   string
-	Status        string
-	ContainerName string
-	Host          string
-	ExternalPort  int
-	InternalPort  int
-	Database      string
-	Email         string
-	Username      string
-	Password      string
-	URL           string
-	DSN           string
+	Name          string `json:"name"`
+	Icon          string `json:"-"`
+	DisplayName   string `json:"display_name"`
+	Status        string `json:"status"`
+	ContainerName string `json:"container_name,omitempty"`
+	Host          string `json:"host,omitempty"`
+	ExternalPort  int    `json:"external_port,omitempty"`
+	InternalPort  int    `json:"internal_port,omitempty"`
+	Database      string `json:"database,omitempty"`
+	Email         string `json:"email,omitempty"`
+	Username      string `json:"username,omitempty"`
+	Password      string `json:"password,omitempty"`
+	URL           string `json:"url,omitempty"`
+	DSN           string `json:"dsn,omitempty"`
 }
 
 type connectionEntry struct {
@@ -312,6 +325,7 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 
 	services := []runtimeService{
 		{
+			Name:          "postgres",
 			Icon:          "🗄️",
 			DisplayName:   "Postgres",
 			Status:        containerStatus(containerByName, cfg.Services.PostgresContainer),
@@ -325,6 +339,7 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 			DSN:           postgresDSN(cfg),
 		},
 		{
+			Name:          "redis",
 			Icon:          "⚡",
 			DisplayName:   "Redis",
 			Status:        containerStatus(containerByName, cfg.Services.RedisContainer),
@@ -339,6 +354,7 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 
 	if cfg.Setup.IncludePgAdmin {
 		services = append(services, runtimeService{
+			Name:          "pgadmin",
 			Icon:          "🌐",
 			DisplayName:   "pgAdmin",
 			Status:        containerStatus(containerByName, cfg.Services.PgAdminContainer),
@@ -354,6 +370,7 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 
 	cockpit := deps.cockpitStatus(ctx)
 	services = append(services, runtimeService{
+		Name:         "cockpit",
 		Icon:         "🖥️",
 		DisplayName:  "Cockpit",
 		Status:       cockpitStateLabel(cockpit),
@@ -363,6 +380,23 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 	})
 
 	return services, nil
+}
+
+func printServicesJSON(cmd *cobra.Command, cfg configpkg.Config) error {
+	services, err := runtimeServices(context.Background(), cfg)
+	if err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(services, "", "  ")
+	if err != nil {
+		return err
+	}
+	if _, err := cmd.OutOrStdout().Write(data); err != nil {
+		return err
+	}
+	_, err = cmd.OutOrStdout().Write([]byte("\n"))
+	return err
 }
 
 func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
@@ -445,6 +479,21 @@ func printConnectionEntries(cmd *cobra.Command, entries []connectionEntry) error
 	}
 
 	return nil
+}
+
+func connectionEntries(cfg configpkg.Config) []connectionEntry {
+	entries := []connectionEntry{
+		{Name: "Postgres", Value: postgresDSN(cfg)},
+		{Name: "Redis", Value: redisDSN(cfg)},
+	}
+	if cfg.Setup.IncludePgAdmin && cfg.URLs.PgAdmin != "" {
+		entries = append(entries, connectionEntry{Name: "pgAdmin", Value: cfg.URLs.PgAdmin})
+	}
+	if cfg.URLs.Cockpit != "" {
+		entries = append(entries, connectionEntry{Name: "Cockpit", Value: cfg.URLs.Cockpit})
+	}
+
+	return entries
 }
 
 func postgresDSN(cfg configpkg.Config) string {

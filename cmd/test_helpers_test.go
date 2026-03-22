@@ -52,7 +52,9 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 	testDeps.openCommandName = func() string { return "xdg-open" }
 	testDeps.composeUp = func(context.Context, system.Runner, configpkg.Config) error { return nil }
 	testDeps.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error { return nil }
-	testDeps.composeLogs = func(context.Context, system.Runner, configpkg.Config, int, bool, string) error { return nil }
+	testDeps.composeLogs = func(context.Context, system.Runner, configpkg.Config, int, bool, string, string) error {
+		return nil
+	}
 	testDeps.containerLogs = func(context.Context, system.Runner, string, int, bool, string) error { return nil }
 
 	if mutate != nil {
