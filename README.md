@@ -518,6 +518,35 @@ Flags:
 | --- | --- |
 | `-j`, `--json` | Print service details as JSON |
 
+Plaintext password fields are intentionally omitted from JSON output. Use the
+DSNs, URLs, or the human-readable `stackctl services` output when you need the
+configured credentials directly.
+
+### `stackctl exec`
+
+Run a command inside one of the stack services without looking up container
+names manually.
+
+Examples:
+
+```bash
+stackctl exec postgres -- psql -U app -d app
+stackctl exec redis -- redis-cli -a secret PING
+stackctl exec pgadmin -- printenv PGADMIN_DEFAULT_EMAIL
+```
+
+Supported service targets:
+
+- `postgres` or `pg`
+- `redis` or `rd`
+- `pgadmin`
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--no-tty` | Disable TTY allocation for the exec session |
+
 ### `stackctl connect`
 
 Print minimal connection strings and URLs. This is intentionally smaller than
@@ -769,6 +798,7 @@ Available today:
 - optional Redis auth that flows through generated compose and DSNs
 - configurable pgAdmin login details that stay in sync with the managed stack
 - machine-readable service output with `stackctl services --json`
+- `stackctl exec <service> -- <command...>` for in-container workflows
 - live Podman integration coverage for the managed-stack lifecycle
 
 Current CLI surface:
@@ -778,6 +808,7 @@ Current CLI surface:
 - `start`, `stop`, `restart`
 - `status`
 - `services`
+- `exec`
 - `logs`
 - `health`
 - `connect`
@@ -812,8 +843,6 @@ Resulting target stack:
 
 - `stackctl services --copy <target>`
   Why: quick copy helpers for DSNs and URLs
-- `stackctl exec <service> ...`
-  Why: run commands inside containers without remembering container names
 - `stackctl db shell`, `stackctl db reset`, `stackctl db dump`,
   `stackctl db restore`
   Why: streamline common Postgres workflows
