@@ -12,6 +12,13 @@ exec stackctl exec --help
 stdout '--no-tty'
 stdout 'stackctl exec postgres -- psql -U app -d app'
 
+exec stackctl db shell --help
+stdout '--no-tty'
+stdout 'stackctl db shell -- -c'
+
+exec stackctl ports --help
+stdout 'Show host-to-service port mappings'
+
 exec stackctl status --help
 stdout '--json'
 stdout '--verbose'

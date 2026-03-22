@@ -116,10 +116,13 @@ func (c Client) Logs(ctx context.Context, cfg configpkg.Config, tail int, follow
 	return c.runCompose(ctx, cfg.Stack.Dir, args...)
 }
 
-func (c Client) Exec(ctx context.Context, cfg configpkg.Config, service string, commandArgs []string, tty bool) error {
+func (c Client) Exec(ctx context.Context, cfg configpkg.Config, service string, env []string, commandArgs []string, tty bool) error {
 	args := composeArgs(cfg, "exec")
 	if !tty {
 		args = append(args, "-T")
+	}
+	for _, value := range env {
+		args = append(args, "-e", value)
 	}
 	args = append(args, service)
 	args = append(args, commandArgs...)

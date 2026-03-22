@@ -46,7 +46,7 @@ func newExecCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			err = deps.composeExec(ctx, runnerFor(cmd), cfg, serviceName, args[1:], deps.isTerminal() && !noTTY)
+			err = deps.composeExec(ctx, runnerFor(cmd), cfg, serviceName, nil, args[1:], deps.isTerminal() && !noTTY)
 			if ctx.Err() != nil {
 				return nil
 			}

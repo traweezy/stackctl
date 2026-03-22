@@ -182,7 +182,7 @@ func TestExecRunsNonTTYComposeCommand(t *testing.T) {
 	cfg, logPath := writeFakePodman(t)
 
 	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
-	if err := client.Exec(context.Background(), cfg, "postgres", []string{"psql", "-U", "app"}, false); err != nil {
+	if err := client.Exec(context.Background(), cfg, "postgres", []string{"PGPASSWORD=stackpass"}, []string{"psql", "-U", "app"}, false); err != nil {
 		t.Fatalf("Exec returned error: %v", err)
 	}
 
@@ -192,6 +192,8 @@ func TestExecRunsNonTTYComposeCommand(t *testing.T) {
 		configpkg.ComposePath(cfg),
 		"exec",
 		"-T",
+		"-e",
+		"PGPASSWORD=stackpass",
 		"postgres",
 		"psql",
 		"-U",
@@ -203,7 +205,7 @@ func TestExecRunsTTYComposeCommand(t *testing.T) {
 	cfg, logPath := writeFakePodman(t)
 
 	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
-	if err := client.Exec(context.Background(), cfg, "redis", []string{"redis-cli", "PING"}, true); err != nil {
+	if err := client.Exec(context.Background(), cfg, "redis", nil, []string{"redis-cli", "PING"}, true); err != nil {
 		t.Fatalf("Exec returned error: %v", err)
 	}
 

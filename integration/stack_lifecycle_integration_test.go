@@ -202,10 +202,48 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 		t.Fatalf("logs -s postgres returned error: %v\n%s", err, serviceLogsOutput)
 	}
 
+	portsOutput, err := runStackctl(binaryPath, env, "ports")
+	if err != nil {
+		t.Fatalf("ports returned error: %v\n%s", err, portsOutput)
+	}
+	for _, fragment := range []string{
+		"Postgres",
+		"Redis",
+		"pgAdmin",
+		"Cockpit",
+		strconv.Itoa(cfg.Ports.Postgres) + " -> 5432",
+		strconv.Itoa(cfg.Ports.Redis) + " -> 6379",
+		strconv.Itoa(cfg.Ports.PgAdmin) + " -> 80",
+		strconv.Itoa(cfg.Ports.Cockpit) + " -> 9090",
+	} {
+		if !strings.Contains(portsOutput, fragment) {
+			t.Fatalf("ports output missing %q:\n%s", fragment, portsOutput)
+		}
+	}
+
 	invalidLogsOutput, err := runStackctl(binaryPath, env, "logs", "-s", "invalid")
 	if err == nil || !strings.Contains(invalidLogsOutput, "valid values: postgres, redis, pgadmin") {
 		t.Fatalf("expected invalid service error, got err=%v output=%s", err, invalidLogsOutput)
 	}
+
+	assertEventuallyCommand(t, 30*time.Second, func() error {
+		output, err := runStackctl(
+			binaryPath,
+			env,
+			"db",
+			"shell",
+			"--",
+			"-tAc",
+			"select current_user || ':' || current_database()",
+		)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(output) != "stackuser:stackdb" {
+			return fmt.Errorf("unexpected db shell identity: %q", output)
+		}
+		return nil
+	})
 
 	assertEventuallyCommand(t, 30*time.Second, func() error {
 		output, err := runStackctl(

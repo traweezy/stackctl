@@ -25,9 +25,12 @@ func TestExecUsesComposeExecWithCanonicalService(t *testing.T) {
 
 	withTestDeps(t, func(d *commandDeps) {
 		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
-		d.composeExec = func(_ context.Context, _ system.Runner, _ configpkg.Config, service string, commandArgs []string, tty bool) error {
+		d.composeExec = func(_ context.Context, _ system.Runner, _ configpkg.Config, service string, env []string, commandArgs []string, tty bool) error {
 			called = true
 			capturedService = service
+			if len(env) != 0 {
+				t.Fatalf("unexpected env: %q", env)
+			}
 			capturedArgs = append([]string(nil), commandArgs...)
 			capturedTTY = tty
 			return nil
@@ -69,7 +72,7 @@ func TestExecTTYRespectsNoTTYFlag(t *testing.T) {
 			withTestDeps(t, func(d *commandDeps) {
 				d.isTerminal = func() bool { return true }
 				d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
-				d.composeExec = func(_ context.Context, _ system.Runner, _ configpkg.Config, _ string, _ []string, tty bool) error {
+				d.composeExec = func(_ context.Context, _ system.Runner, _ configpkg.Config, _ string, _ []string, _ []string, tty bool) error {
 					capturedTTY = tty
 					return nil
 				}

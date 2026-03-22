@@ -70,7 +70,7 @@ func TestDefaultCommandDepsClosuresExecuteAgainstFakeBinaries(t *testing.T) {
 	if err := value.composeLogs(context.Background(), runner, cfg, 10, true, "1m", "postgres"); err != nil {
 		t.Fatalf("composeLogs returned error: %v", err)
 	}
-	if err := value.composeExec(context.Background(), runner, cfg, "postgres", []string{"printenv", "PGDATA"}, false); err != nil {
+	if err := value.composeExec(context.Background(), runner, cfg, "postgres", []string{"PGPASSWORD=stackpass"}, []string{"printenv", "PGDATA"}, false); err != nil {
 		t.Fatalf("composeExec returned error: %v", err)
 	}
 	if err := value.containerLogs(context.Background(), runner, "local-postgres", 5, false, ""); err != nil {

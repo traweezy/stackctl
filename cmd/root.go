@@ -37,6 +37,8 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newRestartCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newServicesCmd())
+	cmd.AddCommand(newPortsCmd())
+	cmd.AddCommand(newDBCmd())
 	cmd.AddCommand(newExecCmd())
 	cmd.AddCommand(newLogsCmd())
 	cmd.AddCommand(newOpenCmd())
