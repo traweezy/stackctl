@@ -305,6 +305,117 @@ func TestModelTogglesCompactLayout(t *testing.T) {
 	}
 }
 
+func TestHealthViewShowsServiceCentricSummary(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+				PortListening: true,
+			},
+			{
+				DisplayName:   "Redis",
+				Status:        "missing",
+				ContainerName: "stack-redis",
+				Host:          "localhost",
+				ExternalPort:  6379,
+				PortListening: false,
+			},
+			{
+				DisplayName:   "pgAdmin",
+				Status:        "running",
+				ContainerName: "stack-pgadmin",
+				Host:          "localhost",
+				ExternalPort:  8081,
+				PortListening: true,
+				URL:           "http://localhost:8081",
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	current = updatedModel.(Model)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	current = updatedModel.(Model)
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"Healthy: 2",
+		"Warnings: 0",
+		"Not running: 1",
+		"●  Postgres",
+		"Status: healthy",
+		"Reachability: localhost:5432 is accepting connections",
+		"○  Redis",
+		"Status: not running",
+		"Reachability: localhost:6379 is not responding",
+		"URL: http://localhost:8081",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("expected health view to contain %q:\n%s", fragment, view)
+		}
+	}
+	for _, fragment := range []string{
+		"postgres port listening",
+		"redis port listening",
+	} {
+		if strings.Contains(view, fragment) {
+			t.Fatalf("expected service-centric health view to avoid raw check fragment %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestHealthViewWarnsWhenPortIsBusyOutsideTheStack(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "missing",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+				PortListening: true,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	current = updatedModel.(Model)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	current = updatedModel.(Model)
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"Healthy: 0",
+		"Warnings: 1",
+		"Not running: 0",
+		"Status: needs attention",
+		"Reachability: localhost:5432 is accepting connections",
+		"The host port is active even though this service is not running.",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("expected warning health view to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
 func TestOverviewExcludesCockpitFromStackServiceCount(t *testing.T) {
 	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})

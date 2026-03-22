@@ -46,6 +46,7 @@ type Service struct {
 	Host            string
 	ExternalPort    int
 	InternalPort    int
+	PortListening   bool
 	Database        string
 	MaintenanceDB   string
 	Email           string
@@ -638,11 +639,24 @@ func renderHealth(snapshot Snapshot) string {
 	if snapshot.HealthError != "" {
 		lines = append(lines, errorBannerStyle().Render(snapshot.HealthError), "")
 	}
+	if len(snapshot.Services) > 0 {
+		lines = append(lines, renderHealthSummary(snapshot.Services))
+		lines = append(lines, "")
+		for idx, service := range snapshot.Services {
+			lines = append(lines, renderHealthBlock(service)...)
+			if idx < len(snapshot.Services)-1 {
+				lines = append(lines, "")
+			}
+		}
+		return strings.Join(lines, "\n")
+	}
 	if len(snapshot.Health) == 0 {
 		lines = append(lines, mutedStyle().Render("No health data loaded."))
 		return strings.Join(lines, "\n")
 	}
 
+	lines = append(lines, mutedStyle().Render("Live service health is unavailable; showing raw checks instead."))
+	lines = append(lines, "")
 	for _, line := range snapshot.Health {
 		lines = append(lines, healthLineStyle(line.Status).Render(fmt.Sprintf("%s %s", healthStatusIcon(line.Status), line.Message)))
 	}
@@ -761,6 +775,119 @@ func renderCopyHint(snapshot Snapshot, active section) string {
 	return "Copy placeholders: " + strings.Join(hints, "  •  ")
 }
 
+func renderHealthSummary(services []Service) string {
+	healthy := 0
+	warning := 0
+	notRunning := 0
+
+	for _, service := range services {
+		switch classifyServiceHealth(service) {
+		case output.StatusOK:
+			healthy++
+		case "not running":
+			notRunning++
+		default:
+			warning++
+		}
+	}
+
+	return lipgloss.JoinHorizontal(
+		lipgloss.Left,
+		statusStyle(output.StatusOK).Render(fmt.Sprintf("Healthy: %d", healthy)),
+		"  ",
+		statusStyle(output.StatusWarn).Render(fmt.Sprintf("Warnings: %d", warning)),
+		"  ",
+		statusStyle("not running").Render(fmt.Sprintf("Not running: %d", notRunning)),
+	)
+}
+
+func renderHealthBlock(service Service) []string {
+	lines := make([]string, 0, 8)
+	status := classifyServiceHealth(service)
+	lines = append(lines, renderServiceHeading(status, service.DisplayName))
+	lines = append(lines, renderStatusLine(healthStatusLabel(service)))
+	lines = append(lines, fmt.Sprintf("Runtime: %s", emptyLabel(displayServiceStatus(service))))
+
+	reachability := healthReachabilityLabel(service)
+	if reachability != "" {
+		lines = append(lines, fmt.Sprintf("Reachability: %s", reachability))
+	}
+	if note := healthNote(service); note != "" {
+		lines = append(lines, mutedStyle().Render(note))
+	}
+	if service.URL != "" {
+		lines = append(lines, fmt.Sprintf("URL: %s", service.URL))
+	}
+
+	return lines
+}
+
+func classifyServiceHealth(service Service) string {
+	status := displayServiceStatus(service)
+	switch {
+	case strings.EqualFold(status, "running") && serviceHasReachablePort(service):
+		return output.StatusOK
+	case strings.EqualFold(status, "running"):
+		return output.StatusWarn
+	case service.PortListening:
+		return output.StatusWarn
+	default:
+		return "not running"
+	}
+}
+
+func healthStatusLabel(service Service) string {
+	switch classifyServiceHealth(service) {
+	case output.StatusOK:
+		return "healthy"
+	case "not running":
+		if strings.EqualFold(displayServiceStatus(service), "missing") {
+			return "not installed"
+		}
+		return "not running"
+	default:
+		return "needs attention"
+	}
+}
+
+func healthReachabilityLabel(service Service) string {
+	if service.ExternalPort <= 0 {
+		return ""
+	}
+
+	target := fmt.Sprintf("%s:%d", emptyLabel(service.Host), service.ExternalPort)
+	if service.PortListening {
+		return target + " is accepting connections"
+	}
+
+	return target + " is not responding"
+}
+
+func healthNote(service Service) string {
+	status := displayServiceStatus(service)
+	switch {
+	case strings.EqualFold(status, "running") && !serviceHasReachablePort(service):
+		return "The service reports running, but its host port is not reachable yet."
+	case !strings.EqualFold(status, "running") && service.PortListening:
+		return "The host port is active even though this service is not running. Another process may be using it."
+	case strings.EqualFold(status, "missing"):
+		if isStackService(service) {
+			return "The managed container is not present yet."
+		}
+		return "This service is not installed."
+	default:
+		return ""
+	}
+}
+
+func serviceHasReachablePort(service Service) bool {
+	if service.ExternalPort <= 0 {
+		return strings.EqualFold(displayServiceStatus(service), "running")
+	}
+
+	return service.PortListening
+}
+
 func copyHintTargets(snapshot Snapshot, active section) []string {
 	targets := make([]string, 0, 4)
 	seen := make(map[string]struct{})
@@ -797,9 +924,9 @@ func copyHintTargets(snapshot Snapshot, active section) []string {
 
 func serviceStatusBadge(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "running":
+	case "running", "ok", "healthy":
 		return "●"
-	case "stopped", "not running", "not installed", "error":
+	case "stopped", "not running", "not installed", "error", "warn", "warning", "fail", "miss":
 		return "○"
 	default:
 		return "◌"
@@ -808,13 +935,13 @@ func serviceStatusBadge(status string) string {
 
 func statusStyle(status string) lipgloss.Style {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "running", output.StatusOK:
+	case "running", "ok", "healthy":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("78")).Bold(true)
-	case "warning", output.StatusWarn:
+	case "warning", "warn":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("221")).Bold(true)
 	case "stopped", "not running", "missing", "not installed":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	case "error", output.StatusFail, output.StatusMiss:
+	case "error", "fail", "miss":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("250"))

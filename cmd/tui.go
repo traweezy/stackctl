@@ -95,6 +95,7 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config) stacktui.Snapshot
 			Host:            service.Host,
 			ExternalPort:    service.ExternalPort,
 			InternalPort:    service.InternalPort,
+			PortListening:   service.ExternalPort > 0 && deps.portListening(service.ExternalPort),
 			Database:        service.Database,
 			MaintenanceDB:   service.MaintenanceDB,
 			Email:           service.Email,

@@ -44,6 +44,12 @@ func TestLoadTUISnapshotBuildsReadOnlyDashboardState(t *testing.T) {
 	if len(snapshot.Services) != 4 {
 		t.Fatalf("expected 4 services in snapshot, got %d", len(snapshot.Services))
 	}
+	if !snapshot.Services[0].PortListening || !snapshot.Services[1].PortListening {
+		t.Fatalf("expected postgres and redis ports to be marked reachable: %+v", snapshot.Services[:2])
+	}
+	if snapshot.Services[2].PortListening || snapshot.Services[3].PortListening {
+		t.Fatalf("expected pgadmin and cockpit ports to be marked unreachable: %+v", snapshot.Services[2:])
+	}
 	if len(snapshot.Health) == 0 {
 		t.Fatalf("expected health lines in snapshot")
 	}

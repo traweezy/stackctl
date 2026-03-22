@@ -335,7 +335,7 @@ Sections:
 
 - `Overview`: stack paths, mode, stack-managed service counts, and startup behavior
 - `Services`: read-only runtime details for each service, with friendlier stopped-state UX
-- `Health`: current health and reachability checks
+- `Health`: a service-by-service health summary with runtime and reachability status
 - `Connections`: DSNs and URLs with secrets masked by default
 
 Notes:
