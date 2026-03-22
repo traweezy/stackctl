@@ -309,12 +309,12 @@ Root flags:
 
 Open the interactive terminal dashboard.
 
-The TUI now includes the phase-two operator workflow. It gives you a
-full-screen dashboard for the current stack config and runtime state, plus
-sidebar actions for `start`, `stop`, `restart`, `doctor`, `open cockpit`, and
-`open pgadmin`. Lifecycle actions run in the background, update the header
-status, and write a session-local action history you can review inside the
-dashboard.
+The TUI now includes the phase-three inspection workflow. It gives you a
+full-screen dashboard for the current stack config and runtime state, split
+detail panes for deeper inspection, and sidebar actions for `start`, `stop`,
+`restart`, `doctor`, `open cockpit`, and `open pgadmin`. Lifecycle actions run
+in the background, update the header status, and write a session-local action
+history you can review inside the dashboard.
 
 Examples:
 
@@ -324,12 +324,14 @@ stackctl tui
 
 Keys:
 
-- `tab`, `j`, `right` to move to the next section
-- `shift+tab`, `k`, `left` to move to the previous section
+- `tab`, `l`, `right` to move to the next section
+- `shift+tab`, `h`, `left` to move to the previous section
+- `j`, `k`, `[`, and `]` to switch the active service, port target, health target, or log filter inside split detail panes
 - `1` through `6` to run the sidebar actions
 - `y`, `enter` to confirm a stop or restart action
 - `n`, `esc` to cancel a pending confirmation
 - `r` to refresh
+- `f` to toggle log follow mode in the `Logs` section
 - `a` to toggle conservative auto-refresh (`30s`)
 - `m` to toggle expanded vs compact density
 - `s` to show or hide secrets in the dashboard
@@ -339,9 +341,11 @@ Keys:
 Sections:
 
 - `Overview`: stack paths, mode, stack-managed service counts, and startup behavior
-- `Services`: runtime details for each service, with cleaner transitional and stopped-state UX
-- `Health`: a service-by-service health summary with runtime and reachability status
+- `Services`: a split service list and detail pane with runtime metadata, lifecycle status, DSNs, URLs, and host-tool handling
+- `Ports`: a split list/detail view for exposed host ports, reachability, and per-service mappings
+- `Health`: a split service-by-service health summary with runtime, reachability, and doctor detail rendering
 - `Connections`: DSNs and URLs with secrets masked by default
+- `Logs`: a split filter/output view with per-service filtering, a conservative follow mode, and scrollback
 - `History`: the current session’s action log, including cancellations, warnings, and doctor summaries
 
 Notes:
@@ -349,6 +353,9 @@ Notes:
 - auto-refresh is on by default and can be turned off inside the TUI
 - the left sidebar keeps navigation and global stack actions together so the
   active panel stays focused on inspection
+- the services, ports, health, and logs panels only split when the terminal is
+  wide enough; medium-width terminals fall back to a stacked layout to avoid
+  cramped wrapping
 - Cockpit is shown as a host tool, not a stack-managed service, so
   `start`/`stop`/`restart` only apply to the compose stack
 - confirmations temporarily take over the center panel instead of pushing the
@@ -367,6 +374,14 @@ Notes:
   the UI you want
 - services and connections panels now show copy placeholders for the DSNs and
   URLs that will become real copy actions in a later phase
+- the logs panel refreshes a `200` line tail by default; filter changes reuse
+  the same tail window instead of opening a streaming subprocess
+- logs are loaded lazily when you open the `Logs` section, so the dashboard
+  startup path stays focused on the snapshot panels
+- log follow mode uses a conservative `3s` polling interval so the Bubble Tea
+  update loop stays responsive and non-blocking
+- large or extremely noisy logs are intentionally truncated to the current tail
+  window, so use `stackctl logs --watch` when you need an unrestricted stream
 - long-running actions usually mean image pulls, Podman startup, or service
   readiness waits; leave the TUI open and let the action finish before forcing
   another lifecycle operation
