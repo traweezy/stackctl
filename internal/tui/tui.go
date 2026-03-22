@@ -77,6 +77,7 @@ const (
 	servicesSection
 	healthSection
 	connectionsSection
+	historySection
 )
 
 type layoutMode int
@@ -100,6 +101,7 @@ var sections = []section{
 	servicesSection,
 	healthSection,
 	connectionsSection,
+	historySection,
 }
 
 func (s section) Title() string {
@@ -112,6 +114,8 @@ func (s section) Title() string {
 		return "Health"
 	case connectionsSection:
 		return "Connections"
+	case historySection:
+		return "History"
 	default:
 		return "Unknown"
 	}
@@ -129,6 +133,9 @@ type autoRefreshMsg struct {
 type keyMap struct {
 	NextSection       key.Binding
 	PrevSection       key.Binding
+	Action            key.Binding
+	Confirm           key.Binding
+	Cancel            key.Binding
 	Refresh           key.Binding
 	ToggleAutoRefresh key.Binding
 	ToggleLayout      key.Binding
@@ -146,6 +153,18 @@ func defaultKeyMap() keyMap {
 		PrevSection: key.NewBinding(
 			key.WithKeys("left", "up", "k", "shift+tab", "h"),
 			key.WithHelp("shift+tab/k", "previous section"),
+		),
+		Action: key.NewBinding(
+			key.WithKeys("1", "2", "3", "4", "5"),
+			key.WithHelp("1-5", "run action"),
+		),
+		Confirm: key.NewBinding(
+			key.WithKeys("y", "enter"),
+			key.WithHelp("y/enter", "confirm"),
+		),
+		Cancel: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "cancel"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
@@ -175,12 +194,13 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextSection, k.Refresh, k.ToggleAutoRefresh, k.ToggleLayout, k.Quit}
+	return []key.Binding{k.NextSection, k.Action, k.Refresh, k.ToggleAutoRefresh, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.NextSection, k.PrevSection, k.Refresh},
+		{k.NextSection, k.PrevSection, k.Action},
+		{k.Confirm, k.Cancel, k.Refresh},
 		{k.ToggleAutoRefresh, k.ToggleLayout, k.ToggleSecrets},
 		{k.ToggleHelp, k.Quit},
 	}
@@ -198,12 +218,26 @@ type Model struct {
 	errMessage    string
 	snapshot      Snapshot
 	loader        Loader
+	runner        ActionRunner
 	keys          keyMap
 	help          help.Model
 	viewport      viewport.Model
+	banner        *actionBanner
+	confirmation  *confirmationState
+	runningAction *runningAction
+	history       []historyEntry
+	nextHistoryID int
 }
 
 func NewModel(loader Loader) Model {
+	return newModel(loader, nil)
+}
+
+func NewActionModel(loader Loader, runner ActionRunner) Model {
+	return newModel(loader, runner)
+}
+
+func newModel(loader Loader, runner ActionRunner) Model {
 	viewportModel := viewport.New()
 	helpModel := help.New()
 	helpModel.ShowAll = false
@@ -214,6 +248,7 @@ func NewModel(loader Loader) Model {
 		loading:     true,
 		autoRefresh: true,
 		loader:      loader,
+		runner:      runner,
 		keys:        defaultKeyMap(),
 		help:        helpModel,
 		viewport:    viewportModel,
@@ -245,16 +280,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, autoRefreshCmd(m.autoRefreshID)
 		}
 		return m, nil
+	case actionMsg:
+		m.completeAction(msg)
+		m.syncLayout()
+		if msg.report.Refresh || lifecycleAction(msg.action.ID) {
+			m.loading = true
+			return m, loadSnapshotCmd(m.loader)
+		}
+		return m, nil
 	case autoRefreshMsg:
-		if !m.autoRefresh || msg.id != m.autoRefreshID {
+		if !m.autoRefresh || msg.id != m.autoRefreshID || m.runningAction != nil {
 			return m, nil
 		}
 		m.loading = true
 		return m, loadSnapshotCmd(m.loader)
 	case tea.KeyPressMsg:
+		if m.confirmation != nil {
+			switch {
+			case key.Matches(msg, m.keys.Confirm):
+				return m.beginAction(m.confirmation.Action)
+			case key.Matches(msg, m.keys.Cancel), key.Matches(msg, m.keys.Quit):
+				m.cancelConfirmation()
+				m.syncLayout()
+				return m, nil
+			default:
+				return m, nil
+			}
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
+		case key.Matches(msg, m.keys.Action):
+			if m.runner == nil || m.runningAction != nil {
+				return m, nil
+			}
+			index, ok := actionIndex(msg.Text)
+			if !ok {
+				return m, nil
+			}
+			actions := availableActions(m.snapshot, m.active)
+			if index >= len(actions) {
+				return m, nil
+			}
+			action := actions[index]
+			if action.RequiresConfirmation() {
+				m.confirmation = &confirmationState{Action: action}
+				m.syncLayout()
+				return m, nil
+			}
+			return m.beginAction(action)
 		case key.Matches(msg, m.keys.ToggleHelp):
 			m.help.ShowAll = !m.help.ShowAll
 			m.syncLayout()
@@ -280,6 +355,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.Refresh):
+			if m.runningAction != nil {
+				return m, nil
+			}
 			m.loading = true
 			m.autoRefreshID++
 			return m, loadSnapshotCmd(m.loader)
@@ -373,18 +451,33 @@ func (m Model) currentContent() string {
 		return renderErrorState(m.errMessage)
 	}
 
+	blocks := make([]string, 0, 4)
+	if banner := renderActionBanner(m.banner); banner != "" {
+		blocks = append(blocks, banner)
+	}
+	if confirmation := renderConfirmation(m.confirmation); confirmation != "" {
+		blocks = append(blocks, confirmation)
+	}
+	if actionBar := renderActionBar(m); actionBar != "" {
+		blocks = append(blocks, actionBar)
+	}
+
 	switch m.active {
 	case overviewSection:
-		return renderOverview(m.snapshot, m.layout)
+		blocks = append(blocks, renderOverview(m.snapshot, m.layout))
 	case servicesSection:
-		return renderServices(m.snapshot, m.showSecrets, m.layout)
+		blocks = append(blocks, renderServices(m.snapshot, m.showSecrets, m.layout))
 	case healthSection:
-		return renderHealth(m.snapshot)
+		blocks = append(blocks, renderHealth(m.snapshot))
 	case connectionsSection:
-		return renderConnections(m.snapshot, m.showSecrets, m.layout)
+		blocks = append(blocks, renderConnections(m.snapshot, m.showSecrets, m.layout))
+	case historySection:
+		blocks = append(blocks, renderHistory(m.history))
 	default:
 		return ""
 	}
+
+	return strings.Join(blocks, "\n\n")
 }
 
 func titleStyle() lipgloss.Style {
@@ -464,7 +557,12 @@ func footerStyle() lipgloss.Style {
 
 func renderHeader(m Model) string {
 	statusLabel := "Ready"
-	if m.loading {
+	switch {
+	case m.runningAction != nil:
+		statusLabel = "Running " + m.runningAction.Action.Label
+	case m.confirmation != nil:
+		statusLabel = "Awaiting confirmation"
+	case m.loading:
 		statusLabel = "Refreshing"
 	}
 
@@ -522,13 +620,13 @@ func renderBody(m Model) string {
 		mainWidth = 36
 	}
 
-	sidebar := sidebarStyle().Width(sidebarWidth).Height(bodyHeight).Render(renderSidebar(m.active))
+	sidebar := sidebarStyle().Width(sidebarWidth).Height(bodyHeight).Render(renderSidebar(m.active, m.runner != nil))
 	main := mainPanelStyle().Width(mainWidth).Height(bodyHeight).Render(m.viewport.View())
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
 }
 
-func renderSidebar(active section) string {
+func renderSidebar(active section, actionsEnabled bool) string {
 	lines := []string{sectionTitleStyle().Render("Sections"), ""}
 	for _, candidate := range sections {
 		label := candidate.Title()
@@ -539,7 +637,13 @@ func renderSidebar(active section) string {
 		lines = append(lines, navItemStyle().Render("  "+label))
 	}
 
-	lines = append(lines, "", mutedStyle().Render("Read-only phase one"))
+	lines = append(lines, "")
+	if actionsEnabled {
+		lines = append(lines, mutedStyle().Render("Phase two: actions live"))
+		lines = append(lines, mutedStyle().Render("1-5 run  •  y/n confirm"))
+	} else {
+		lines = append(lines, mutedStyle().Render("Read-only dashboard"))
+	}
 	lines = append(lines, mutedStyle().Render("a auto-refresh  •  m compact"))
 
 	return strings.Join(lines, "\n")
@@ -823,7 +927,7 @@ func renderOverviewSummary(services []Service) string {
 		parts = append(parts, renderStatusSummaryLine("Cockpit", displayServiceStatus(cockpit)))
 	}
 
-	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
+	return strings.Join(parts, "  ")
 }
 
 func overviewModeLabel(managed bool) string {
@@ -917,6 +1021,8 @@ func classifyServiceHealth(service Service) string {
 	switch {
 	case strings.EqualFold(status, "running") && serviceHasReachablePort(service):
 		return output.StatusOK
+	case transitionalServiceStatus(status):
+		return output.StatusWarn
 	case strings.EqualFold(status, "running"):
 		return output.StatusWarn
 	case service.PortListening:
@@ -936,6 +1042,9 @@ func healthStatusLabel(service Service) string {
 		}
 		return "not running"
 	default:
+		if transitionalServiceStatus(displayServiceStatus(service)) {
+			return "changing"
+		}
 		return "needs attention"
 	}
 }
@@ -956,6 +1065,8 @@ func healthReachabilityLabel(service Service) string {
 func healthNote(service Service) string {
 	status := displayServiceStatus(service)
 	switch {
+	case transitionalServiceStatus(status):
+		return "This service is changing state. Wait for the action to finish, then refresh."
 	case strings.EqualFold(status, "running") && !serviceHasReachablePort(service):
 		return "The service reports running, but its host port is not reachable yet."
 	case !strings.EqualFold(status, "running") && service.PortListening:
@@ -1016,6 +1127,8 @@ func serviceStatusBadge(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "running", "ok", "healthy":
 		return "●"
+	case "starting", "stopping", "restarting", "info":
+		return "◐"
 	case "stopped", "not running", "not installed", "error", "warn", "warning", "fail", "miss":
 		return "○"
 	default:
@@ -1027,6 +1140,8 @@ func statusStyle(status string) lipgloss.Style {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "running", "ok", "healthy":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("78")).Bold(true)
+	case "starting", "stopping", "restarting", "info", "health":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
 	case "warning", "warn":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("221")).Bold(true)
 	case "stopped", "not running", "missing", "not installed":
@@ -1106,6 +1221,15 @@ func enabledDisabled(value bool) string {
 	}
 
 	return "disabled"
+}
+
+func transitionalServiceStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "starting", "stopping", "restarting":
+		return true
+	default:
+		return false
+	}
 }
 
 func maxInt(a, b int) int {

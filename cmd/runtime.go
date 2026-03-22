@@ -74,6 +74,10 @@ func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config
 }
 
 func ensureComposeRuntime(cmd *cobra.Command, cfg configpkg.Config) error {
+	return ensureComposeRuntimeForConfig(cfg)
+}
+
+func ensureComposeRuntimeForConfig(cfg configpkg.Config) error {
 	if !deps.commandExists("podman") {
 		return errors.New("podman is not installed; run `stackctl setup --install` or install it manually")
 	}

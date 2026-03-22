@@ -18,15 +18,16 @@ func newTUICmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tui",
 		Short: "Open the interactive stack dashboard",
-		Long: "Open the interactive read-only stack dashboard.\n\n" +
-			"Use a read-only operator view for overview, services, health, and\n" +
-			"connections. The dashboard supports manual refresh, optional\n" +
-			"auto-refresh, compact mode, and masked secrets by default.",
+		Long: "Open the interactive stack dashboard.\n\n" +
+			"Use a full-screen operator view for overview, services, health,\n" +
+			"connections, and action history. The dashboard supports manual\n" +
+			"refresh, optional auto-refresh, compact mode, masked secrets by\n" +
+			"default, and in-TUI actions for stack lifecycle tasks.",
 		Example: "  stackctl tui",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			model := stacktui.NewModel(func() (stacktui.Snapshot, error) {
+			model := stacktui.NewActionModel(func() (stacktui.Snapshot, error) {
 				return loadTUISnapshot()
-			})
+			}, runTUIAction)
 
 			program := tea.NewProgram(model)
 			_, err := program.Run()
@@ -35,20 +36,29 @@ func newTUICmd() *cobra.Command {
 	}
 }
 
-func loadTUISnapshot() (stacktui.Snapshot, error) {
+func loadTUIConfig() (string, configpkg.Config, error) {
 	configPath, err := deps.configFilePath()
 	if err != nil {
-		return stacktui.Snapshot{}, err
+		return "", configpkg.Config{}, err
 	}
 
 	cfg, err := deps.loadConfig(configPath)
 	if err != nil {
-		return stacktui.Snapshot{}, missingConfigHint(err)
+		return "", configpkg.Config{}, missingConfigHint(err)
 	}
 
 	issues := deps.validateConfig(cfg)
 	if len(issues) > 0 {
-		return stacktui.Snapshot{}, validationIssuesError(issues)
+		return "", configpkg.Config{}, validationIssuesError(issues)
+	}
+
+	return configPath, cfg, nil
+}
+
+func loadTUISnapshot() (stacktui.Snapshot, error) {
+	configPath, cfg, err := loadTUIConfig()
+	if err != nil {
+		return stacktui.Snapshot{}, err
 	}
 
 	return buildTUISnapshot(configPath, cfg), nil
