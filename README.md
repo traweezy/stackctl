@@ -311,7 +311,7 @@ Open the interactive terminal dashboard.
 
 The TUI now includes the phase-two operator workflow. It gives you a
 full-screen dashboard for the current stack config and runtime state, plus
-panel-scoped actions for `start`, `stop`, `restart`, `open`, and `doctor`.
+overview-scoped actions for `start`, `stop`, `restart`, `open`, and `doctor`.
 Lifecycle actions run in the background, show optimistic state while they are
 in progress, and write a session-local action history you can review inside the
 dashboard.
@@ -326,7 +326,7 @@ Keys:
 
 - `tab`, `j`, `right` to move to the next section
 - `shift+tab`, `k`, `left` to move to the previous section
-- `1` through `5` to run the actions shown for the current panel
+- `1` through `5` to run the overview action row
 - `y`, `enter` to confirm a stop or restart action
 - `n`, `esc` to cancel a pending confirmation
 - `r` to refresh
@@ -339,6 +339,7 @@ Keys:
 Sections:
 
 - `Overview`: stack paths, mode, stack-managed service counts, and startup behavior
+- `Overview` is also where the compact action row lives so the other panels can stay focused on inspection
 - `Services`: runtime details for each service, with cleaner transitional and stopped-state UX
 - `Health`: a service-by-service health summary with runtime and reachability status
 - `Connections`: DSNs and URLs with secrets masked by default

@@ -156,7 +156,7 @@ func defaultKeyMap() keyMap {
 		),
 		Action: key.NewBinding(
 			key.WithKeys("1", "2", "3", "4", "5"),
-			key.WithHelp("1-5", "run action"),
+			key.WithHelp("1-5", "overview action"),
 		),
 		Confirm: key.NewBinding(
 			key.WithKeys("y", "enter"),
@@ -640,7 +640,7 @@ func renderSidebar(active section, actionsEnabled bool) string {
 	lines = append(lines, "")
 	if actionsEnabled {
 		lines = append(lines, mutedStyle().Render("Phase two: actions live"))
-		lines = append(lines, mutedStyle().Render("1-5 run  •  y/n confirm"))
+		lines = append(lines, mutedStyle().Render("1-5 overview  •  y/n confirm"))
 	} else {
 		lines = append(lines, mutedStyle().Render("Read-only dashboard"))
 	}

@@ -820,3 +820,48 @@ func TestModelRestoresSnapshotWhenActionFails(t *testing.T) {
 		t.Fatalf("expected failure banner in view:\n%s", current.View().Content)
 	}
 }
+
+func TestActionBarOnlyRendersOnOverview(t *testing.T) {
+	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
+		return ActionReport{}, nil
+	})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+				PortListening: true,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+
+	overviewView := current.View().Content
+	if !strings.Contains(overviewView, "Actions") || !strings.Contains(overviewView, "[1] Restart") {
+		t.Fatalf("expected overview to show compact action bar:\n%s", overviewView)
+	}
+	if strings.Contains(overviewView, "│ [1] Restart │") {
+		t.Fatalf("expected overview action bar to avoid boxed controls:\n%s", overviewView)
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	current = updatedModel.(Model)
+	servicesView := current.View().Content
+	for _, fragment := range []string{
+		"Actions [1] Restart",
+		"[1] Restart",
+	} {
+		if strings.Contains(servicesView, fragment) {
+			t.Fatalf("expected services tab to hide overview-only action UI %q:\n%s", fragment, servicesView)
+		}
+	}
+}

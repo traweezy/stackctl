@@ -89,6 +89,10 @@ func actionIndex(keyText string) (int, bool) {
 }
 
 func availableActions(snapshot Snapshot, active section) []ActionSpec {
+	if active != overviewSection {
+		return nil
+	}
+
 	running, total := runningStackServiceCount(snapshot.Services)
 	includeOpen := hasOpenTargets(snapshot.Services)
 
@@ -106,25 +110,10 @@ func availableActions(snapshot Snapshot, active section) []ActionSpec {
 	}
 
 	actions := make([]ActionSpec, 0, 5)
-	switch active {
-	case healthSection:
-		actions = append(actions, actionDoctorSpec())
-		actions = addLifecycleActions(actions)
-		if includeOpen {
-			actions = append(actions, actionOpenSpec())
-		}
-	case connectionsSection:
-		if includeOpen {
-			actions = append(actions, actionOpenSpec())
-		}
-		actions = addLifecycleActions(actions)
-		actions = append(actions, actionDoctorSpec())
-	default:
-		actions = addLifecycleActions(actions)
-		actions = append(actions, actionDoctorSpec())
-		if includeOpen {
-			actions = append(actions, actionOpenSpec())
-		}
+	actions = addLifecycleActions(actions)
+	actions = append(actions, actionDoctorSpec())
+	if includeOpen {
+		actions = append(actions, actionOpenSpec())
 	}
 
 	if len(actions) > 5 {
@@ -214,10 +203,8 @@ func renderActionBar(m Model) string {
 	}
 
 	actions := availableActions(m.snapshot, m.active)
-	lines := []string{sectionTitleStyle().Render("Actions")}
 	if len(actions) == 0 {
-		lines = append(lines, mutedStyle().Render("No actions available for this panel."))
-		return strings.Join(lines, "\n")
+		return ""
 	}
 
 	parts := make([]string, 0, len(actions))
@@ -228,15 +215,19 @@ func renderActionBar(m Model) string {
 		}
 		parts = append(parts, actionChipStyle(action, m).Render(label))
 	}
-	lines = append(lines, strings.Join(parts, "  "))
+	lines := []string{
+		fmt.Sprintf(
+			"%s %s",
+			subsectionTitleStyle().Render("Actions"),
+			strings.Join(parts, "  "),
+		),
+	}
 
 	switch {
 	case m.runningAction != nil:
 		lines = append(lines, mutedStyle().Render("An action is running in the background. Refresh resumes when it finishes."))
 	case m.confirmation != nil:
 		lines = append(lines, mutedStyle().Render("Press y or enter to continue, or n/esc to cancel."))
-	default:
-		lines = append(lines, mutedStyle().Render("Use 1-5 to run the actions shown for this panel."))
 	}
 
 	return strings.Join(lines, "\n")
@@ -334,16 +325,13 @@ func bannerStyle(status string) lipgloss.Style {
 }
 
 func actionChipStyle(action ActionSpec, m Model) lipgloss.Style {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("238")).
-		Padding(0, 1)
+	style := lipgloss.NewStyle().Bold(true)
 
 	switch {
 	case m.confirmation != nil && m.confirmation.Action.ID == action.ID:
-		return style.BorderForeground(lipgloss.Color("221")).Foreground(lipgloss.Color("221")).Bold(true)
+		return style.Foreground(lipgloss.Color("221"))
 	case m.runningAction != nil && m.runningAction.Action.ID == action.ID:
-		return style.BorderForeground(lipgloss.Color("81")).Foreground(lipgloss.Color("81")).Bold(true)
+		return style.Foreground(lipgloss.Color("81"))
 	default:
 		return style.Foreground(lipgloss.Color("252"))
 	}
