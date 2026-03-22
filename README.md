@@ -1,43 +1,52 @@
 # stackctl
 
-`stackctl` is a Linux CLI for bringing up and managing a local
-Podman-based development stack.
+`stackctl` is a Linux CLI for bringing up, inspecting, and troubleshooting a
+local Podman-based development stack.
 
-It is aimed at the "get my local services running quickly" path:
+It is built for the common local-dev loop:
 
-- bootstrap config on first run
-- scaffold a managed local stack under standard XDG paths
-- start, stop, restart, and reset the stack
-- inspect status, health, diagnostics, and logs
-- print connection details for local services
+- create or load a persistent config
+- scaffold a managed stack under standard XDG paths
+- start, stop, restart, and reset local services
+- inspect runtime state with `status`, `services`, `logs`, `health`, and
+  `doctor`
+- print copy-paste-friendly endpoints with `connect`
 
-The bundled managed stack currently includes:
+The default managed stack currently includes:
 
 - PostgreSQL
 - Redis
 - pgAdmin
 
-Cockpit is also supported as a local management UI when it is installed on
-the host.
+Cockpit is also supported as a host-level web UI when it is installed on the
+machine.
 
 > [!IMPORTANT]
 > `stackctl` is Linux-only right now.
 >
-> - GitHub release binaries are published for Linux `x86_64` and `arm64`
-> - the install script only supports Linux
+> - release binaries are published for Linux `x86_64` and `arm64`
+> - the installer script only supports Linux
 > - `setup --install` currently targets `apt`-based systems
 > - macOS and Windows are not supported yet
 
-## What You Get
+## What stackctl is for
 
-With `stackctl`, you can:
+Use `stackctl` if you want one CLI that answers:
 
-- create and validate a persistent config
-- use a CLI-managed stack directory or point at your own compose project
-- start the local stack and wait for services to come up
-- tail all logs or a single service
-- inspect health and run read-only diagnostics
-- print ready-to-use URLs and DSNs
+- is my local stack configured
+- is it running
+- how do I connect to it
+- which service is broken
+- where are the stack files on disk
+
+The split between the runtime inspection commands is intentional:
+
+- `stackctl connect` prints minimal connection strings and URLs
+- `stackctl services` prints the full service report with status, ports,
+  container names, URLs, and DSNs
+- `stackctl status` prints raw container state
+- `stackctl doctor` checks the environment and expected ports
+- `stackctl health` checks whether the configured endpoints are reachable
 
 ## Install
 
@@ -52,7 +61,8 @@ curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/in
 Install to `/usr/local/bin` instead:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | bash -s -- --system
+curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | \
+  bash -s -- --system
 ```
 
 Install a specific release:
@@ -62,13 +72,19 @@ curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/in
   bash -s -- --version v0.1.0
 ```
 
-Manual downloads are available from:
+If `~/.local/bin` is not already on your `PATH`, add it:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+### Manual download
+
+Download release artifacts directly from:
 
 https://github.com/traweezy/stackctl/releases/latest
 
 ### Build from source
-
-If you already have a recent Go toolchain:
 
 ```bash
 git clone https://github.com/traweezy/stackctl.git
@@ -77,41 +93,44 @@ go build ./...
 go run . --help
 ```
 
-## Prerequisites
+## Requirements
 
-`stackctl` expects a Linux machine with Podman available.
+For normal runtime usage, `stackctl` expects:
 
-For the managed local stack, the practical requirements are:
-
+- Linux
 - `podman`
 - `podman compose`
 
-If you want `stackctl` to try installing missing packages for you, use:
+If you want the CLI to install supported dependencies for you:
 
 ```bash
 stackctl setup --install
 ```
 
-That installer flow is currently intended for `apt`-based Linux systems.
+That flow is currently aimed at `apt`-based systems.
 
-## Getting Started
+## Quick start
 
-The fastest path is:
+If you want the shortest path from a clean Linux machine to a running local
+stack:
 
 ```bash
 stackctl setup
 stackctl start
-stackctl status
-stackctl connect
+stackctl services
+stackctl logs --watch
 ```
 
-If you are working from source instead of an installed binary, replace
+If you are running from source instead of an installed binary, replace
 `stackctl` with `go run .`.
 
-### First run behavior
+### First run
 
-On first run, `stackctl` can create config for you and scaffold a managed
-stack into your user data directory.
+On first run, `stackctl` can:
+
+- create `~/.config/stackctl/config.yaml`
+- scaffold a managed compose file under your XDG data directory
+- validate the local environment
 
 Common first-run commands:
 
@@ -121,7 +140,7 @@ stackctl config init
 stackctl start
 ```
 
-Useful setup variants:
+Common setup variants:
 
 ```bash
 stackctl setup --non-interactive
@@ -129,11 +148,30 @@ stackctl setup --install
 stackctl setup --install --yes
 ```
 
-## Where stackctl stores files
+## Defaults
+
+The managed stack uses these default connection values unless you change the
+config:
+
+- host: `localhost`
+- Postgres database: `app`
+- Postgres username: `app`
+- Postgres password: `app`
+- Postgres port: `5432`
+- Redis port: `6379`
+- pgAdmin URL: `http://localhost:8081`
+- Cockpit URL: `https://localhost:9090`
+
+The managed pgAdmin service also ships with these default credentials:
+
+- email: `admin@example.com`
+- password: `admin`
+
+## Where files live
 
 By default, `stackctl` uses standard Linux user directories:
 
-- config: `~/.config/stackctl/config.yaml`
+- config file: `~/.config/stackctl/config.yaml`
 - managed data root: `~/.local/share/stackctl`
 - managed stack directory: `~/.local/share/stackctl/stacks/dev-stack`
 - managed compose file:
@@ -144,107 +182,426 @@ If `XDG_DATA_HOME` is set, managed stack data is stored under
 
 ## Managed stack vs external stack
 
-`stackctl` supports two modes:
+`stackctl` supports two stack modes.
 
 ### Managed stack
 
-In managed mode, `stackctl` owns the stack directory and can scaffold the
-compose file from the embedded template.
+In managed mode:
 
-This is the default and the easiest path to get started.
+- `stackctl` owns the stack directory
+- `stackctl config scaffold` can create or refresh the compose file
+- the managed compose file is rendered from your config values
+
+This is the default and the easiest way to get started.
 
 ### External stack
 
-In external mode, your config points at an existing compose directory that
-you manage yourself.
+In external mode:
 
-Use that if you already have a custom stack and just want `stackctl` to act
-as the operator CLI.
+- your config points at an existing compose directory
+- you manage the compose file yourself
+- `stackctl` still handles lifecycle, status, logs, and diagnostics
 
-## Common commands
-
-### Setup and config
-
-```bash
-stackctl setup
-stackctl config path
-stackctl config view
-stackctl config validate
-stackctl config edit
-stackctl config scaffold
-stackctl config reset
-```
+Use external mode if you already have a custom Podman Compose setup and want
+`stackctl` to be the operator CLI on top of it.
 
 The example config is in
 [`examples/config.example.yaml`](examples/config.example.yaml).
 
-### Stack lifecycle
+## Typical workflow
+
+Once the stack is configured, the most common day-to-day flow looks like this:
 
 ```bash
 stackctl start
-stackctl stop
-stackctl restart
-stackctl status
-stackctl reset --volumes --force
+stackctl services
+stackctl connect
+stackctl logs --watch
+stackctl health
 ```
 
-`start` and `restart` print connection info after the stack is ready. They
-do not automatically open browser windows.
+## Command reference
 
-### Logs
+This section documents the current CLI surface exactly, including flags.
+
+### Top-level usage
+
+```bash
+stackctl [command]
+```
+
+Root flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-h`, `--help` | Show help for `stackctl` |
+| `-v`, `--version` | Print the short version string |
+
+### `stackctl setup`
+
+Prepare the local machine and the `stackctl` config.
+
+Examples:
+
+```bash
+stackctl setup
+stackctl setup --non-interactive
+stackctl setup --install --yes
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--install` | Install supported missing dependencies |
+| `--interactive` | Force interactive config setup |
+| `--non-interactive` | Skip prompts and use defaults where possible |
+| `--yes` | Assume yes for installation prompts |
+
+### `stackctl config`
+
+Manage persistent stack configuration.
+
+Examples:
+
+```bash
+stackctl config view
+stackctl config validate
+stackctl config scaffold --force
+```
+
+Subcommands:
+
+| Subcommand | What it does |
+| --- | --- |
+| `config init` | Create a new config |
+| `config view` | Print the current config as YAML |
+| `config path` | Print the resolved config path |
+| `config edit` | Edit the current config using the wizard |
+| `config validate` | Validate the current config |
+| `config reset` | Reset the config to defaults or delete it |
+| `config scaffold` | Create or refresh managed stack files |
+
+#### `stackctl config init`
+
+Create a new config file.
+
+Examples:
+
+```bash
+stackctl config init
+stackctl config init --non-interactive
+stackctl config init --force
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--force` | Overwrite an existing config without prompting |
+| `--non-interactive` | Create the config from defaults without prompts |
+
+#### `stackctl config view`
+
+Print the current config in YAML format.
+
+Examples:
+
+```bash
+stackctl config view
+```
+
+Flags: `-h`, `--help` only.
+
+#### `stackctl config path`
+
+Print the resolved config path.
+
+Examples:
+
+```bash
+stackctl config path
+```
+
+Flags: `-h`, `--help` only.
+
+#### `stackctl config edit`
+
+Edit the current config using the interactive wizard.
+
+Examples:
+
+```bash
+stackctl config edit
+stackctl config edit --non-interactive
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--non-interactive` | Save the current config after applying derived defaults |
+
+#### `stackctl config validate`
+
+Validate the current config.
+
+Examples:
+
+```bash
+stackctl config validate
+```
+
+Flags: `-h`, `--help` only.
+
+#### `stackctl config reset`
+
+Reset the config to defaults or delete it.
+
+Examples:
+
+```bash
+stackctl config reset
+stackctl config reset --delete --force
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--delete` | Delete the config file instead of resetting it |
+| `--force` | Skip confirmation |
+| `--yes` | Assume yes for confirmation prompts |
+
+#### `stackctl config scaffold`
+
+Create or refresh the managed stack files from embedded templates.
+
+Examples:
+
+```bash
+stackctl config scaffold
+stackctl config scaffold --force
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--force` | Overwrite managed stack files from embedded templates |
+
+### `stackctl start`
+
+Start the local development stack. If `wait_for_services_on_start` is enabled
+in config, `stackctl` waits for the configured ports before returning.
+
+Examples:
+
+```bash
+stackctl start
+```
+
+Flags: `-h`, `--help` only.
+
+### `stackctl stop`
+
+Stop the local development stack.
+
+Examples:
+
+```bash
+stackctl stop
+```
+
+Flags: `-h`, `--help` only.
+
+### `stackctl restart`
+
+Restart the local development stack and print the current connection info when
+it is ready.
+
+Examples:
+
+```bash
+stackctl restart
+```
+
+Flags: `-h`, `--help` only.
+
+### `stackctl status`
+
+Show container status for this stack. Use this when you want the raw container
+view.
+
+Examples:
+
+```bash
+stackctl status
+stackctl status --verbose
+stackctl status --json
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-j`, `--json` | Print container status as JSON |
+| `-v`, `--verbose` | Show extra container details |
+
+### `stackctl services`
+
+Show the full service report for the configured stack.
+
+This is the command to use when you want to answer all of these at once:
+
+- what is running
+- what container is backing it
+- what host and port it is using
+- how to connect to it
+
+Examples:
+
+```bash
+stackctl services
+```
+
+Flags: `-h`, `--help` only.
+
+### `stackctl connect`
+
+Print minimal connection strings and URLs. This is intentionally smaller than
+`stackctl services` and is meant for copy/paste.
+
+Examples:
+
+```bash
+stackctl connect
+```
+
+Flags: `-h`, `--help` only.
+
+### `stackctl logs`
+
+Show recent logs or follow them live.
+
+Examples:
 
 ```bash
 stackctl logs
-stackctl logs -n 50
-stackctl logs -w
-stackctl logs -s postgres -n 50
-stackctl logs -s redis -w
+stackctl logs --watch
+stackctl logs --service postgres
+stackctl logs --service pg --tail 200 --watch
 ```
 
-By default, `stackctl logs` prints the last 100 lines and exits.
-
-Supported service filters are:
+Supported service filters:
 
 - `postgres` or `pg`
 - `redis` or `rd`
 - `pgadmin`
 
-### Diagnostics and health
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-s`, `--service` | Filter logs to a single service |
+| `--since` | Show logs since a relative time or timestamp |
+| `-n`, `--tail` | Number of log lines to show. Default: `100` |
+| `-w`, `--watch` | Follow logs |
+
+### `stackctl health`
+
+Check whether the configured stack endpoints are reachable.
+
+Examples:
+
+```bash
+stackctl health
+stackctl health --watch --interval 2
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-i`, `--interval` | Watch interval in seconds. Default: `5` |
+| `-w`, `--watch` | Continuously rerun health checks |
+
+### `stackctl doctor`
+
+Run read-only diagnostics for the local stack and surrounding environment.
+
+Examples:
 
 ```bash
 stackctl doctor
-stackctl health
-stackctl health -w -i 2
 ```
 
-Use `doctor` when something looks wrong before changing anything. It is a
-read-only diagnostic command.
+Flags: `-h`, `--help` only.
 
-### URLs and connection details
+### `stackctl open`
+
+Open configured web UIs. If browser launch is unavailable, `stackctl` prints
+the URL instead.
+
+Examples:
 
 ```bash
-stackctl connect
 stackctl open
+stackctl open cockpit
 stackctl open pgadmin
 stackctl open all
 ```
 
-`connect` prints the configured DSNs and URLs.
+Flags: `-h`, `--help` only.
 
-`open` is the explicit browser-opening command. If browser launch is not
-available, `stackctl` prints the URL instead of failing.
+Arguments:
 
-## Suggested first workflow
+| Argument | Meaning |
+| --- | --- |
+| `cockpit` | Open Cockpit |
+| `pgadmin` | Open pgAdmin |
+| `all` | Open every enabled web UI |
 
-If you are starting from a clean Linux machine:
+### `stackctl reset`
 
-1. Install `stackctl`
-2. Run `stackctl setup`
-3. Run `stackctl start`
-4. Check `stackctl status`
-5. Check `stackctl health`
-6. Run `stackctl connect`
-7. Use `stackctl logs -w` while bringing up your app
+Bring the stack down and optionally remove volumes.
+
+Examples:
+
+```bash
+stackctl reset
+stackctl reset --volumes --force
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-f`, `--force` | Skip confirmation for destructive reset |
+| `-v`, `--volumes` | Remove volumes while stopping the stack |
+
+### `stackctl version`
+
+Print version information.
+
+Examples:
+
+```bash
+stackctl version
+```
+
+Flags: `-h`, `--help` only.
+
+## What the main commands are for
+
+If you only remember a few commands, these are the ones most people will use:
+
+- `stackctl setup`: create config and prepare the machine
+- `stackctl start`: bring the stack up
+- `stackctl services`: see the full runtime picture
+- `stackctl connect`: copy DSNs and URLs quickly
+- `stackctl logs --watch`: keep a live log tail open while developing
+- `stackctl doctor`: diagnose environment and port problems
 
 ## Troubleshooting
 
@@ -265,13 +622,19 @@ Recreate them with:
 stackctl config scaffold
 ```
 
+If you want to force a refresh of the managed compose file:
+
+```bash
+stackctl config scaffold --force
+```
+
 Then validate the config:
 
 ```bash
 stackctl config validate
 ```
 
-### Something is already using one of the expected ports
+### A service port is already in use
 
 Run:
 
@@ -279,33 +642,34 @@ Run:
 stackctl doctor
 ```
 
-This will tell you whether the port is owned by an expected local service or
-by something unrelated.
+That will tell you whether the port belongs to the expected local service or
+to some unrelated process.
+
+### The stack looks up but a service is not healthy
+
+Use these in order:
+
+```bash
+stackctl status
+stackctl services
+stackctl health
+stackctl logs --watch
+```
 
 ### Browser launch fails
 
-Use:
+Run:
 
 ```bash
 stackctl open
 ```
 
-If `stackctl` cannot open the browser automatically, it prints the URL so
-you can open it yourself.
-
-## Next steps
-
-After the initial setup is working, the usual next commands are:
-
-- `stackctl logs -w` while developing
-- `stackctl status` to confirm container state
-- `stackctl connect` to copy DSNs and URLs into your app config
-- `stackctl doctor` when the stack behaves unexpectedly
-- `stackctl config edit` if you want to switch to an external stack path
+If browser launch is unavailable, `stackctl` prints the URL instead of
+failing.
 
 ## Development
 
-For local development on the CLI itself:
+For local development on `stackctl` itself:
 
 ```bash
 go test ./...
@@ -323,3 +687,15 @@ Example:
 git tag v0.1.0
 git push origin v0.1.0
 ```
+
+## Next steps
+
+Current planned next steps for the tool:
+
+- add `stackctl services --json` for machine-readable automation output
+- add copy helpers such as `stackctl services --copy postgres-dsn`
+- add more explicit verbosity and quiet controls across runtime commands
+- expand installer support beyond `apt`-based systems
+- improve support for non-managed custom stacks
+- add broader integration coverage against real Podman environments
+- evaluate non-Linux support once install and runtime behavior are abstracted
