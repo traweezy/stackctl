@@ -14,7 +14,7 @@ type App struct {
 
 func NewApp() *App {
 	return &App{
-		Version: "0.8.2",
+		Version: "0.9.0",
 	}
 }
 
