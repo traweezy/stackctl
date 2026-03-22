@@ -706,10 +706,7 @@ func TestModelRunsStartActionOptimisticallyAndRecordsHistory(t *testing.T) {
 		t.Fatalf("expected snapshot reload after successful action")
 	}
 
-	loaded, ok := cmd().(snapshotMsg)
-	if !ok {
-		t.Fatalf("expected snapshotMsg, got %T", cmd())
-	}
+	loaded := snapshotFromCmd(t, cmd)
 	updatedModel, _ = current.Update(loaded)
 	current = updatedModel.(Model)
 	if loadCount != 1 {
@@ -789,6 +786,9 @@ func TestModelCancelsConfirmedActionWithoutRunningIt(t *testing.T) {
 	if current.confirmation != nil {
 		t.Fatalf("expected confirmation to be cleared after cancellation")
 	}
+	if current.banner == nil {
+		t.Fatalf("expected cancelled action to show a transient banner")
+	}
 
 	for i := 0; i < 4; i++ {
 		updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -857,6 +857,108 @@ func TestModelRestoresSnapshotWhenActionFails(t *testing.T) {
 	}
 	if !strings.Contains(current.View().Content, "restart failed: compose unavailable") {
 		t.Fatalf("expected failure banner in view:\n%s", current.View().Content)
+	}
+}
+
+func TestModelClearsTransientBannerAfterDelay(t *testing.T) {
+	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
+		return ActionReport{}, nil
+	})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	current = updatedModel.(Model)
+
+	updatedModel, clearCmd := current.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	current = updatedModel.(Model)
+	if clearCmd == nil {
+		t.Fatalf("expected banner clear command after cancellation")
+	}
+	if current.banner == nil {
+		t.Fatalf("expected visible banner before clear")
+	}
+
+	clearMsg, ok := clearCmd().(bannerClearMsg)
+	if !ok {
+		t.Fatalf("expected bannerClearMsg, got %T", clearCmd())
+	}
+
+	updatedModel, _ = current.Update(clearMsg)
+	current = updatedModel.(Model)
+	if current.banner != nil {
+		t.Fatalf("expected banner to clear after timeout")
+	}
+	if strings.Contains(current.View().Content, "stop cancelled") {
+		t.Fatalf("expected cleared banner to disappear from view:\n%s", current.View().Content)
+	}
+}
+
+func TestModelIgnoresStaleBannerClearMessages(t *testing.T) {
+	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
+		return ActionReport{Status: output.StatusOK, Message: "stack started"}, nil
+	})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	runningSnapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: runningSnapshot})
+	current = updatedModel.(Model)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	current = updatedModel.(Model)
+	updatedModel, cancelClearCmd := current.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	current = updatedModel.(Model)
+	if cancelClearCmd == nil {
+		t.Fatalf("expected clear command from cancelled banner")
+	}
+
+	updatedModel, actionCmd := current.Update(tea.KeyPressMsg{Code: '3', Text: "3"})
+	current = updatedModel.(Model)
+	if actionCmd == nil {
+		t.Fatalf("expected action command after starting stack")
+	}
+	if current.runningAction == nil {
+		t.Fatalf("expected running action after triggering a new action")
+	}
+
+	clearMsg, ok := cancelClearCmd().(bannerClearMsg)
+	if !ok {
+		t.Fatalf("expected bannerClearMsg, got %T", cancelClearCmd())
+	}
+	updatedModel, _ = current.Update(clearMsg)
+	current = updatedModel.(Model)
+	if current.banner == nil {
+		t.Fatalf("expected stale clear message not to remove current pending banner")
+	}
+	if !strings.Contains(current.View().Content, "running doctor diagnostics...") {
+		t.Fatalf("expected pending banner to remain after stale clear:\n%s", current.View().Content)
 	}
 }
 
@@ -949,4 +1051,32 @@ var ansiStripPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func stripANSITest(value string) string {
 	return ansiStripPattern.ReplaceAllString(value, "")
+}
+
+func snapshotFromCmd(t *testing.T, cmd tea.Cmd) snapshotMsg {
+	t.Helper()
+
+	msg := cmd()
+	if loaded, ok := msg.(snapshotMsg); ok {
+		return loaded
+	}
+
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected snapshotMsg or tea.BatchMsg, got %T", msg)
+	}
+
+	for _, child := range batch {
+		if child == nil {
+			continue
+		}
+		childMsg := child()
+		loaded, ok := childMsg.(snapshotMsg)
+		if ok {
+			return loaded
+		}
+	}
+
+	t.Fatalf("expected batched snapshotMsg, got %T", msg)
+	return snapshotMsg{}
 }

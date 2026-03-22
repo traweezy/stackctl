@@ -46,6 +46,7 @@ func (s ActionSpec) RequiresConfirmation() bool {
 }
 
 type actionBanner struct {
+	ID      int
 	Status  string
 	Message string
 }
@@ -75,6 +76,10 @@ type actionMsg struct {
 	action    ActionSpec
 	report    ActionReport
 	err       error
+}
+
+type bannerClearMsg struct {
+	id int
 }
 
 func actionIndex(keyText string) (int, bool) {
@@ -362,7 +367,7 @@ func (m Model) beginAction(action ActionSpec) (tea.Model, tea.Cmd) {
 	}
 
 	m.confirmation = nil
-	m.banner = &actionBanner{Status: action.PendingStatus, Message: action.PendingMessage}
+	m.setBanner(action.PendingStatus, action.PendingMessage)
 	m.autoRefreshID++
 	m.nextHistoryID++
 	historyID := m.nextHistoryID
@@ -402,17 +407,14 @@ func runActionCmd(runner ActionRunner, action ActionSpec, historyID int) tea.Cmd
 	}
 }
 
-func (m *Model) cancelConfirmation() {
+func (m *Model) cancelConfirmation() tea.Cmd {
 	if m.confirmation == nil {
-		return
+		return nil
 	}
 
 	action := m.confirmation.Action
 	m.confirmation = nil
-	m.banner = &actionBanner{
-		Status:  output.StatusWarn,
-		Message: strings.ToLower(action.Label) + " cancelled",
-	}
+	bannerID := m.setBanner(output.StatusWarn, strings.ToLower(action.Label)+" cancelled")
 	m.nextHistoryID++
 	m.history = append(m.history, historyEntry{
 		ID:          m.nextHistoryID,
@@ -422,11 +424,13 @@ func (m *Model) cancelConfirmation() {
 		StartedAt:   time.Now(),
 		CompletedAt: time.Now(),
 	})
+
+	return clearBannerCmd(bannerID)
 }
 
-func (m *Model) completeAction(msg actionMsg) {
+func (m *Model) completeAction(msg actionMsg) tea.Cmd {
 	if m.runningAction == nil || m.runningAction.History != msg.historyID {
-		return
+		return nil
 	}
 
 	entryIndex := -1
@@ -454,11 +458,21 @@ func (m *Model) completeAction(msg actionMsg) {
 		m.history[entryIndex].CompletedAt = time.Now()
 	}
 
+	bannerID := m.setBanner(status, message)
+	m.runningAction = nil
+
+	return clearBannerCmd(bannerID)
+}
+
+func (m *Model) setBanner(status, message string) int {
+	m.nextBannerID++
 	m.banner = &actionBanner{
+		ID:      m.nextBannerID,
 		Status:  status,
 		Message: message,
 	}
-	m.runningAction = nil
+
+	return m.nextBannerID
 }
 
 func applyOptimisticUpdate(snapshot Snapshot, action ActionID) Snapshot {

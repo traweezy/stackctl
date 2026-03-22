@@ -353,8 +353,8 @@ Notes:
   `start`/`stop`/`restart` only apply to the compose stack
 - confirmations temporarily take over the center panel instead of pushing the
   layout down
-- action results now appear in the global status area and in `History`, not in
-  the current inspection tab
+- action results now appear briefly in the global status area, then remain in
+  `History`, not in the current inspection tab
 - compact mode trims less important runtime fields so the dashboard is easier
   to scan on smaller terminals
 - while an action is running, the TUI pauses manual and automatic refresh until

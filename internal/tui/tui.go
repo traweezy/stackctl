@@ -19,6 +19,8 @@ const maskedSecret = "****"
 
 var autoRefreshInterval = 30 * time.Second
 
+const transientBannerDuration = 4 * time.Second
+
 type Loader func() (Snapshot, error)
 
 type Snapshot struct {
@@ -227,6 +229,7 @@ type Model struct {
 	runningAction *runningAction
 	history       []historyEntry
 	nextHistoryID int
+	nextBannerID  int
 }
 
 func NewModel(loader Loader) Model {
@@ -281,11 +284,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case actionMsg:
-		m.completeAction(msg)
+		bannerCmd := m.completeAction(msg)
 		m.syncLayout()
 		if msg.report.Refresh || lifecycleAction(msg.action.ID) {
 			m.loading = true
-			return m, loadSnapshotCmd(m.loader)
+			return m, tea.Batch(loadSnapshotCmd(m.loader), bannerCmd)
+		}
+		return m, bannerCmd
+	case bannerClearMsg:
+		if m.banner != nil && m.banner.ID == msg.id {
+			m.banner = nil
+			m.syncLayout()
 		}
 		return m, nil
 	case autoRefreshMsg:
@@ -300,9 +309,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, m.keys.Confirm):
 				return m.beginAction(m.confirmation.Action)
 			case key.Matches(msg, m.keys.Cancel), key.Matches(msg, m.keys.Quit):
-				m.cancelConfirmation()
+				clearCmd := m.cancelConfirmation()
 				m.syncLayout()
-				return m, nil
+				return m, clearCmd
 			default:
 				return m, nil
 			}
@@ -410,6 +419,12 @@ func loadSnapshotCmd(loader Loader) tea.Cmd {
 func autoRefreshCmd(id int) tea.Cmd {
 	return tea.Tick(autoRefreshInterval, func(time.Time) tea.Msg {
 		return autoRefreshMsg{id: id}
+	})
+}
+
+func clearBannerCmd(id int) tea.Cmd {
+	return tea.Tick(transientBannerDuration, func(time.Time) tea.Msg {
+		return bannerClearMsg{id: id}
 	})
 }
 
