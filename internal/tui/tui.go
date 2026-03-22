@@ -34,12 +34,16 @@ type Snapshot struct {
 	LoadedAt          time.Time
 	ServiceError      string
 	HealthError       string
+	DoctorError       string
 	Services          []Service
 	Health            []HealthLine
+	DoctorSummary     DoctorSummary
+	DoctorChecks      []DoctorCheck
 	Connections       []Connection
 }
 
 type Service struct {
+	Name            string
 	DisplayName     string
 	Status          string
 	ContainerName   string
@@ -77,8 +81,10 @@ type section int
 const (
 	overviewSection section = iota
 	servicesSection
+	portsSection
 	healthSection
 	connectionsSection
+	logsSection
 	historySection
 )
 
@@ -101,8 +107,10 @@ func (m layoutMode) String() string {
 var sections = []section{
 	overviewSection,
 	servicesSection,
+	portsSection,
 	healthSection,
 	connectionsSection,
+	logsSection,
 	historySection,
 }
 
@@ -112,10 +120,14 @@ func (s section) Title() string {
 		return "Overview"
 	case servicesSection:
 		return "Services"
+	case portsSection:
+		return "Ports"
 	case healthSection:
 		return "Health"
 	case connectionsSection:
 		return "Connections"
+	case logsSection:
+		return "Logs"
 	case historySection:
 		return "History"
 	default:
@@ -139,6 +151,9 @@ type keyMap struct {
 	Confirm           key.Binding
 	Cancel            key.Binding
 	Refresh           key.Binding
+	PrevItem          key.Binding
+	NextItem          key.Binding
+	ToggleFollow      key.Binding
 	ToggleAutoRefresh key.Binding
 	ToggleLayout      key.Binding
 	ToggleSecrets     key.Binding
@@ -149,12 +164,12 @@ type keyMap struct {
 func defaultKeyMap() keyMap {
 	return keyMap{
 		NextSection: key.NewBinding(
-			key.WithKeys("right", "down", "j", "tab", "l"),
-			key.WithHelp("tab/j", "next section"),
+			key.WithKeys("right", "tab", "l"),
+			key.WithHelp("tab/l", "next section"),
 		),
 		PrevSection: key.NewBinding(
-			key.WithKeys("left", "up", "k", "shift+tab", "h"),
-			key.WithHelp("shift+tab/k", "previous section"),
+			key.WithKeys("left", "shift+tab", "h"),
+			key.WithHelp("shift+tab/h", "previous section"),
 		),
 		Action: key.NewBinding(
 			key.WithKeys("1", "2", "3", "4", "5", "6"),
@@ -171,6 +186,18 @@ func defaultKeyMap() keyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		PrevItem: key.NewBinding(
+			key.WithKeys("up", "k", "["),
+			key.WithHelp("k/[", "previous item"),
+		),
+		NextItem: key.NewBinding(
+			key.WithKeys("down", "j", "]"),
+			key.WithHelp("j/]", "next item"),
+		),
+		ToggleFollow: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f", "toggle log follow"),
 		),
 		ToggleAutoRefresh: key.NewBinding(
 			key.WithKeys("a"),
@@ -196,51 +223,61 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextSection, k.Action, k.Refresh, k.ToggleAutoRefresh, k.Quit}
+	return []key.Binding{k.NextSection, k.Action, k.NextItem, k.Refresh, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.NextSection, k.PrevSection, k.Action},
 		{k.Confirm, k.Cancel, k.Refresh},
+		{k.PrevItem, k.NextItem, k.ToggleFollow},
 		{k.ToggleAutoRefresh, k.ToggleLayout, k.ToggleSecrets},
 		{k.ToggleHelp, k.Quit},
 	}
 }
 
 type Model struct {
-	width         int
-	height        int
-	active        section
-	layout        layoutMode
-	loading       bool
-	autoRefresh   bool
-	autoRefreshID int
-	showSecrets   bool
-	errMessage    string
-	snapshot      Snapshot
-	loader        Loader
-	runner        ActionRunner
-	keys          keyMap
-	help          help.Model
-	viewport      viewport.Model
-	banner        *actionBanner
-	confirmation  *confirmationState
-	runningAction *runningAction
-	history       []historyEntry
-	nextHistoryID int
-	nextBannerID  int
+	width           int
+	height          int
+	active          section
+	layout          layoutMode
+	loading         bool
+	autoRefresh     bool
+	autoRefreshID   int
+	showSecrets     bool
+	errMessage      string
+	snapshot        Snapshot
+	loader          Loader
+	logLoader       LogLoader
+	runner          ActionRunner
+	keys            keyMap
+	help            help.Model
+	viewport        viewport.Model
+	banner          *actionBanner
+	confirmation    *confirmationState
+	runningAction   *runningAction
+	history         []historyEntry
+	nextHistoryID   int
+	nextBannerID    int
+	selectedService string
+	selectedPort    string
+	selectedHealth  string
+	logs            logPanelState
 }
 
 func NewModel(loader Loader) Model {
-	return newModel(loader, nil)
+	return newModel(loader, nil, nil)
 }
 
 func NewActionModel(loader Loader, runner ActionRunner) Model {
-	return newModel(loader, runner)
+	return newModel(loader, nil, runner)
 }
 
-func newModel(loader Loader, runner ActionRunner) Model {
+func NewInspectionModel(loader Loader, logLoader LogLoader, runner ActionRunner) Model {
+	return newModel(loader, logLoader, runner)
+}
+
+func newModel(loader Loader, logLoader LogLoader, runner ActionRunner) Model {
 	viewportModel := viewport.New()
 	helpModel := help.New()
 	helpModel.ShowAll = false
@@ -251,10 +288,14 @@ func newModel(loader Loader, runner ActionRunner) Model {
 		loading:     true,
 		autoRefresh: true,
 		loader:      loader,
+		logLoader:   logLoader,
 		runner:      runner,
 		keys:        defaultKeyMap(),
 		help:        helpModel,
 		viewport:    viewportModel,
+		logs: logPanelState{
+			Follow: false,
+		},
 	}
 }
 
@@ -276,11 +317,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.errMessage = ""
 			m.snapshot = msg.snapshot
+			m.normalizeSelections()
 		}
 		m.syncLayout()
 		if m.autoRefresh {
 			m.autoRefreshID++
-			return m, autoRefreshCmd(m.autoRefreshID)
+			return m, autoRefreshCmd(m.autoRefreshID, m.refreshInterval())
+		}
+		return m, nil
+	case logSnapshotMsg:
+		if msg.RequestID != m.logs.RequestID {
+			return m, nil
+		}
+		hadOutput := strings.TrimSpace(m.logs.Output) != ""
+		wasAtBottom := m.viewport.AtBottom()
+		m.logs.Loading = false
+		if msg.Err != nil {
+			m.logs.Error = msg.Err.Error()
+		} else {
+			m.logs.Error = ""
+			m.logs.Output = msg.Snapshot.Output
+			m.logs.LoadedAt = msg.Snapshot.LoadedAt
+			m.logs.Service = msg.Snapshot.Service
+		}
+		m.syncLayout()
+		if m.active == logsSection && (m.logs.Follow || !hadOutput || wasAtBottom) {
+			m.viewport.GotoBottom()
 		}
 		return m, nil
 	case actionMsg:
@@ -288,6 +350,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncLayout()
 		if msg.report.Refresh || lifecycleAction(msg.action.ID) {
 			m.loading = true
+			if m.shouldLoadLogs() {
+				logCmd := m.startLogLoad()
+				return m, tea.Batch(loadSnapshotCmd(m.loader), logCmd, bannerCmd)
+			}
 			return m, tea.Batch(loadSnapshotCmd(m.loader), bannerCmd)
 		}
 		return m, bannerCmd
@@ -302,6 +368,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.loading = true
+		if m.shouldLoadLogs() {
+			logCmd := m.startLogLoad()
+			return m, tea.Batch(loadSnapshotCmd(m.loader), logCmd)
+		}
 		return m, loadSnapshotCmd(m.loader)
 	case tea.KeyPressMsg:
 		if m.confirmation != nil {
@@ -360,23 +430,96 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.autoRefreshID++
 			m.syncLayout()
 			if m.autoRefresh {
-				return m, autoRefreshCmd(m.autoRefreshID)
+				return m, autoRefreshCmd(m.autoRefreshID, m.refreshInterval())
 			}
 			return m, nil
+		case key.Matches(msg, m.keys.ToggleFollow):
+			if m.active != logsSection || m.logLoader == nil {
+				return m, nil
+			}
+			m.logs.Follow = !m.logs.Follow
+			m.autoRefreshID++
+			m.syncLayout()
+			cmds := make([]tea.Cmd, 0, 2)
+			if m.logs.Follow {
+				cmds = append(cmds, m.startLogLoad())
+			}
+			if m.autoRefresh {
+				cmds = append(cmds, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
+			}
+			return m, tea.Batch(cmds...)
 		case key.Matches(msg, m.keys.Refresh):
 			if m.runningAction != nil {
 				return m, nil
 			}
 			m.loading = true
 			m.autoRefreshID++
+			if m.shouldLoadLogs() {
+				logCmd := m.startLogLoad()
+				return m, tea.Batch(loadSnapshotCmd(m.loader), logCmd)
+			}
 			return m, loadSnapshotCmd(m.loader)
+		case key.Matches(msg, m.keys.NextItem):
+			if !m.activeHasSelectionList() {
+				return m, nil
+			}
+			cmd := m.cycleActiveSelection(1)
+			m.autoRefreshID++
+			m.syncLayout()
+			m.resetViewportForActivePanel()
+			if m.autoRefresh {
+				return m, tea.Batch(cmd, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
+			}
+			return m, cmd
+		case key.Matches(msg, m.keys.PrevItem):
+			if !m.activeHasSelectionList() {
+				return m, nil
+			}
+			cmd := m.cycleActiveSelection(-1)
+			m.autoRefreshID++
+			m.syncLayout()
+			m.resetViewportForActivePanel()
+			if m.autoRefresh {
+				return m, tea.Batch(cmd, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
+			}
+			return m, cmd
 		case key.Matches(msg, m.keys.NextSection):
 			m.active = nextSection(m.active)
+			if m.active == logsSection && m.logLoader != nil && m.logs.Output == "" && !m.logs.Loading {
+				cmd := m.startLogLoad()
+				m.autoRefreshID++
+				m.syncLayout()
+				m.resetViewportForActivePanel()
+				if m.autoRefresh {
+					return m, tea.Batch(cmd, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
+				}
+				return m, cmd
+			}
+			m.autoRefreshID++
 			m.syncLayout()
+			m.resetViewportForActivePanel()
+			if m.autoRefresh {
+				return m, autoRefreshCmd(m.autoRefreshID, m.refreshInterval())
+			}
 			return m, nil
 		case key.Matches(msg, m.keys.PrevSection):
 			m.active = previousSection(m.active)
+			if m.active == logsSection && m.logLoader != nil && m.logs.Output == "" && !m.logs.Loading {
+				cmd := m.startLogLoad()
+				m.autoRefreshID++
+				m.syncLayout()
+				m.resetViewportForActivePanel()
+				if m.autoRefresh {
+					return m, tea.Batch(cmd, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
+				}
+				return m, cmd
+			}
+			m.autoRefreshID++
 			m.syncLayout()
+			m.resetViewportForActivePanel()
+			if m.autoRefresh {
+				return m, autoRefreshCmd(m.autoRefreshID, m.refreshInterval())
+			}
 			return m, nil
 		}
 	}
@@ -416,8 +559,8 @@ func loadSnapshotCmd(loader Loader) tea.Cmd {
 	}
 }
 
-func autoRefreshCmd(id int) tea.Cmd {
-	return tea.Tick(autoRefreshInterval, func(time.Time) tea.Msg {
+func autoRefreshCmd(id int, interval time.Duration) tea.Cmd {
+	return tea.Tick(interval, func(time.Time) tea.Msg {
 		return autoRefreshMsg{id: id}
 	})
 }
@@ -439,6 +582,88 @@ func nextSection(current section) section {
 	return overviewSection
 }
 
+func loadLogSnapshotCmd(loader LogLoader, requestID int, request LogRequest) tea.Cmd {
+	return func() tea.Msg {
+		snapshot, err := loader(request)
+		return logSnapshotMsg{RequestID: requestID, Snapshot: snapshot, Err: err}
+	}
+}
+
+func (m *Model) startLogLoad() tea.Cmd {
+	if m.logLoader == nil {
+		return nil
+	}
+
+	m.logs.Loading = true
+	m.logs.Error = ""
+	m.logs.RequestID++
+	request := LogRequest{
+		Service: m.logs.Service,
+		Tail:    logTailLines,
+	}
+
+	return loadLogSnapshotCmd(m.logLoader, m.logs.RequestID, request)
+}
+
+func (m *Model) shouldLoadLogs() bool {
+	return m.logLoader != nil && m.active == logsSection
+}
+
+func (m Model) refreshInterval() time.Duration {
+	if m.active == logsSection && m.logs.Follow {
+		return logFollowInterval
+	}
+
+	return autoRefreshInterval
+}
+
+func (m *Model) normalizeSelections() {
+	m.selectedService = pickSelectedName(m.selectedService, selectableServiceNames(m.snapshot))
+	m.selectedPort = pickSelectedName(m.selectedPort, selectablePortNames(m.snapshot))
+	m.selectedHealth = pickSelectedName(m.selectedHealth, selectableServiceNames(m.snapshot))
+	m.logs.Service = pickSelectedFilter(m.logs.Service, logFilters(m.snapshot))
+}
+
+func (m Model) activeHasSelectionList() bool {
+	switch m.active {
+	case servicesSection, portsSection, healthSection, logsSection:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) resetViewportForActivePanel() {
+	if m.active == logsSection && strings.TrimSpace(m.logs.Output) != "" {
+		m.viewport.GotoBottom()
+		return
+	}
+
+	m.viewport.GotoTop()
+}
+
+func (m *Model) cycleActiveSelection(step int) tea.Cmd {
+	switch m.active {
+	case servicesSection:
+		m.selectedService = cycleSelectedName(m.selectedService, selectableServiceNames(m.snapshot), step)
+		return nil
+	case portsSection:
+		m.selectedPort = cycleSelectedName(m.selectedPort, selectablePortNames(m.snapshot), step)
+		return nil
+	case healthSection:
+		m.selectedHealth = cycleSelectedName(m.selectedHealth, selectableServiceNames(m.snapshot), step)
+		return nil
+	case logsSection:
+		previous := m.logs.Service
+		m.logs.Service = cycleSelectedFilter(m.logs.Service, logFilters(m.snapshot), step)
+		if previous != m.logs.Service || m.logs.Output == "" {
+			return m.startLogLoad()
+		}
+	}
+
+	return nil
+}
+
 func previousSection(current section) section {
 	for idx, candidate := range sections {
 		if candidate != current {
@@ -451,7 +676,7 @@ func previousSection(current section) section {
 }
 
 func (m *Model) syncLayout() {
-	sidebarWidth := 24
+	sidebarWidth := 26
 	bodyHeight := m.height - 6
 	if bodyHeight < 8 {
 		bodyHeight = 8
@@ -465,7 +690,6 @@ func (m *Model) syncLayout() {
 	m.viewport.SetWidth(maxInt(20, mainWidth-panelStyle.GetHorizontalFrameSize()))
 	m.viewport.SetHeight(maxInt(4, bodyHeight-panelStyle.GetVerticalFrameSize()))
 	m.viewport.SetContent(m.currentContent())
-	m.viewport.GotoTop()
 }
 
 func (m Model) currentContent() string {
@@ -474,15 +698,20 @@ func (m Model) currentContent() string {
 	}
 
 	blocks := make([]string, 0, 4)
+	contentWidth := maxInt(20, m.viewport.Width())
 	switch m.active {
 	case overviewSection:
 		blocks = append(blocks, renderOverview(m.snapshot, m.layout))
 	case servicesSection:
-		blocks = append(blocks, renderServices(m.snapshot, m.showSecrets, m.layout))
+		blocks = append(blocks, renderServices(m.snapshot, m.showSecrets, m.layout, m.selectedService, contentWidth))
+	case portsSection:
+		blocks = append(blocks, renderPorts(m.snapshot, m.selectedPort, contentWidth))
 	case healthSection:
-		blocks = append(blocks, renderHealth(m.snapshot))
+		blocks = append(blocks, renderHealth(m.snapshot, m.selectedHealth, contentWidth))
 	case connectionsSection:
 		blocks = append(blocks, renderConnections(m.snapshot, m.showSecrets, m.layout))
+	case logsSection:
+		blocks = append(blocks, renderLogs(m.snapshot, m.logs, contentWidth))
 	case historySection:
 		blocks = append(blocks, renderHistory(m.history))
 	default:
@@ -625,15 +854,20 @@ func renderHeader(m Model) string {
 
 	autoRefreshLabel := "off"
 	if m.autoRefresh {
-		autoRefreshLabel = autoRefreshInterval.String()
+		autoRefreshLabel = m.refreshInterval().String()
+	}
+	logFollowMeta := ""
+	if m.active == logsSection {
+		logFollowMeta = fmt.Sprintf("  •  log-follow: %s", onOffLabel(m.logs.Follow))
 	}
 
 	meta := fmt.Sprintf(
-		"%s  •  mode: %s  •  layout: %s  •  auto-refresh: %s  •  secrets: %s  •  updated: %s",
+		"%s  •  mode: %s  •  layout: %s  •  auto-refresh: %s%s  •  secrets: %s  •  updated: %s",
 		headerStatusStyle(m).Render(statusLabel),
 		mode,
 		m.layout.String(),
 		autoRefreshLabel,
+		logFollowMeta,
 		onOffLabel(m.showSecrets),
 		loadedAt,
 	)
@@ -653,7 +887,7 @@ func renderHeader(m Model) string {
 }
 
 func renderBody(m Model) string {
-	sidebarWidth := 24
+	sidebarWidth := 26
 	bodyHeight := m.height - 6
 	if bodyHeight < 8 {
 		bodyHeight = 8
@@ -763,44 +997,6 @@ func renderOverview(snapshot Snapshot, layout layoutMode) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode) string {
-	lines := []string{sectionTitleStyle().Render("Services"), ""}
-	if snapshot.ServiceError != "" {
-		lines = append(lines, errorBannerStyle().Render(snapshot.ServiceError), "")
-	}
-	if len(snapshot.Services) == 0 {
-		lines = append(lines, mutedStyle().Render("No services loaded."))
-		return strings.Join(lines, "\n")
-	}
-
-	stackServices, hostTools := splitServices(snapshot.Services)
-	if len(stackServices) > 0 {
-		lines = append(lines, subsectionTitleStyle().Render("Stack services"), "")
-		for idx, service := range stackServices {
-			lines = append(lines, renderServiceBlock(service, showSecrets, layout, false)...)
-			if idx < len(stackServices)-1 {
-				lines = append(lines, "")
-			}
-		}
-	}
-	if len(hostTools) > 0 {
-		if len(stackServices) > 0 {
-			lines = append(lines, "")
-		}
-		lines = append(lines, subsectionTitleStyle().Render("Host tools"))
-		lines = append(lines, mutedStyle().Render("External to stack start, stop, and restart."), "")
-		for idx, service := range hostTools {
-			lines = append(lines, renderServiceBlock(service, showSecrets, layout, true)...)
-			if idx < len(hostTools)-1 {
-				lines = append(lines, "")
-			}
-		}
-	}
-	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, servicesSection)))
-
-	return strings.Join(lines, "\n")
-}
-
 func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, hostTool bool) []string {
 	lines := make([]string, 0, 16)
 	status := displayServiceStatus(service)
@@ -857,53 +1053,6 @@ func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, ho
 	}
 
 	return lines
-}
-
-func renderHealth(snapshot Snapshot) string {
-	lines := []string{sectionTitleStyle().Render("Health"), ""}
-	if snapshot.HealthError != "" {
-		lines = append(lines, errorBannerStyle().Render(snapshot.HealthError), "")
-	}
-	if len(snapshot.Services) > 0 {
-		stackServices, hostTools := splitServices(snapshot.Services)
-		if len(stackServices) > 0 {
-			lines = append(lines, renderHealthSummary(stackServices))
-			lines = append(lines, "")
-			lines = append(lines, subsectionTitleStyle().Render("Stack services"), "")
-			for idx, service := range stackServices {
-				lines = append(lines, renderHealthBlock(service)...)
-				if idx < len(stackServices)-1 {
-					lines = append(lines, "")
-				}
-			}
-		}
-		if len(hostTools) > 0 {
-			if len(stackServices) > 0 {
-				lines = append(lines, "")
-			}
-			lines = append(lines, subsectionTitleStyle().Render("Host tools"))
-			lines = append(lines, mutedStyle().Render("External to stack start, stop, and restart."), "")
-			for idx, service := range hostTools {
-				lines = append(lines, renderHealthBlock(service)...)
-				if idx < len(hostTools)-1 {
-					lines = append(lines, "")
-				}
-			}
-		}
-		return strings.Join(lines, "\n")
-	}
-	if len(snapshot.Health) == 0 {
-		lines = append(lines, mutedStyle().Render("No health data loaded."))
-		return strings.Join(lines, "\n")
-	}
-
-	lines = append(lines, mutedStyle().Render("Live service health is unavailable; showing raw checks instead."))
-	lines = append(lines, "")
-	for _, line := range snapshot.Health {
-		lines = append(lines, healthLineStyle(line.Status).Render(fmt.Sprintf("%s %s", healthStatusIcon(line.Status), line.Message)))
-	}
-
-	return strings.Join(lines, "\n")
 }
 
 func renderConnections(snapshot Snapshot, showSecrets bool, layout layoutMode) string {
@@ -1175,26 +1324,26 @@ func healthReachabilityLabel(service Service) string {
 
 	target := fmt.Sprintf("%s:%d", emptyLabel(service.Host), service.ExternalPort)
 	if service.PortListening {
-		return target + " is accepting connections"
+		return "accepting on " + target
 	}
 
-	return target + " is not responding"
+	return "no response on " + target
 }
 
 func healthNote(service Service) string {
 	status := displayServiceStatus(service)
 	switch {
 	case transitionalServiceStatus(status):
-		return "This service is changing state. Wait for the action to finish, then refresh."
+		return "Service is changing state. Refresh when the action finishes."
 	case strings.EqualFold(status, "running") && !serviceHasReachablePort(service):
-		return "The service reports running, but its host port is not reachable yet."
+		return "Container is running, but the host port is not reachable yet."
 	case !strings.EqualFold(status, "running") && service.PortListening:
-		return "The host port is active even though this service is not running. Another process may be using it."
+		return "Host port is busy outside this stack."
 	case strings.EqualFold(status, "missing"):
 		if isStackService(service) {
-			return "The managed container is not present yet."
+			return "Managed container is not present yet."
 		}
-		return "This service is not installed."
+		return "Service is not installed."
 	default:
 		return ""
 	}
@@ -1231,6 +1380,12 @@ func copyHintTargets(snapshot Snapshot, active section) []string {
 			}
 			if service.URL != "" {
 				add(service.DisplayName + " URL")
+			}
+		}
+	case portsSection:
+		for _, service := range snapshot.Services {
+			if service.ExternalPort > 0 {
+				add(fmt.Sprintf("%s port %d", service.DisplayName, service.ExternalPort))
 			}
 		}
 	case overviewSection, connectionsSection:
@@ -1353,6 +1508,14 @@ func transitionalServiceStatus(status string) bool {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 

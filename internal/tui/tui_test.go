@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -45,13 +46,13 @@ func TestModelNavigatesSectionsAndRefreshes(t *testing.T) {
 		t.Fatalf("unexpected initial snapshot: %+v", current.snapshot)
 	}
 
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
 	current = updatedModel.(Model)
 	if current.active != servicesSection {
 		t.Fatalf("expected services section, got %v", current.active)
 	}
 
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	current = updatedModel.(Model)
 	if current.active != overviewSection {
 		t.Fatalf("expected overview section, got %v", current.active)
@@ -190,14 +191,9 @@ func TestViewMasksSecretsUntilToggled(t *testing.T) {
 
 	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
 	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
+	current = navigateToSection(t, current, connectionsSection)
 
-	view := current.View().Content
+	view := current.currentContent()
 	if strings.Contains(view, "secret-password") {
 		t.Fatalf("expected secrets to be masked by default:\n%s", view)
 	}
@@ -233,13 +229,12 @@ func TestServicesViewShowsCockpitRuntimeDetails(t *testing.T) {
 
 	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
 	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
+	current = navigateToSection(t, current, servicesSection)
 
-	view := current.View().Content
+	view := current.currentContent()
 	for _, fragment := range []string{
 		"Host tools",
-		"External to stack start, stop, and restart.",
+		"Managed outside stack lifecycle.",
 		"●  Cockpit",
 		"Status: running",
 		"Lifecycle: external to stack lifecycle",
@@ -247,7 +242,7 @@ func TestServicesViewShowsCockpitRuntimeDetails(t *testing.T) {
 		"Host port: 9090",
 		"URL: https://devbox:9090",
 	} {
-		if !strings.Contains(view, fragment) {
+		if !collapsedContainsTest(view, fragment) {
 			t.Fatalf("expected cockpit services view to contain %q:\n%s", fragment, view)
 		}
 	}
@@ -287,8 +282,7 @@ func TestModelTogglesCompactLayout(t *testing.T) {
 
 	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
 	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
+	current = navigateToSection(t, current, servicesSection)
 
 	expandedView := current.View().Content
 	for _, fragment := range []string{
@@ -372,25 +366,21 @@ func TestHealthViewShowsServiceCentricSummary(t *testing.T) {
 
 	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
 	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
+	current = navigateToSection(t, current, healthSection)
 
-	view := current.View().Content
+	view := current.currentContent()
 	for _, fragment := range []string{
 		"Healthy: 2",
 		"Warnings: 0",
 		"Not running: 1",
 		"●  Postgres",
 		"Status: healthy",
-		"Reachability: localhost:5432 is accepting connections",
-		"○  Redis",
-		"Status: not running",
-		"Reachability: localhost:6379 is not responding",
-		"URL: http://localhost:8081",
+		"Reachability: accepting on localhost:5432",
+		"Redis",
+		"NOT RUNNING",
+		"pgAdmin",
 	} {
-		if !strings.Contains(view, fragment) {
+		if !collapsedContainsTest(view, fragment) {
 			t.Fatalf("expected health view to contain %q:\n%s", fragment, view)
 		}
 	}
@@ -425,10 +415,7 @@ func TestHealthViewWarnsWhenPortIsBusyOutsideTheStack(t *testing.T) {
 
 	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
 	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
+	current = navigateToSection(t, current, healthSection)
 
 	view := current.View().Content
 	for _, fragment := range []string{
@@ -436,11 +423,266 @@ func TestHealthViewWarnsWhenPortIsBusyOutsideTheStack(t *testing.T) {
 		"Warnings: 1",
 		"Not running: 0",
 		"Status: needs attention",
-		"Reachability: localhost:5432 is accepting connections",
-		"The host port is active even though this service is not running.",
+		"Reachability: accepting on localhost:5432",
+		"Host port is busy outside this stack.",
 	} {
-		if !strings.Contains(view, fragment) {
+		if !collapsedContainsTest(view, fragment) {
 			t.Fatalf("expected warning health view to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestModelCyclesLogFiltersAndRendersFriendlyLabels(t *testing.T) {
+	requests := make([]LogRequest, 0, 2)
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(request LogRequest) (LogSnapshot, error) {
+			requests = append(requests, request)
+			label := "all services"
+			if request.Service != "" {
+				label = request.Service
+			}
+			return LogSnapshot{
+				Service:  request.Service,
+				Output:   "log stream for " + label,
+				LoadedAt: time.Unix(1700000000, 0),
+			}, nil
+		},
+		nil,
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres"},
+			{Name: "redis", DisplayName: "Redis", Status: "running", ContainerName: "stack-redis"},
+		},
+	}
+	current.active = logsSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	cmd := current.startLogLoad()
+	if cmd == nil {
+		t.Fatalf("expected initial log load command")
+	}
+
+	updatedModel, _ = current.Update(cmd())
+	current = updatedModel.(Model)
+	if len(requests) != 1 {
+		t.Fatalf("expected one log request, got %d", len(requests))
+	}
+	if requests[0].Service != "" || requests[0].Tail != logTailLines {
+		t.Fatalf("unexpected initial log request: %+v", requests[0])
+	}
+	if !collapsedContainsTest(current.currentContent(), "Filter: All services") {
+		t.Fatalf("expected friendly all-services label:\n%s", current.currentContent())
+	}
+	if !collapsedContainsTest(current.currentContent(), "log stream for all services") {
+		t.Fatalf("expected log output for all services:\n%s", current.currentContent())
+	}
+
+	current.autoRefresh = false
+	updatedModel, cmd = current.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+	current = updatedModel.(Model)
+	if cmd == nil {
+		t.Fatalf("expected log reload command after switching filters")
+	}
+
+	updatedModel, _ = current.Update(cmd())
+	current = updatedModel.(Model)
+	if len(requests) != 2 {
+		t.Fatalf("expected two log requests, got %d", len(requests))
+	}
+	if requests[1].Service != "postgres" {
+		t.Fatalf("expected postgres filter request, got %+v", requests[1])
+	}
+	if current.logs.Service != "postgres" {
+		t.Fatalf("expected active log filter to be postgres, got %q", current.logs.Service)
+	}
+	if !collapsedContainsTest(current.currentContent(), "Filter: Postgres") {
+		t.Fatalf("expected friendly postgres label:\n%s", current.currentContent())
+	}
+	if !collapsedContainsTest(current.currentContent(), "log stream for postgres") {
+		t.Fatalf("expected postgres log output:\n%s", current.currentContent())
+	}
+}
+
+func TestEnteringLogsSectionTriggersInitialLogLoad(t *testing.T) {
+	requests := make([]LogRequest, 0, 1)
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(request LogRequest) (LogSnapshot, error) {
+			requests = append(requests, request)
+			return LogSnapshot{
+				Service:  request.Service,
+				Output:   "initial log output",
+				LoadedAt: time.Unix(1700000000, 0),
+			}, nil
+		},
+		nil,
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.autoRefresh = false
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres"},
+			{Name: "redis", DisplayName: "Redis", Status: "running", ContainerName: "stack-redis"},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+
+	for current.active != logsSection {
+		updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+		current = updatedModel.(Model)
+		if current.active == logsSection {
+			if cmd == nil {
+				t.Fatalf("expected entering logs section to trigger log loading")
+			}
+			updatedModel, _ = current.Update(cmd())
+			current = updatedModel.(Model)
+		}
+	}
+
+	if len(requests) != 1 {
+		t.Fatalf("expected exactly one initial log request, got %d", len(requests))
+	}
+	if !collapsedContainsTest(current.currentContent(), "initial log output") {
+		t.Fatalf("expected logs content after entering the logs section:\n%s", current.currentContent())
+	}
+}
+
+func TestLogViewportPreservesScrollbackUntilFollowModePinsBottom(t *testing.T) {
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(LogRequest) (LogSnapshot, error) { return LogSnapshot{}, nil },
+		nil,
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 100, Height: 16})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres"},
+		},
+	}
+	current.active = logsSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	initialLogs := logSnapshotMsg{
+		RequestID: current.logs.RequestID,
+		Snapshot: LogSnapshot{
+			Output:   numberedLogLines(40),
+			LoadedAt: time.Unix(1700000000, 0),
+		},
+	}
+	updatedModel, _ = current.Update(initialLogs)
+	current = updatedModel.(Model)
+	if !current.viewport.AtBottom() {
+		t.Fatalf("expected initial log load to pin the viewport to the bottom")
+	}
+
+	current.viewport.SetYOffset(3)
+	preservedOffset := current.viewport.YOffset()
+	updatedModel, _ = current.Update(logSnapshotMsg{
+		RequestID: current.logs.RequestID,
+		Snapshot: LogSnapshot{
+			Output:   numberedLogLines(45),
+			LoadedAt: time.Unix(1700000060, 0),
+		},
+	})
+	current = updatedModel.(Model)
+	if current.viewport.YOffset() != preservedOffset {
+		t.Fatalf("expected scrollback position to be preserved, got %d want %d", current.viewport.YOffset(), preservedOffset)
+	}
+
+	current.logs.Follow = true
+	current.viewport.SetYOffset(1)
+	updatedModel, _ = current.Update(logSnapshotMsg{
+		RequestID: current.logs.RequestID,
+		Snapshot: LogSnapshot{
+			Output:   numberedLogLines(50),
+			LoadedAt: time.Unix(1700000120, 0),
+		},
+	})
+	current = updatedModel.(Model)
+	if !current.viewport.AtBottom() {
+		t.Fatalf("expected follow mode to pin the viewport to the bottom")
+	}
+	if !collapsedContainsTest(renderHeader(current), "auto-refresh: 3s") {
+		t.Fatalf("expected header to show follow refresh interval:\n%s", renderHeader(current))
+	}
+}
+
+func TestSelectionKeysSwitchPortDetailPane(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres", Host: "localhost", ExternalPort: 5432, InternalPort: 5432},
+			{Name: "redis", DisplayName: "Redis", Status: "running", ContainerName: "stack-redis", Host: "localhost", ExternalPort: 6379, InternalPort: 6379},
+		},
+	}
+	current.active = portsSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	if !collapsedContainsTest(current.currentContent(), "Host port: 5432") {
+		t.Fatalf("expected initial port detail to show postgres:\n%s", current.currentContent())
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
+	current = updatedModel.(Model)
+	if current.selectedPort != "redis" {
+		t.Fatalf("expected selected port to switch to redis, got %q", current.selectedPort)
+	}
+	if !collapsedContainsTest(current.currentContent(), "Host port: 6379") {
+		t.Fatalf("expected port detail to switch to redis:\n%s", current.currentContent())
+	}
+}
+
+func TestHealthViewFallsBackToRawChecksWhenServicesAreUnavailable(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Health: []HealthLine{
+			{Status: output.StatusWarn, Message: "postgres port listening"},
+			{Status: output.StatusFail, Message: "redis port listening"},
+		},
+		DoctorChecks: []DoctorCheck{
+			{Status: output.StatusWarn, Message: "podman compose missing alias"},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	current = navigateToSection(t, current, healthSection)
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"Live service health is unavailable; showing raw checks instead.",
+		"postgres port listening",
+		"redis port listening",
+		"Doctor findings",
+		"podman compose missing alias",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected raw health fallback to contain %q:\n%s", fragment, view)
 		}
 	}
 }
@@ -575,8 +817,7 @@ func TestServicesViewUsesFriendlyStoppedLabels(t *testing.T) {
 
 	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
 	current = updatedModel.(Model)
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
+	current = navigateToSection(t, current, servicesSection)
 
 	view := current.View().Content
 	for _, fragment := range []string{
@@ -719,10 +960,7 @@ func TestModelRunsStartActionOptimisticallyAndRecordsHistory(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 4; i++ {
-		updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-		current = updatedModel.(Model)
-	}
+	current = navigateToSection(t, current, historySection)
 
 	view := current.View().Content
 	for _, fragment := range []string{
@@ -790,10 +1028,7 @@ func TestModelCancelsConfirmedActionWithoutRunningIt(t *testing.T) {
 		t.Fatalf("expected cancelled action to show a transient banner")
 	}
 
-	for i := 0; i < 4; i++ {
-		updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-		current = updatedModel.(Model)
-	}
+	current = navigateToSection(t, current, historySection)
 
 	view := current.View().Content
 	for _, fragment := range []string{
@@ -1035,8 +1270,7 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 		t.Fatalf("expected sidebar to show global actions:\n%s", overviewSidebar)
 	}
 
-	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	current = updatedModel.(Model)
+	current = navigateToSection(t, current, servicesSection)
 	servicesContent := current.currentContent()
 	if strings.Contains(servicesContent, "[1] Restart") || strings.Contains(servicesContent, "Actions") {
 		t.Fatalf("expected services panel content to stay action-free:\n%s", servicesContent)
@@ -1048,9 +1282,26 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 }
 
 var ansiStripPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+var whitespaceCollapsePattern = regexp.MustCompile(`\s+`)
 
 func stripANSITest(value string) string {
 	return ansiStripPattern.ReplaceAllString(value, "")
+}
+
+func collapsedContainsTest(value, fragment string) bool {
+	return strings.Contains(
+		whitespaceCollapsePattern.ReplaceAllString(stripANSITest(value), " "),
+		whitespaceCollapsePattern.ReplaceAllString(fragment, " "),
+	)
+}
+
+func numberedLogLines(count int) string {
+	lines := make([]string, 0, count)
+	for idx := range count {
+		lines = append(lines, fmt.Sprintf("line %02d", idx+1))
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func snapshotFromCmd(t *testing.T, cmd tea.Cmd) snapshotMsg {
@@ -1079,4 +1330,19 @@ func snapshotFromCmd(t *testing.T, cmd tea.Cmd) snapshotMsg {
 
 	t.Fatalf("expected batched snapshotMsg, got %T", msg)
 	return snapshotMsg{}
+}
+
+func navigateToSection(t *testing.T, current Model, target section) Model {
+	t.Helper()
+
+	for step := 0; step < len(sections)+1; step++ {
+		if current.active == target {
+			return current
+		}
+		updatedModel, _ := current.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+		current = updatedModel.(Model)
+	}
+
+	t.Fatalf("failed to navigate to section %v", target)
+	return current
 }
