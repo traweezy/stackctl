@@ -212,7 +212,7 @@ func TestRunWizardAcceptsDefaults(t *testing.T) {
 
 	cfg := Default()
 
-	input := strings.Repeat("\n", 14)
+	input := strings.Repeat("\n", 20)
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
 	if err != nil {
 		t.Fatalf("RunWizard returned error: %v", err)
@@ -231,6 +231,12 @@ func TestRunWizardAcceptsDefaults(t *testing.T) {
 	if got.URLs.Cockpit == "" || got.URLs.PgAdmin == "" {
 		t.Fatalf("wizard did not derive urls: %+v", got.URLs)
 	}
+	if got.Connection.RedisPassword != "" {
+		t.Fatalf("wizard should keep redis auth disabled by default: %+v", got.Connection)
+	}
+	if got.Connection.PgAdminEmail != "admin@example.com" || got.Connection.PgAdminPassword != "admin" {
+		t.Fatalf("wizard did not preserve pgadmin defaults: %+v", got.Connection)
+	}
 }
 
 func TestRunWizardCanSwitchToExternalStack(t *testing.T) {
@@ -242,7 +248,7 @@ func TestRunWizardCanSwitchToExternalStack(t *testing.T) {
 	}
 
 	cfg := Default()
-	input := "dev-stack\nn\n" + externalDir + "\ncompose.custom.yaml\n" + strings.Repeat("\n", 10)
+	input := "dev-stack\nn\n" + externalDir + "\ncompose.custom.yaml\n" + strings.Repeat("\n", 18)
 
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
 	if err != nil {
@@ -257,6 +263,57 @@ func TestRunWizardCanSwitchToExternalStack(t *testing.T) {
 	}
 	if got.Stack.Dir != externalDir || got.Stack.ComposeFile != "compose.custom.yaml" {
 		t.Fatalf("unexpected external stack config: %+v", got.Stack)
+	}
+}
+
+func TestRunWizardCanCustomizeServiceCredentials(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	input := strings.Join([]string{
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"stackdb",
+		"stackuser",
+		"stackpass",
+		"redispass",
+		"pgadmin@example.com",
+		"pgsecret",
+		"",
+		"",
+		"",
+		"",
+		"",
+	}, "\n") + "\n"
+
+	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
+	if err != nil {
+		t.Fatalf("RunWizard returned error: %v", err)
+	}
+	if got.Connection.PostgresDatabase != "stackdb" {
+		t.Fatalf("unexpected postgres database: %q", got.Connection.PostgresDatabase)
+	}
+	if got.Connection.PostgresUsername != "stackuser" {
+		t.Fatalf("unexpected postgres username: %q", got.Connection.PostgresUsername)
+	}
+	if got.Connection.PostgresPassword != "stackpass" {
+		t.Fatalf("unexpected postgres password: %q", got.Connection.PostgresPassword)
+	}
+	if got.Connection.RedisPassword != "redispass" {
+		t.Fatalf("unexpected redis password: %q", got.Connection.RedisPassword)
+	}
+	if got.Connection.PgAdminEmail != "pgadmin@example.com" {
+		t.Fatalf("unexpected pgadmin email: %q", got.Connection.PgAdminEmail)
+	}
+	if got.Connection.PgAdminPassword != "pgsecret" {
+		t.Fatalf("unexpected pgadmin password: %q", got.Connection.PgAdminPassword)
 	}
 }
 
@@ -399,11 +456,17 @@ func TestRunWizardPropagatesPromptReadErrors(t *testing.T) {
 		{name: "redis port", completedPrompts: 6},
 		{name: "pgadmin port", completedPrompts: 7},
 		{name: "cockpit port", completedPrompts: 8},
-		{name: "wait for services", completedPrompts: 9},
-		{name: "timeout", completedPrompts: 10},
-		{name: "install cockpit", completedPrompts: 11},
-		{name: "include pgadmin", completedPrompts: 12},
-		{name: "package manager", completedPrompts: 13},
+		{name: "postgres database", completedPrompts: 9},
+		{name: "postgres username", completedPrompts: 10},
+		{name: "postgres password", completedPrompts: 11},
+		{name: "redis password", completedPrompts: 12},
+		{name: "pgadmin email", completedPrompts: 13},
+		{name: "pgadmin password", completedPrompts: 14},
+		{name: "wait for services", completedPrompts: 15},
+		{name: "timeout", completedPrompts: 16},
+		{name: "install cockpit", completedPrompts: 17},
+		{name: "include pgadmin", completedPrompts: 18},
+		{name: "package manager", completedPrompts: 19},
 	}
 
 	for _, tc := range cases {

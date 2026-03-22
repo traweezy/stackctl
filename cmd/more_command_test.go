@@ -197,6 +197,7 @@ func TestConnectPrintsConnectionInfo(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.Connection.Host = "devbox"
+		cfg.Connection.RedisPassword = "redispass"
 		cfg.ApplyDerivedFields()
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 	})
@@ -207,6 +208,9 @@ func TestConnectPrintsConnectionInfo(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Postgres\n  postgres://app:app@devbox:5432/app") {
 		t.Fatalf("unexpected connect output: %s", stdout)
+	}
+	if !strings.Contains(stdout, "Redis\n  redis://:redispass@devbox:6379") {
+		t.Fatalf("expected redis auth DSN in connect output: %s", stdout)
 	}
 	if strings.Contains(stdout, "DSN:") || strings.Contains(stdout, "URL:") {
 		t.Fatalf("connect should stay minimal, got: %s", stdout)

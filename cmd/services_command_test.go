@@ -16,6 +16,9 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		cfg.Connection.PostgresDatabase = "stackdb"
 		cfg.Connection.PostgresUsername = "stackuser"
 		cfg.Connection.PostgresPassword = "stackpass"
+		cfg.Connection.RedisPassword = "redispass"
+		cfg.Connection.PgAdminEmail = "pgadmin@example.com"
+		cfg.Connection.PgAdminPassword = "pgsecret"
 		cfg.Ports.Postgres = 15432
 		cfg.Ports.Redis = 16379
 		cfg.Ports.PgAdmin = 18081
@@ -51,8 +54,11 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		"⚡ Redis",
 		"Container: local-redis",
 		"Port: 16379 -> 6379",
-		"DSN: redis://devbox:16379",
+		"Password: redispass",
+		"DSN: redis://:redispass@devbox:16379",
 		"🌐 pgAdmin",
+		"Email: pgadmin@example.com",
+		"Password: pgsecret",
 		"URL: http://devbox:18081",
 		"🖥️ Cockpit",
 		"URL: https://devbox:19090",

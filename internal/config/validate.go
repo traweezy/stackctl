@@ -78,6 +78,8 @@ func Validate(cfg Config) []ValidationIssue {
 		"connection.postgres_database": cfg.Connection.PostgresDatabase,
 		"connection.postgres_username": cfg.Connection.PostgresUsername,
 		"connection.postgres_password": cfg.Connection.PostgresPassword,
+		"connection.pgadmin_email":     cfg.Connection.PgAdminEmail,
+		"connection.pgadmin_password":  cfg.Connection.PgAdminPassword,
 	} {
 		if strings.TrimSpace(value) == "" {
 			issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})

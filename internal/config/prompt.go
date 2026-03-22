@@ -100,6 +100,42 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	}
 	cfg.Ports.Cockpit = cockpitPort
 
+	postgresDatabase, err := session.askString("Postgres database name", cfg.Connection.PostgresDatabase, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Connection.PostgresDatabase = postgresDatabase
+
+	postgresUsername, err := session.askString("Postgres username", cfg.Connection.PostgresUsername, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Connection.PostgresUsername = postgresUsername
+
+	postgresPassword, err := session.askString("Postgres password", cfg.Connection.PostgresPassword, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Connection.PostgresPassword = postgresPassword
+
+	redisPassword, err := session.askString("Redis password (leave blank to disable auth)", cfg.Connection.RedisPassword, nil)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Connection.RedisPassword = redisPassword
+
+	pgAdminEmail, err := session.askString("pgAdmin email", cfg.Connection.PgAdminEmail, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Connection.PgAdminEmail = pgAdminEmail
+
+	pgAdminPassword, err := session.askString("pgAdmin password", cfg.Connection.PgAdminPassword, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Connection.PgAdminPassword = pgAdminPassword
+
 	waitForServices, err := session.askBool("Wait for services on start", cfg.Behavior.WaitForServicesStart)
 	if err != nil {
 		return Config{}, err

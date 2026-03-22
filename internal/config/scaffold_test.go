@@ -69,6 +69,9 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	cfg.Connection.PostgresUsername = "stackuser"
 	cfg.Connection.PostgresPassword = "stackpass"
 	cfg.Connection.PostgresDatabase = "stackdb"
+	cfg.Connection.RedisPassword = "redispass"
+	cfg.Connection.PgAdminEmail = "pgadmin@example.com"
+	cfg.Connection.PgAdminPassword = "pgsecret"
 	cfg.Ports.Postgres = 15432
 
 	result, err := ScaffoldManagedStack(cfg, false)
@@ -98,6 +101,15 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	if !strings.Contains(string(data), "\"15432:5432\"") {
 		t.Fatalf("expected rendered postgres port mapping, got: %s", string(data))
 	}
+	if !strings.Contains(string(data), "redis-server") || !strings.Contains(string(data), "--requirepass") || !strings.Contains(string(data), "\"redispass\"") {
+		t.Fatalf("expected rendered redis auth command, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "PGADMIN_DEFAULT_EMAIL: \"pgadmin@example.com\"") {
+		t.Fatalf("expected rendered pgadmin email, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "PGADMIN_DEFAULT_PASSWORD: \"pgsecret\"") {
+		t.Fatalf("expected rendered pgadmin password, got: %s", string(data))
+	}
 }
 
 func TestScaffoldManagedStackOmitsPgAdminWhenDisabled(t *testing.T) {
@@ -117,6 +129,26 @@ func TestScaffoldManagedStackOmitsPgAdminWhenDisabled(t *testing.T) {
 	}
 	if strings.Contains(string(data), "pgadmin:") {
 		t.Fatalf("expected pgadmin service to be omitted, got: %s", string(data))
+	}
+}
+
+func TestScaffoldManagedStackOmitsRedisAuthWhenPasswordIsBlank(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	cfg.Connection.RedisPassword = ""
+
+	result, err := ScaffoldManagedStack(cfg, false)
+	if err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(result.ComposePath)
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	if strings.Contains(string(data), "--requirepass") {
+		t.Fatalf("expected redis auth to be omitted, got: %s", string(data))
 	}
 }
 

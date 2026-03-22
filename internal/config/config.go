@@ -40,6 +40,9 @@ type ConnectionConfig struct {
 	PostgresDatabase string `yaml:"postgres_database"`
 	PostgresUsername string `yaml:"postgres_username"`
 	PostgresPassword string `yaml:"postgres_password"`
+	RedisPassword    string `yaml:"redis_password"`
+	PgAdminEmail     string `yaml:"pgadmin_email"`
+	PgAdminPassword  string `yaml:"pgadmin_password"`
 }
 
 type PortsConfig struct {
@@ -141,6 +144,12 @@ func (c *Config) ApplyDerivedFields() {
 	}
 	if c.Connection.PostgresPassword == "" {
 		c.Connection.PostgresPassword = "app"
+	}
+	if c.Connection.PgAdminEmail == "" {
+		c.Connection.PgAdminEmail = "admin@example.com"
+	}
+	if c.Connection.PgAdminPassword == "" {
+		c.Connection.PgAdminPassword = "admin"
 	}
 
 	if c.Ports.Cockpit > 0 {

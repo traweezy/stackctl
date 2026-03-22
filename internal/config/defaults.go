@@ -18,6 +18,9 @@ func Default() Config {
 			PostgresDatabase: "app",
 			PostgresUsername: "app",
 			PostgresPassword: "app",
+			RedisPassword:    "",
+			PgAdminEmail:     "admin@example.com",
+			PgAdminPassword:  "admin",
 		},
 		Ports: PortsConfig{
 			Postgres: 5432,

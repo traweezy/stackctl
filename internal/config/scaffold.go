@@ -97,6 +97,8 @@ func ScaffoldManagedStack(cfg Config, force bool) (ScaffoldResult, error) {
 }
 
 func renderManagedCompose(cfg Config) ([]byte, error) {
+	cfg.ApplyDerivedFields()
+
 	tmpl, err := template.New("dev-stack-compose").Option("missingkey=error").Parse(string(embedded.DevStackComposeYAML()))
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded compose template: %w", err)

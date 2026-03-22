@@ -16,6 +16,12 @@ services:
     image: redis:7
     container_name: {{ printf "%q" .Services.RedisContainer }}
     restart: unless-stopped
+{{- if .Connection.RedisPassword }}
+    command:
+      - redis-server
+      - --requirepass
+      - {{ printf "%q" .Connection.RedisPassword }}
+{{- end }}
     ports:
       - "{{ .Ports.Redis }}:6379"
     volumes:
@@ -27,8 +33,8 @@ services:
     container_name: {{ printf "%q" .Services.PgAdminContainer }}
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: {{ printf "%q" .Connection.PgAdminEmail }}
+      PGADMIN_DEFAULT_PASSWORD: {{ printf "%q" .Connection.PgAdminPassword }}
     ports:
       - "{{ .Ports.PgAdmin }}:80"
     depends_on:

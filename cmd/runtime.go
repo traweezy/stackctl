@@ -269,6 +269,7 @@ type runtimeService struct {
 	ExternalPort  int
 	InternalPort  int
 	Database      string
+	Email         string
 	Username      string
 	Password      string
 	URL           string
@@ -331,6 +332,7 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 			Host:          cfg.Connection.Host,
 			ExternalPort:  cfg.Ports.Redis,
 			InternalPort:  containerInternalPort(containerByName, cfg.Services.RedisContainer, cfg.Ports.Redis),
+			Password:      cfg.Connection.RedisPassword,
 			DSN:           redisDSN(cfg),
 		},
 	}
@@ -344,6 +346,8 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 			Host:          cfg.Connection.Host,
 			ExternalPort:  cfg.Ports.PgAdmin,
 			InternalPort:  containerInternalPort(containerByName, cfg.Services.PgAdminContainer, cfg.Ports.PgAdmin),
+			Email:         cfg.Connection.PgAdminEmail,
+			Password:      cfg.Connection.PgAdminPassword,
 			URL:           cfg.URLs.PgAdmin,
 		})
 	}
@@ -389,6 +393,11 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 		}
 		if service.Database != "" {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Database: %s\n", service.Database); err != nil {
+				return err
+			}
+		}
+		if service.Email != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Email: %s\n", service.Email); err != nil {
 				return err
 			}
 		}
@@ -453,6 +462,9 @@ func redisDSN(cfg configpkg.Config) string {
 	target := &url.URL{
 		Scheme: "redis",
 		Host:   fmt.Sprintf("%s:%d", cfg.Connection.Host, cfg.Ports.Redis),
+	}
+	if cfg.Connection.RedisPassword != "" {
+		target.User = url.UserPassword("", cfg.Connection.RedisPassword)
 	}
 
 	return target.String()

@@ -14,6 +14,9 @@ connection:
   postgres_database: app
   postgres_username: app
   postgres_password: app
+  redis_password: ""
+  pgadmin_email: admin@example.com
+  pgadmin_password: admin
 
 ports:
   postgres: 5432
