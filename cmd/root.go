@@ -24,6 +24,7 @@ func NewRootCmd(app *App) *cobra.Command {
 		Short: "Manage a local Podman development stack",
 		Example: "  stackctl setup\n" +
 			"  stackctl start\n" +
+			"  stackctl tui\n" +
 			"  stackctl services\n" +
 			"  stackctl exec postgres -- psql -U app -d app",
 		SilenceUsage:  true,
@@ -35,6 +36,7 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newStartCmd())
 	cmd.AddCommand(newStopCmd())
 	cmd.AddCommand(newRestartCmd())
+	cmd.AddCommand(newTUICmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newServicesCmd())
 	cmd.AddCommand(newPortsCmd())
