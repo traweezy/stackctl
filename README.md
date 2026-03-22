@@ -688,14 +688,108 @@ git tag v0.2.1
 git push origin v0.2.1
 ```
 
-## Next steps
+## Roadmap
 
-Current planned next steps for the tool:
+`stackctl` is moving toward a simple idea:
 
-- add `stackctl services --json` for machine-readable automation output
-- add copy helpers such as `stackctl services --copy postgres-dsn`
-- add more explicit verbosity and quiet controls across runtime commands
-- expand installer support beyond `apt`-based systems
-- improve support for non-managed custom stacks
-- add broader integration coverage against real Podman environments
-- evaluate non-Linux support once install and runtime behavior are abstracted
+> a local backend platform for developers
+
+The direction is pragmatic:
+
+- real local-development usefulness first
+- lightweight services with fast startup
+- strong developer experience without turning the tool into a giant platform
+
+### Current platform
+
+Available today:
+
+- PostgreSQL
+- Redis
+- pgAdmin
+- Cockpit
+
+Current CLI surface:
+
+- `setup`
+- `doctor`
+- `start`, `stop`, `restart`
+- `status`
+- `services`
+- `logs`
+- `health`
+- `connect`
+- `reset`
+- `config`
+
+### High priority
+
+These are the highest-value additions after the current release line.
+
+#### More local services
+
+- `NATS`
+  Why: lightweight messaging for event-driven systems, workers, and
+  real-time backends
+- `MinIO`
+  Why: S3-compatible object storage for uploads and cloud-like local dev
+- `Meilisearch`
+  Why: fast, lightweight search and autocomplete without Elasticsearch
+
+Resulting target stack:
+
+- PostgreSQL
+- Redis
+- NATS
+- MinIO
+- Meilisearch
+- pgAdmin
+- Cockpit
+
+#### More day-to-day CLI helpers
+
+- `stackctl services --json`
+  Why: machine-readable automation output
+- `stackctl services --copy <target>`
+  Why: quick copy helpers for DSNs and URLs
+- `stackctl exec <service> ...`
+  Why: run commands inside containers without remembering container names
+- `stackctl db shell`, `stackctl db reset`, `stackctl db dump`,
+  `stackctl db restore`
+  Why: streamline common Postgres workflows
+- `stackctl ports`
+  Why: show host-to-service port mappings quickly
+- `stackctl doctor --fix`
+  Why: automate safe fixes for common local-environment issues
+
+### Next after that
+
+These are strong follow-ups once the high-priority local stack and helper
+commands are in place.
+
+- multi-stack support such as `stackctl start dev` and
+  `stackctl start staging`
+- `stackctl env` to print app-ready environment variables
+- `stackctl run ...` to launch an app with stack-aware context
+- snapshot save and restore commands for dev-state workflows
+- broader installer support beyond `apt`-based systems
+- better support for non-managed custom stacks
+- more explicit verbosity and quiet controls across runtime commands
+- broader integration coverage against real Podman environments
+
+### Longer-term UX work
+
+These are appealing, but not ahead of the higher-value local-platform work.
+
+- a TUI dashboard such as `stackctl ui`
+- a self-update flow such as `stackctl update`
+- a plugin model for optional service packs
+- non-Linux support once runtime and install behavior are abstracted well
+
+### Not planned right now
+
+These are intentionally out of scope for the near term:
+
+- Kafka
+- Elasticsearch
+- Kubernetes integration
