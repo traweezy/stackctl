@@ -30,6 +30,29 @@ func TestModelInitLoadsSnapshot(t *testing.T) {
 	}
 }
 
+func TestSplitPaneWidthsFavorSelectionLists(t *testing.T) {
+	leftWidth, rightWidth, stacked := splitPaneWidths(120, defaultListPaneMinW, defaultListPaneMaxW)
+	if stacked {
+		t.Fatalf("expected wide layouts to stay split")
+	}
+	if leftWidth != 42 || rightWidth != 75 {
+		t.Fatalf("unexpected service pane widths: left=%d right=%d", leftWidth, rightWidth)
+	}
+
+	filterLeft, filterRight, stacked := splitPaneWidths(120, defaultFilterPaneMinW, defaultFilterPaneMaxW)
+	if stacked {
+		t.Fatalf("expected log layouts to stay split")
+	}
+	if filterLeft != 30 || filterRight != 87 {
+		t.Fatalf("unexpected log pane widths: left=%d right=%d", filterLeft, filterRight)
+	}
+
+	_, _, stacked = splitPaneWidths(splitPaneMinWidth-1, defaultListPaneMinW, defaultListPaneMaxW)
+	if !stacked {
+		t.Fatalf("expected narrow layouts to stack")
+	}
+}
+
 func TestModelNavigatesSectionsAndRefreshes(t *testing.T) {
 	loadCount := 0
 	model := NewModel(func() (Snapshot, error) {

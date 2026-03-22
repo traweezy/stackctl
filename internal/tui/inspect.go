@@ -11,11 +11,13 @@ import (
 )
 
 const (
-	logTailLines       = 200
-	logFollowInterval  = 3 * time.Second
-	splitPaneMinWidth  = 96
-	defaultListPaneW   = 26
-	defaultFilterPaneW = 20
+	logTailLines          = 200
+	logFollowInterval     = 3 * time.Second
+	splitPaneMinWidth     = 96
+	defaultListPaneMinW   = 34
+	defaultListPaneMaxW   = 42
+	defaultFilterPaneMinW = 24
+	defaultFilterPaneMaxW = 30
 )
 
 type DoctorCheck struct {
@@ -215,13 +217,21 @@ func selectedPortService(snapshot Snapshot, selected string) (Service, bool) {
 	return Service{}, false
 }
 
-func splitPane(left, right string, width int, listPaneWidth int) string {
+func splitPaneWidths(width int, minListPaneWidth int, maxListPaneWidth int) (int, int, bool) {
 	if width < splitPaneMinWidth {
-		return strings.TrimSpace(left) + "\n\n" + strings.TrimSpace(right)
+		return 0, 0, true
 	}
 
-	leftWidth := minInt(listPaneWidth, maxInt(20, width/3))
+	leftWidth := minInt(maxListPaneWidth, maxInt(minListPaneWidth, width*2/5))
 	rightWidth := maxInt(24, width-leftWidth-3)
+	return leftWidth, rightWidth, false
+}
+
+func splitPane(left, right string, width int, minListPaneWidth int, maxListPaneWidth int) string {
+	leftWidth, rightWidth, stacked := splitPaneWidths(width, minListPaneWidth, maxListPaneWidth)
+	if stacked {
+		return strings.TrimSpace(left) + "\n\n" + strings.TrimSpace(right)
+	}
 
 	leftPane := subPaneStyle("238").Width(leftWidth).Render(left)
 	rightPane := subPaneStyle("31").Width(rightWidth).Render(right)
@@ -319,7 +329,7 @@ func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode, sele
 
 	left := renderServiceListPane(snapshot, serviceKey(selectedService))
 	right := renderServiceDetailPane(selectedService, showSecrets, layout)
-	lines = append(lines, splitPane(left, right, width, defaultListPaneW))
+	lines = append(lines, splitPane(left, right, width, defaultListPaneMinW, defaultListPaneMaxW))
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, servicesSection)))
 
@@ -379,7 +389,7 @@ func renderPorts(snapshot Snapshot, selected string, width int) string {
 
 	left := renderPortListPane(snapshot, serviceKey(service))
 	right := renderPortDetailPane(service)
-	lines = append(lines, splitPane(left, right, width, defaultListPaneW))
+	lines = append(lines, splitPane(left, right, width, defaultListPaneMinW, defaultListPaneMaxW))
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, portsSection)))
 
@@ -473,7 +483,7 @@ func renderHealth(snapshot Snapshot, selected string, width int) string {
 	lines = append(lines, "")
 	left := renderHealthListPane(snapshot, serviceKey(selectedService))
 	right := renderHealthDetailPane(snapshot, selectedService)
-	lines = append(lines, splitPane(left, right, width, defaultListPaneW))
+	lines = append(lines, splitPane(left, right, width, defaultListPaneMinW, defaultListPaneMaxW))
 
 	return strings.Join(lines, "\n")
 }
@@ -534,7 +544,7 @@ func renderLogs(snapshot Snapshot, logs logPanelState, width int) string {
 	filters := logFilters(snapshot)
 	left := renderLogFilterPane(filters, logs)
 	right := renderLogDetailPane(filters, logs)
-	lines = append(lines, splitPane(left, right, width, defaultFilterPaneW))
+	lines = append(lines, splitPane(left, right, width, defaultFilterPaneMinW, defaultFilterPaneMaxW))
 
 	return strings.Join(lines, "\n")
 }
