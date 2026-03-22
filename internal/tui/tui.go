@@ -386,16 +386,12 @@ func (m Model) View() tea.View {
 
 	header := renderHeader(m)
 	status := renderGlobalStatus(m, m.width)
-	confirmation := renderConfirmationModal(m, m.width)
 	body := renderBody(m)
 	footer := footerStyle().Width(m.width).Render(m.help.View(m.keys))
 
 	blocks := []string{header}
 	if status != "" {
 		blocks = append(blocks, status)
-	}
-	if confirmation != "" {
-		blocks = append(blocks, confirmation)
 	}
 	blocks = append(blocks, body, footer)
 
@@ -580,23 +576,9 @@ func renderGlobalStatus(m Model, width int) string {
 		return ""
 	}
 
-	contentWidth := maxInt(20, width-2)
-	return bannerStyle(m.banner.Status).Width(contentWidth).Render(m.banner.Message)
-}
-
-func renderConfirmationModal(m Model, width int) string {
-	if m.confirmation == nil {
-		return ""
-	}
-
-	modal := renderConfirmation(m.confirmation)
-	modalWidth := minInt(maxInt(60, lipgloss.Width(modal)), maxInt(60, width-4))
-	return lipgloss.Place(
-		width,
-		lipgloss.Height(modal),
-		lipgloss.Center,
-		lipgloss.Top,
-		lipgloss.NewStyle().Width(modalWidth).Render(modal),
+	contentWidth := maxInt(20, width-3)
+	return headerShellStyle().Render(
+		bannerStyle(m.banner.Status).Width(contentWidth).Render(m.banner.Message),
 	)
 }
 
@@ -665,9 +647,16 @@ func renderBody(m Model) string {
 	if mainWidth < 36 {
 		mainWidth = 36
 	}
+	panelStyle := mainPanelStyle()
+	mainInnerWidth := maxInt(20, mainWidth-panelStyle.GetHorizontalFrameSize())
+	mainInnerHeight := maxInt(4, bodyHeight-panelStyle.GetVerticalFrameSize())
 
 	sidebar := sidebarStyle().Width(sidebarWidth).Height(bodyHeight).Render(renderSidebar(m))
-	main := mainPanelStyle().Width(mainWidth).Height(bodyHeight).Render(m.viewport.View())
+	mainContent := m.viewport.View()
+	if m.confirmation != nil {
+		mainContent = renderConfirmationPanel(m.confirmation, mainInnerWidth, mainInnerHeight)
+	}
+	main := panelStyle.Width(mainWidth).Height(bodyHeight).Render(mainContent)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
 }
@@ -693,12 +682,27 @@ func renderSidebar(m Model) string {
 	return strings.Join(lines, "\n")
 }
 
+func renderConfirmationPanel(state *confirmationState, width, height int) string {
+	if state == nil {
+		return ""
+	}
+
+	return lipgloss.Place(
+		width,
+		height,
+		lipgloss.Center,
+		lipgloss.Center,
+		renderConfirmation(state),
+	)
+}
+
 func renderOverview(snapshot Snapshot, layout layoutMode) string {
-	running, total := runningStackServiceCount(snapshot.Services)
+	stackServices, hostTools := splitServices(snapshot.Services)
+	running, total := runningStackServiceCount(stackServices)
 	lines := []string{
 		sectionTitleStyle().Render("Overview"),
 		"",
-		renderOverviewSummary(snapshot.Services),
+		renderOverviewSummary(stackServices),
 		"",
 		subsectionTitleStyle().Render("Stack"),
 		fmt.Sprintf("  Name: %s", emptyLabel(snapshot.StackName)),
@@ -709,10 +713,10 @@ func renderOverview(snapshot Snapshot, layout layoutMode) string {
 		fmt.Sprintf("  Stack services: %d / %d running", running, total),
 		fmt.Sprintf("  Wait on start: %s", onOffLabel(snapshot.WaitForServices)),
 	}
-	if host := overviewHost(snapshot.Services); host != "" {
+	if host := overviewHost(stackServices); host != "" {
 		lines = append(lines, fmt.Sprintf("  Host: %s", host))
 	}
-	if ports := overviewPortSummary(snapshot.Services); ports != "" {
+	if ports := overviewPortSummary(stackServices); ports != "" {
 		lines = append(lines, fmt.Sprintf("  Ports: %s", ports))
 	}
 	if layout == expandedLayout {
@@ -725,8 +729,19 @@ func renderOverview(snapshot Snapshot, layout layoutMode) string {
 		)
 	}
 	lines = append(lines, "")
+	if len(hostTools) > 0 {
+		lines = append(lines, subsectionTitleStyle().Render("Host tools"))
+		lines = append(lines, mutedStyle().Render("External to stack start, stop, and restart."))
+		for _, service := range hostTools {
+			lines = append(lines, "  "+renderStatusSummaryLine(service.DisplayName, displayServiceStatus(service)))
+			if service.URL != "" {
+				lines = append(lines, fmt.Sprintf("  URL: %s", service.URL))
+			}
+		}
+		lines = append(lines, "")
+	}
 	lines = append(lines, subsectionTitleStyle().Render("Helpful commands"))
-	lines = append(lines, "  "+overviewCommandHints(snapshot.Services))
+	lines = append(lines, "  "+overviewCommandHints(stackServices))
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, overviewSection)))
 
@@ -743,63 +758,90 @@ func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode) stri
 		return strings.Join(lines, "\n")
 	}
 
-	for idx, service := range snapshot.Services {
-		status := displayServiceStatus(service)
-		lines = append(lines, renderServiceHeading(status, service.DisplayName))
-		lines = append(lines, renderStatusLine(status))
-		if layout == expandedLayout && service.ContainerName != "" {
-			lines = append(lines, fmt.Sprintf("Container: %s", service.ContainerName))
+	stackServices, hostTools := splitServices(snapshot.Services)
+	if len(stackServices) > 0 {
+		lines = append(lines, subsectionTitleStyle().Render("Stack services"), "")
+		for idx, service := range stackServices {
+			lines = append(lines, renderServiceBlock(service, showSecrets, layout, false)...)
+			if idx < len(stackServices)-1 {
+				lines = append(lines, "")
+			}
 		}
-		if layout == expandedLayout && service.Image != "" {
-			lines = append(lines, fmt.Sprintf("Image: %s", service.Image))
-		}
-		if layout == expandedLayout && service.DataVolume != "" {
-			lines = append(lines, fmt.Sprintf("Data volume: %s", service.DataVolume))
-		}
-		if service.Host != "" {
-			lines = append(lines, fmt.Sprintf("Host: %s", service.Host))
-		}
-		lines = append(lines, servicePortLines(service)...)
-		if service.Database != "" {
-			lines = append(lines, fmt.Sprintf("Database: %s", service.Database))
-		}
-		if layout == expandedLayout && service.MaintenanceDB != "" {
-			lines = append(lines, fmt.Sprintf("Maintenance DB: %s", service.MaintenanceDB))
-		}
-		if service.Email != "" {
-			lines = append(lines, fmt.Sprintf("Email: %s", service.Email))
-		}
-		if service.Username != "" {
-			lines = append(lines, fmt.Sprintf("Username: %s", service.Username))
-		}
-		if layout == expandedLayout && service.Password != "" {
-			lines = append(lines, fmt.Sprintf("Password: %s", maskSecret(service.Password, showSecrets)))
-		}
-		if layout == expandedLayout && service.AppendOnly != nil {
-			lines = append(lines, fmt.Sprintf("Appendonly: %s", enabledDisabled(*service.AppendOnly)))
-		}
-		if layout == expandedLayout && service.SavePolicy != "" {
-			lines = append(lines, fmt.Sprintf("Save policy: %s", service.SavePolicy))
-		}
-		if layout == expandedLayout && service.MaxMemoryPolicy != "" {
-			lines = append(lines, fmt.Sprintf("Maxmemory policy: %s", service.MaxMemoryPolicy))
-		}
-		if layout == expandedLayout && service.ServerMode != "" {
-			lines = append(lines, fmt.Sprintf("Server mode: %s", service.ServerMode))
-		}
-		if service.URL != "" {
-			lines = append(lines, fmt.Sprintf("URL: %s", service.URL))
-		}
-		if service.DSN != "" {
-			lines = append(lines, fmt.Sprintf("DSN: %s", maskConnectionValue(service.DSN, showSecrets)))
-		}
-		if idx < len(snapshot.Services)-1 {
+	}
+	if len(hostTools) > 0 {
+		if len(stackServices) > 0 {
 			lines = append(lines, "")
+		}
+		lines = append(lines, subsectionTitleStyle().Render("Host tools"))
+		lines = append(lines, mutedStyle().Render("External to stack start, stop, and restart."), "")
+		for idx, service := range hostTools {
+			lines = append(lines, renderServiceBlock(service, showSecrets, layout, true)...)
+			if idx < len(hostTools)-1 {
+				lines = append(lines, "")
+			}
 		}
 	}
 	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, servicesSection)))
 
 	return strings.Join(lines, "\n")
+}
+
+func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, hostTool bool) []string {
+	lines := make([]string, 0, 16)
+	status := displayServiceStatus(service)
+	lines = append(lines, renderServiceHeading(status, service.DisplayName))
+	lines = append(lines, renderStatusLine(status))
+	if hostTool {
+		lines = append(lines, mutedStyle().Render("Lifecycle: external to stack lifecycle"))
+	}
+	if layout == expandedLayout && service.ContainerName != "" {
+		lines = append(lines, fmt.Sprintf("Container: %s", service.ContainerName))
+	}
+	if layout == expandedLayout && service.Image != "" {
+		lines = append(lines, fmt.Sprintf("Image: %s", service.Image))
+	}
+	if layout == expandedLayout && service.DataVolume != "" {
+		lines = append(lines, fmt.Sprintf("Data volume: %s", service.DataVolume))
+	}
+	if service.Host != "" {
+		lines = append(lines, fmt.Sprintf("Host: %s", service.Host))
+	}
+	lines = append(lines, servicePortLines(service)...)
+	if service.Database != "" {
+		lines = append(lines, fmt.Sprintf("Database: %s", service.Database))
+	}
+	if layout == expandedLayout && service.MaintenanceDB != "" {
+		lines = append(lines, fmt.Sprintf("Maintenance DB: %s", service.MaintenanceDB))
+	}
+	if service.Email != "" {
+		lines = append(lines, fmt.Sprintf("Email: %s", service.Email))
+	}
+	if service.Username != "" {
+		lines = append(lines, fmt.Sprintf("Username: %s", service.Username))
+	}
+	if layout == expandedLayout && service.Password != "" {
+		lines = append(lines, fmt.Sprintf("Password: %s", maskSecret(service.Password, showSecrets)))
+	}
+	if layout == expandedLayout && service.AppendOnly != nil {
+		lines = append(lines, fmt.Sprintf("Appendonly: %s", enabledDisabled(*service.AppendOnly)))
+	}
+	if layout == expandedLayout && service.SavePolicy != "" {
+		lines = append(lines, fmt.Sprintf("Save policy: %s", service.SavePolicy))
+	}
+	if layout == expandedLayout && service.MaxMemoryPolicy != "" {
+		lines = append(lines, fmt.Sprintf("Maxmemory policy: %s", service.MaxMemoryPolicy))
+	}
+	if layout == expandedLayout && service.ServerMode != "" {
+		lines = append(lines, fmt.Sprintf("Server mode: %s", service.ServerMode))
+	}
+	if service.URL != "" {
+		lines = append(lines, fmt.Sprintf("URL: %s", service.URL))
+	}
+	if service.DSN != "" {
+		lines = append(lines, fmt.Sprintf("DSN: %s", maskConnectionValue(service.DSN, showSecrets)))
+	}
+
+	return lines
 }
 
 func renderHealth(snapshot Snapshot) string {
@@ -808,12 +850,29 @@ func renderHealth(snapshot Snapshot) string {
 		lines = append(lines, errorBannerStyle().Render(snapshot.HealthError), "")
 	}
 	if len(snapshot.Services) > 0 {
-		lines = append(lines, renderHealthSummary(snapshot.Services))
-		lines = append(lines, "")
-		for idx, service := range snapshot.Services {
-			lines = append(lines, renderHealthBlock(service)...)
-			if idx < len(snapshot.Services)-1 {
+		stackServices, hostTools := splitServices(snapshot.Services)
+		if len(stackServices) > 0 {
+			lines = append(lines, renderHealthSummary(stackServices))
+			lines = append(lines, "")
+			lines = append(lines, subsectionTitleStyle().Render("Stack services"), "")
+			for idx, service := range stackServices {
+				lines = append(lines, renderHealthBlock(service)...)
+				if idx < len(stackServices)-1 {
+					lines = append(lines, "")
+				}
+			}
+		}
+		if len(hostTools) > 0 {
+			if len(stackServices) > 0 {
 				lines = append(lines, "")
+			}
+			lines = append(lines, subsectionTitleStyle().Render("Host tools"))
+			lines = append(lines, mutedStyle().Render("External to stack start, stop, and restart."), "")
+			for idx, service := range hostTools {
+				lines = append(lines, renderHealthBlock(service)...)
+				if idx < len(hostTools)-1 {
+					lines = append(lines, "")
+				}
 			}
 		}
 		return strings.Join(lines, "\n")
@@ -856,6 +915,20 @@ func renderConnections(snapshot Snapshot, showSecrets bool, layout layoutMode) s
 	return strings.Join(lines, "\n")
 }
 
+func splitServices(services []Service) ([]Service, []Service) {
+	stackServices := make([]Service, 0, len(services))
+	hostTools := make([]Service, 0, len(services))
+	for _, service := range services {
+		if isStackService(service) {
+			stackServices = append(stackServices, service)
+			continue
+		}
+		hostTools = append(hostTools, service)
+	}
+
+	return stackServices, hostTools
+}
+
 func renderErrorState(message string) string {
 	return strings.Join([]string{
 		sectionTitleStyle().Render("Dashboard unavailable"),
@@ -880,16 +953,6 @@ func runningStackServiceCount(services []Service) (int, int) {
 	}
 
 	return running, total
-}
-
-func lookupService(services []Service, displayName string) (Service, bool) {
-	for _, service := range services {
-		if service.DisplayName == displayName {
-			return service, true
-		}
-	}
-
-	return Service{}, false
 }
 
 func isStackService(service Service) bool {
@@ -966,9 +1029,6 @@ func renderOverviewSummary(services []Service) string {
 		statusStyle("healthy").Render(fmt.Sprintf("Running: %d", running)),
 		statusStyle("not running").Render(fmt.Sprintf("Stopped: %d", stopped)),
 		statusStyle("warning").Render(fmt.Sprintf("Attention: %d", attention)),
-	}
-	if cockpit, ok := lookupService(services, "Cockpit"); ok {
-		parts = append(parts, renderStatusSummaryLine("Cockpit", displayServiceStatus(cockpit)))
 	}
 
 	return strings.Join(parts, "  ")
@@ -1278,14 +1338,6 @@ func transitionalServiceStatus(status string) bool {
 
 func maxInt(a, b int) int {
 	if a > b {
-		return a
-	}
-
-	return b
-}
-
-func minInt(a, b int) int {
-	if a < b {
 		return a
 	}
 

@@ -238,8 +238,11 @@ func TestServicesViewShowsCockpitRuntimeDetails(t *testing.T) {
 
 	view := current.View().Content
 	for _, fragment := range []string{
+		"Host tools",
+		"External to stack start, stop, and restart.",
 		"●  Cockpit",
 		"Status: running",
+		"Lifecycle: external to stack lifecycle",
 		"Host: devbox",
 		"Host port: 9090",
 		"URL: https://devbox:9090",
@@ -483,12 +486,15 @@ func TestOverviewExcludesCockpitFromStackServiceCount(t *testing.T) {
 		"Running: 0",
 		"Stopped: 2",
 		"Attention: 0",
-		"Cockpit: running",
 		"Stack",
 		"Runtime",
 		"Stack services: 0 / 2 running",
 		"Host: localhost",
-		"Ports: Postgres 5432  •  Redis 6379  •  Cockpit 9090",
+		"Ports: Postgres 5432  •  Redis 6379",
+		"Host tools",
+		"External to stack start, stop, and restart.",
+		"Cockpit: running",
+		"URL: https://devbox:9090",
 		"Helpful commands",
 		"stackctl start  •  stackctl services  •  stackctl health",
 	} {
@@ -767,6 +773,9 @@ func TestModelCancelsConfirmedActionWithoutRunningIt(t *testing.T) {
 	}
 	if strings.Contains(current.currentContent(), "Stop the local stack now?") {
 		t.Fatalf("expected confirmation modal to stay out of panel content:\n%s", current.currentContent())
+	}
+	if strings.Contains(current.View().Content, "Stack services: 1 / 1 running") {
+		t.Fatalf("expected confirmation to replace the main panel content:\n%s", current.View().Content)
 	}
 	if !strings.Contains(current.View().Content, "Stop the local stack now?") {
 		t.Fatalf("expected confirmation prompt in view:\n%s", current.View().Content)

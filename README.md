@@ -349,8 +349,10 @@ Notes:
 - auto-refresh is on by default and can be turned off inside the TUI
 - the left sidebar keeps navigation and global stack actions together so the
   active panel stays focused on inspection
-- confirmations now open in a centered modal instead of taking over the active
-  panel
+- Cockpit is shown as a host tool, not a stack-managed service, so
+  `start`/`stop`/`restart` only apply to the compose stack
+- confirmations temporarily take over the center panel instead of pushing the
+  layout down
 - action results now appear in the global status area and in `History`, not in
   the current inspection tab
 - compact mode trims less important runtime fields so the dashboard is easier
