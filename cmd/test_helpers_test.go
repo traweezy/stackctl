@@ -55,6 +55,7 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 	testDeps.composeLogs = func(context.Context, system.Runner, configpkg.Config, int, bool, string, string) error {
 		return nil
 	}
+	testDeps.composeExec = func(context.Context, system.Runner, configpkg.Config, string, []string, bool) error { return nil }
 	testDeps.containerLogs = func(context.Context, system.Runner, string, int, bool, string) error { return nil }
 
 	if mutate != nil {

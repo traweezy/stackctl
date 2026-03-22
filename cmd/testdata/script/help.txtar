@@ -2,11 +2,15 @@
 exec stackctl --help
 stdout 'stackctl setup'
 stdout 'stackctl services'
-stdout 'stackctl logs --watch'
+stdout 'stackctl exec postgres -- psql -U app -d app'
 
 exec stackctl services --help
 stdout '--json'
 stdout 'stackctl services --json'
+
+exec stackctl exec --help
+stdout '--no-tty'
+stdout 'stackctl exec postgres -- psql -U app -d app'
 
 exec stackctl status --help
 stdout '--json'

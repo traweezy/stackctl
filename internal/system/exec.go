@@ -11,6 +11,7 @@ import (
 )
 
 type Runner struct {
+	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
 }
@@ -29,6 +30,7 @@ func (r Runner) Run(ctx context.Context, dir, name string, args ...string) error
 	// #nosec G204 -- executable names are restricted to an internal allowlist.
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = dir
+	command.Stdin = r.Stdin
 	command.Stdout = r.Stdout
 	command.Stderr = r.Stderr
 

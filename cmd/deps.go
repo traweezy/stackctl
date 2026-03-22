@@ -44,6 +44,7 @@ type commandDeps struct {
 	composeUp                 func(context.Context, system.Runner, configpkg.Config) error
 	composeDown               func(context.Context, system.Runner, configpkg.Config, bool) error
 	composeLogs               func(context.Context, system.Runner, configpkg.Config, int, bool, string, string) error
+	composeExec               func(context.Context, system.Runner, configpkg.Config, string, []string, bool) error
 	containerLogs             func(context.Context, system.Runner, string, int, bool, string) error
 }
 
@@ -85,6 +86,9 @@ func defaultCommandDeps() commandDeps {
 		},
 		composeLogs: func(ctx context.Context, runner system.Runner, cfg configpkg.Config, tail int, follow bool, since, service string) error {
 			return compose.Client{Runner: runner}.Logs(ctx, cfg, tail, follow, since, service)
+		},
+		composeExec: func(ctx context.Context, runner system.Runner, cfg configpkg.Config, service string, commandArgs []string, tty bool) error {
+			return compose.Client{Runner: runner}.Exec(ctx, cfg, service, commandArgs, tty)
 		},
 		containerLogs: func(ctx context.Context, runner system.Runner, containerName string, tail int, follow bool, since string) error {
 			return compose.Client{Runner: runner}.ContainerLogs(ctx, containerName, tail, follow, since)

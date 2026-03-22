@@ -19,7 +19,7 @@ import (
 
 func TestDefaultCommandDepsProvidesHooks(t *testing.T) {
 	value := defaultCommandDeps()
-	if value.configFilePath == nil || value.composeUp == nil || value.removeFile == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
+	if value.configFilePath == nil || value.composeUp == nil || value.composeExec == nil || value.removeFile == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
 		t.Fatal("default command deps should initialize function hooks")
 	}
 }
@@ -69,6 +69,9 @@ func TestDefaultCommandDepsClosuresExecuteAgainstFakeBinaries(t *testing.T) {
 	}
 	if err := value.composeLogs(context.Background(), runner, cfg, 10, true, "1m", "postgres"); err != nil {
 		t.Fatalf("composeLogs returned error: %v", err)
+	}
+	if err := value.composeExec(context.Background(), runner, cfg, "postgres", []string{"printenv", "PGDATA"}, false); err != nil {
+		t.Fatalf("composeExec returned error: %v", err)
 	}
 	if err := value.containerLogs(context.Background(), runner, "local-postgres", 5, false, ""); err != nil {
 		t.Fatalf("containerLogs returned error: %v", err)

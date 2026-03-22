@@ -15,6 +15,7 @@ import (
 
 func runnerFor(cmd *cobra.Command) system.Runner {
 	return system.Runner{
+		Stdin:  cmd.InOrStdin(),
 		Stdout: cmd.OutOrStdout(),
 		Stderr: cmd.ErrOrStderr(),
 	}

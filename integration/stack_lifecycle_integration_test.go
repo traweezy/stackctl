@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -209,15 +208,12 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	}
 
 	assertEventuallyCommand(t, 30*time.Second, func() error {
-		output, err := runCommandWithEnv(
+		output, err := runStackctl(
+			binaryPath,
 			env,
-			"podman",
-			"compose",
-			"-f", configpkg.ComposePath(cfg),
 			"exec",
-			"-T",
-			"-e", "PGPASSWORD="+cfg.Connection.PostgresPassword,
 			"postgres",
+			"--",
 			"psql",
 			"-h", "127.0.0.1",
 			"-U", cfg.Connection.PostgresUsername,
@@ -228,21 +224,19 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if cleanComposeExecOutput(output) != "stackuser:stackdb" {
+		if strings.TrimSpace(output) != "stackuser:stackdb" {
 			return fmt.Errorf("unexpected postgres identity: %q", output)
 		}
 		return nil
 	})
 
 	assertEventuallyCommand(t, 30*time.Second, func() error {
-		output, err := runCommandWithEnv(
+		output, err := runStackctl(
+			binaryPath,
 			env,
-			"podman",
-			"compose",
-			"-f", configpkg.ComposePath(cfg),
 			"exec",
-			"-T",
 			"redis",
+			"--",
 			"redis-cli",
 			"-a", cfg.Connection.RedisPassword,
 			"PING",
@@ -250,45 +244,41 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if !strings.Contains(cleanComposeExecOutput(output), "PONG") {
+		if !strings.Contains(output, "PONG") {
 			return fmt.Errorf("unexpected redis ping output: %q", output)
 		}
 		return nil
 	})
 
-	emailOutput, err := runCommandWithEnv(
+	emailOutput, err := runStackctl(
+		binaryPath,
 		env,
-		"podman",
-		"compose",
-		"-f", configpkg.ComposePath(cfg),
 		"exec",
-		"-T",
 		"pgadmin",
+		"--",
 		"printenv",
 		"PGADMIN_DEFAULT_EMAIL",
 	)
 	if err != nil {
 		t.Fatalf("read pgadmin email: %v\n%s", err, emailOutput)
 	}
-	if cleanComposeExecOutput(emailOutput) != "pgadmin@example.com" {
+	if strings.TrimSpace(emailOutput) != "pgadmin@example.com" {
 		t.Fatalf("unexpected pgadmin email: %q", emailOutput)
 	}
 
-	passwordOutput, err := runCommandWithEnv(
+	passwordOutput, err := runStackctl(
+		binaryPath,
 		env,
-		"podman",
-		"compose",
-		"-f", configpkg.ComposePath(cfg),
 		"exec",
-		"-T",
 		"pgadmin",
+		"--",
 		"printenv",
 		"PGADMIN_DEFAULT_PASSWORD",
 	)
 	if err != nil {
 		t.Fatalf("read pgadmin password: %v\n%s", err, passwordOutput)
 	}
-	if cleanComposeExecOutput(passwordOutput) != "pgsecret" {
+	if strings.TrimSpace(passwordOutput) != "pgsecret" {
 		t.Fatalf("unexpected pgadmin password: %q", passwordOutput)
 	}
 
@@ -364,34 +354,6 @@ func runCommand(name string, args ...string) (string, error) {
 	return string(output), err
 }
 
-func runCommandWithEnv(env []string, name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = testutil.MergeEnv(env)
-	output, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
-		return string(output), fmt.Errorf("command timed out: %s %s", name, strings.Join(args, " "))
-	}
-
-	return string(output), err
-}
-
-func cleanComposeExecOutput(output string) string {
-	lines := strings.Split(output, "\n")
-	filtered := make([]string, 0, len(lines))
-	for _, line := range lines {
-		cleaned := strings.TrimSpace(composeANSIPattern.ReplaceAllString(line, ""))
-		if cleaned == "" || strings.HasPrefix(cleaned, ">>>> Executing external compose provider") {
-			continue
-		}
-		filtered = append(filtered, cleaned)
-	}
-
-	return strings.TrimSpace(strings.Join(filtered, "\n"))
-}
-
 func assertEventuallyCommand(t *testing.T, timeout time.Duration, fn func() error) {
 	t.Helper()
 
@@ -409,5 +371,3 @@ func assertEventuallyCommand(t *testing.T, timeout time.Duration, fn func() erro
 	}
 	t.Fatal(lastErr)
 }
-
-var composeANSIPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)

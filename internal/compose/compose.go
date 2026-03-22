@@ -116,6 +116,21 @@ func (c Client) Logs(ctx context.Context, cfg configpkg.Config, tail int, follow
 	return c.runCompose(ctx, cfg.Stack.Dir, args...)
 }
 
+func (c Client) Exec(ctx context.Context, cfg configpkg.Config, service string, commandArgs []string, tty bool) error {
+	args := composeArgs(cfg, "exec")
+	if !tty {
+		args = append(args, "-T")
+	}
+	args = append(args, service)
+	args = append(args, commandArgs...)
+
+	if tty {
+		return c.Runner.Run(ctx, cfg.Stack.Dir, "podman", args...)
+	}
+
+	return c.runCompose(ctx, cfg.Stack.Dir, args...)
+}
+
 func (c Client) ContainerLogs(ctx context.Context, containerName string, tail int, follow bool, since string) error {
 	args := []string{
 		"logs",

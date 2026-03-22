@@ -25,7 +25,7 @@ func NewRootCmd(app *App) *cobra.Command {
 		Example: "  stackctl setup\n" +
 			"  stackctl start\n" +
 			"  stackctl services\n" +
-			"  stackctl logs --watch",
+			"  stackctl exec postgres -- psql -U app -d app",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       app.Version,
@@ -37,6 +37,7 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newRestartCmd())
 	cmd.AddCommand(newStatusCmd())
 	cmd.AddCommand(newServicesCmd())
+	cmd.AddCommand(newExecCmd())
 	cmd.AddCommand(newLogsCmd())
 	cmd.AddCommand(newOpenCmd())
 	cmd.AddCommand(newHealthCmd())

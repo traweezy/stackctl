@@ -178,6 +178,46 @@ func TestLogsRunsServiceSpecificComposeCommand(t *testing.T) {
 	})
 }
 
+func TestExecRunsNonTTYComposeCommand(t *testing.T) {
+	cfg, logPath := writeFakePodman(t)
+
+	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
+	if err := client.Exec(context.Background(), cfg, "postgres", []string{"psql", "-U", "app"}, false); err != nil {
+		t.Fatalf("Exec returned error: %v", err)
+	}
+
+	assertRecordedArgs(t, logPath, []string{
+		"compose",
+		"-f",
+		configpkg.ComposePath(cfg),
+		"exec",
+		"-T",
+		"postgres",
+		"psql",
+		"-U",
+		"app",
+	})
+}
+
+func TestExecRunsTTYComposeCommand(t *testing.T) {
+	cfg, logPath := writeFakePodman(t)
+
+	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
+	if err := client.Exec(context.Background(), cfg, "redis", []string{"redis-cli", "PING"}, true); err != nil {
+		t.Fatalf("Exec returned error: %v", err)
+	}
+
+	assertRecordedArgs(t, logPath, []string{
+		"compose",
+		"-f",
+		configpkg.ComposePath(cfg),
+		"exec",
+		"redis",
+		"redis-cli",
+		"PING",
+	})
+}
+
 func TestContainerLogsRunsPodmanLogsCommand(t *testing.T) {
 	_, logPath := writeFakePodman(t)
 
