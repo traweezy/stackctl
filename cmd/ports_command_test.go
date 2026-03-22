@@ -44,6 +44,7 @@ func TestPortsPrintsConfiguredMappingsWithoutRuntime(t *testing.T) {
 }
 
 func TestPortsUsesRuntimeInternalPortsWhenAvailable(t *testing.T) {
+	t.Setenv("PODMAN_COMPOSE_PROVIDER", "docker-compose")
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.Connection.Host = "devbox"

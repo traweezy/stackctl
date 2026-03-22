@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -262,7 +263,7 @@ func TestStartFirstRunRunsWizardComposeWaitAndPrintsEndpoints(t *testing.T) {
 	if !saved || !upCalled || !scaffolded {
 		t.Fatal("expected wizard save and compose up to run")
 	}
-	if len(waitPorts) != 3 {
+	if !reflect.DeepEqual(waitPorts, []int{5432, 6379}) {
 		t.Fatalf("wait ports = %v", waitPorts)
 	}
 	if !strings.Contains(stdout, "✅ stack started") {

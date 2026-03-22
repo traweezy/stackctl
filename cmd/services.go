@@ -1,19 +1,42 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/spf13/cobra"
+
+	"github.com/traweezy/stackctl/internal/output"
+)
 
 func newServicesCmd() *cobra.Command {
 	var jsonOutput bool
+	var copyTarget string
 
 	cmd := &cobra.Command{
 		Use:   "services",
 		Short: "Show full connection details for configured services",
 		Example: "  stackctl services\n" +
-			"  stackctl services --json",
+			"  stackctl services --json\n" +
+			"  stackctl services --copy postgres",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
 				return err
+			}
+			if jsonOutput && copyTarget != "" {
+				return errors.New("--json and --copy cannot be used together")
+			}
+			if copyTarget != "" {
+				label, value, err := serviceCopyTarget(cfg, copyTarget)
+				if err != nil {
+					return err
+				}
+				if err := deps.copyToClipboard(context.Background(), runnerFor(cmd), value); err != nil {
+					return err
+				}
+				return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("copied %s to clipboard", label))
 			}
 			if jsonOutput {
 				return printServicesJSON(cmd, cfg)
@@ -24,6 +47,7 @@ func newServicesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Print service details as JSON")
+	cmd.Flags().StringVar(&copyTarget, "copy", "", "Copy a service value like postgres, redis, pgadmin, or cockpit to the clipboard")
 
 	return cmd
 }

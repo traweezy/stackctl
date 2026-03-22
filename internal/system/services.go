@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -82,7 +83,12 @@ func PodmanComposeAvailable(ctx context.Context) bool {
 		return false
 	}
 
-	result, err := CaptureResult(ctx, "", "podman", "compose", "version")
+	env := []string(nil)
+	if strings.TrimSpace(os.Getenv("PODMAN_COMPOSE_PROVIDER")) == "" && CommandExists("podman-compose") {
+		env = []string{"PODMAN_COMPOSE_PROVIDER=podman-compose"}
+	}
+
+	result, err := CaptureResultWithEnv(ctx, "", env, "podman", "compose", "version")
 	if err != nil {
 		return false
 	}

@@ -573,6 +573,7 @@ func TestLoadRuntimeConfigFailsValidation(t *testing.T) {
 }
 
 func TestLoadStackContainersReturnsParseError(t *testing.T) {
+	t.Setenv("PODMAN_COMPOSE_PROVIDER", "docker-compose")
 	withTestDeps(t, func(d *commandDeps) {
 		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
 			return system.CommandResult{Stdout: "{"}, nil
@@ -586,6 +587,7 @@ func TestLoadStackContainersReturnsParseError(t *testing.T) {
 }
 
 func TestLoadStackContainersUsesComposePSWhenAvailable(t *testing.T) {
+	t.Setenv("PODMAN_COMPOSE_PROVIDER", "docker-compose")
 	withTestDeps(t, func(d *commandDeps) {
 		d.captureResult = func(_ context.Context, dir, name string, args ...string) (system.CommandResult, error) {
 			if dir != configpkg.Default().Stack.Dir {
@@ -644,6 +646,50 @@ func TestHealthChecksWarnWhenContainersNotRunning(t *testing.T) {
 	}
 	if got := lines[len(lines)-3].Message; got != "postgres not running (Exited)" {
 		t.Fatalf("unexpected postgres health message: %s", got)
+	}
+}
+
+func TestWaitForConfiguredServicesOnlyWaitsForCoreServicePorts(t *testing.T) {
+	var ports []int
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+			ports = append(ports, port)
+			return nil
+		}
+	})
+
+	cfg := configpkg.Default()
+	cfg.Ports.Postgres = 15432
+	cfg.Ports.Redis = 16379
+	cfg.Ports.PgAdmin = 18081
+
+	if err := waitForConfiguredServices(context.Background(), cfg); err != nil {
+		t.Fatalf("waitForConfiguredServices returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(ports, []int{15432, 16379}) {
+		t.Fatalf("unexpected ports: %v", ports)
+	}
+}
+
+func TestWaitForConfiguredServicesNamesTheFailingService(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+			if port == 16379 {
+				return errors.New("context deadline exceeded")
+			}
+			return nil
+		}
+	})
+
+	cfg := configpkg.Default()
+	cfg.Ports.Postgres = 15432
+	cfg.Ports.Redis = 16379
+
+	err := waitForConfiguredServices(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "redis port 16379 did not become ready") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

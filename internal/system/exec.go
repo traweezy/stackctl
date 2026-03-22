@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -14,6 +15,7 @@ type Runner struct {
 	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
+	Env    []string
 }
 
 type CommandResult struct {
@@ -33,6 +35,9 @@ func (r Runner) Run(ctx context.Context, dir, name string, args ...string) error
 	command.Stdin = r.Stdin
 	command.Stdout = r.Stdout
 	command.Stderr = r.Stderr
+	if len(r.Env) > 0 {
+		command.Env = mergeEnv(os.Environ(), r.Env)
+	}
 
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("run %s: %w", formatCommand(name, args), err)
@@ -61,6 +66,10 @@ func (r Runner) Capture(ctx context.Context, dir, name string, args ...string) (
 }
 
 func CaptureResult(ctx context.Context, dir, name string, args ...string) (CommandResult, error) {
+	return CaptureResultWithEnv(ctx, dir, nil, name, args...)
+}
+
+func CaptureResultWithEnv(ctx context.Context, dir string, env []string, name string, args ...string) (CommandResult, error) {
 	if err := validateExecutable(name); err != nil {
 		return CommandResult{}, err
 	}
@@ -68,6 +77,9 @@ func CaptureResult(ctx context.Context, dir, name string, args ...string) (Comma
 	// #nosec G204 -- executable names are restricted to an internal allowlist.
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = dir
+	if len(env) > 0 {
+		command.Env = mergeEnv(os.Environ(), env)
+	}
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -100,6 +112,36 @@ func formatCommand(name string, args []string) string {
 	return strings.Join(parts, " ")
 }
 
+func mergeEnv(base, overrides []string) []string {
+	if len(overrides) == 0 {
+		return append([]string(nil), base...)
+	}
+
+	merged := make([]string, 0, len(base)+len(overrides))
+	replaced := make(map[string]struct{}, len(overrides))
+	for _, entry := range overrides {
+		key := entry
+		if idx := strings.IndexByte(entry, '='); idx >= 0 {
+			key = entry[:idx]
+		}
+		replaced[key] = struct{}{}
+	}
+
+	for _, entry := range base {
+		key := entry
+		if idx := strings.IndexByte(entry, '='); idx >= 0 {
+			key = entry[:idx]
+		}
+		if _, ok := replaced[key]; ok {
+			continue
+		}
+		merged = append(merged, entry)
+	}
+
+	merged = append(merged, overrides...)
+	return merged
+}
+
 func validateExecutable(name string) error {
 	if _, ok := allowedExecutables[name]; ok {
 		return nil
@@ -109,10 +151,15 @@ func validateExecutable(name string) error {
 }
 
 var allowedExecutables = map[string]struct{}{
-	"open":      {},
-	"podman":    {},
-	"sudo":      {},
-	"systemctl": {},
-	"sysctl":    {},
-	"xdg-open":  {},
+	"open":           {},
+	"pbcopy":         {},
+	"podman":         {},
+	"podman-compose": {},
+	"sudo":           {},
+	"systemctl":      {},
+	"sysctl":         {},
+	"wl-copy":        {},
+	"xclip":          {},
+	"xsel":           {},
+	"xdg-open":       {},
 }

@@ -39,6 +39,7 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 	testDeps.commandExists = func(string) bool { return true }
 	testDeps.podmanComposeAvail = func(context.Context) bool { return true }
 	testDeps.openURL = func(context.Context, system.Runner, string) error { return nil }
+	testDeps.copyToClipboard = func(context.Context, system.Runner, string) error { return nil }
 	testDeps.installPackages = func(context.Context, system.Runner, string, []string) ([]string, error) { return nil, nil }
 	testDeps.enableCockpit = func(context.Context, system.Runner) error { return nil }
 	testDeps.waitForPort = func(context.Context, int, time.Duration) error { return nil }

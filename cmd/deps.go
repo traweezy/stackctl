@@ -32,6 +32,7 @@ type commandDeps struct {
 	commandExists             func(string) bool
 	podmanComposeAvail        func(context.Context) bool
 	openURL                   func(context.Context, system.Runner, string) error
+	copyToClipboard           func(context.Context, system.Runner, string) error
 	installPackages           func(context.Context, system.Runner, string, []string) ([]string, error)
 	enableCockpit             func(context.Context, system.Runner) error
 	waitForPort               func(context.Context, int, time.Duration) error
@@ -69,6 +70,7 @@ func defaultCommandDeps() commandDeps {
 		commandExists:             system.CommandExists,
 		podmanComposeAvail:        system.PodmanComposeAvailable,
 		openURL:                   system.OpenURL,
+		copyToClipboard:           system.CopyToClipboard,
 		installPackages:           system.InstallPackages,
 		enableCockpit:             system.EnableCockpit,
 		waitForPort:               system.WaitForPort,

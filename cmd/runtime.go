@@ -132,7 +132,7 @@ func stackContainerNames(cfg configpkg.Config) []string {
 
 func loadStackContainers(ctx context.Context, cfg configpkg.Config) ([]system.Container, error) {
 	composePath := deps.composePath(cfg)
-	if deps.podmanComposeAvail(ctx) {
+	if deps.podmanComposeAvail(ctx) && compose.SupportsPSJSON() {
 		if _, err := deps.stat(composePath); err == nil {
 			return compose.ListContainers(ctx, cfg.Stack.Dir, composePath, deps.captureResult)
 		}
@@ -496,6 +496,50 @@ func connectionEntries(cfg configpkg.Config) []connectionEntry {
 	return entries
 }
 
+func serviceCopyTarget(cfg configpkg.Config, target string) (string, string, error) {
+	switch normalizedCopyTarget(target) {
+	case "postgres", "postgresdsn":
+		return "postgres DSN", postgresDSN(cfg), nil
+	case "redis", "redisdsn":
+		return "redis DSN", redisDSN(cfg), nil
+	case "pgadmin", "pgadminurl":
+		if !cfg.Setup.IncludePgAdmin || cfg.URLs.PgAdmin == "" {
+			return "", "", errors.New("pgadmin is not enabled in this stack")
+		}
+		return "pgAdmin URL", cfg.URLs.PgAdmin, nil
+	case "cockpit", "cockpiturl":
+		return "Cockpit URL", cfg.URLs.Cockpit, nil
+	case "postgresuser", "postgresusername":
+		return "Postgres username", cfg.Connection.PostgresUsername, nil
+	case "postgrespassword":
+		return "Postgres password", cfg.Connection.PostgresPassword, nil
+	case "postgresdatabase", "postgresdb":
+		return "Postgres database", cfg.Connection.PostgresDatabase, nil
+	case "redispassword":
+		return "Redis password", cfg.Connection.RedisPassword, nil
+	case "pgadminemail":
+		if !cfg.Setup.IncludePgAdmin {
+			return "", "", errors.New("pgadmin is not enabled in this stack")
+		}
+		return "pgAdmin email", cfg.Connection.PgAdminEmail, nil
+	case "pgadminpassword":
+		if !cfg.Setup.IncludePgAdmin {
+			return "", "", errors.New("pgadmin is not enabled in this stack")
+		}
+		return "pgAdmin password", cfg.Connection.PgAdminPassword, nil
+	default:
+		return "", "", fmt.Errorf(
+			"invalid copy target %q; valid values: postgres, redis, pgadmin, cockpit, postgres-user, postgres-password, postgres-database, redis-password, pgadmin-email, pgadmin-password",
+			target,
+		)
+	}
+}
+
+func normalizedCopyTarget(target string) string {
+	replacer := strings.NewReplacer("-", "", "_", "", " ", "")
+	return replacer.Replace(strings.ToLower(strings.TrimSpace(target)))
+}
+
 func postgresDSN(cfg configpkg.Config) string {
 	target := &url.URL{
 		Scheme: "postgres",
@@ -589,14 +633,17 @@ func shortID(value string) string {
 }
 
 func waitForConfiguredServices(ctx context.Context, cfg configpkg.Config) error {
-	ports := []int{cfg.Ports.Postgres, cfg.Ports.Redis}
-	if cfg.Setup.IncludePgAdmin {
-		ports = append(ports, cfg.Ports.PgAdmin)
+	services := []struct {
+		name string
+		port int
+	}{
+		{name: "postgres", port: cfg.Ports.Postgres},
+		{name: "redis", port: cfg.Ports.Redis},
 	}
 
-	for _, port := range ports {
-		if err := deps.waitForPort(ctx, port, 500*time.Millisecond); err != nil {
-			return err
+	for _, service := range services {
+		if err := deps.waitForPort(ctx, service.port, 500*time.Millisecond); err != nil {
+			return fmt.Errorf("%s port %d did not become ready: %w", service.name, service.port, err)
 		}
 	}
 

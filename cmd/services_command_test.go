@@ -148,3 +148,44 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 		t.Fatalf("unexpected cockpit service: %+v", services[3])
 	}
 }
+
+func TestServicesCopyUsesClipboardForKnownTarget(t *testing.T) {
+	var copied string
+
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Connection.PostgresDatabase = "stackdb"
+		cfg.Connection.PostgresUsername = "stackuser"
+		cfg.Connection.PostgresPassword = "stackpass"
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.copyToClipboard = func(_ context.Context, _ system.Runner, value string) error {
+			copied = value
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "services", "--copy", "postgres")
+	if err != nil {
+		t.Fatalf("services --copy returned error: %v", err)
+	}
+	if copied != "postgres://stackuser:stackpass@devbox:5432/stackdb" {
+		t.Fatalf("unexpected copied value: %q", copied)
+	}
+	if !strings.Contains(stdout, "copied postgres DSN to clipboard") {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestServicesCopyRejectsInvalidTarget(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+	})
+
+	_, _, err := executeRoot(t, "services", "--copy", "not-a-target")
+	if err == nil || !strings.Contains(err.Error(), "invalid copy target") {
+		t.Fatalf("expected invalid copy target error, got %v", err)
+	}
+}

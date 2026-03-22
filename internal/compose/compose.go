@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -128,7 +129,7 @@ func (c Client) Exec(ctx context.Context, cfg configpkg.Config, service string, 
 	args = append(args, commandArgs...)
 
 	if tty {
-		return c.Runner.Run(ctx, cfg.Stack.Dir, "podman", args...)
+		return withComposeEnv(c.Runner).Run(ctx, cfg.Stack.Dir, "podman", args...)
 	}
 
 	return c.runCompose(ctx, cfg.Stack.Dir, args...)
@@ -151,7 +152,23 @@ func (c Client) ContainerLogs(ctx context.Context, containerName string, tail in
 }
 
 func ListContainers(ctx context.Context, dir, composePath string, capture CaptureFunc) ([]system.Container, error) {
-	result, err := capture(ctx, dir, "podman", composeArgsForPath(composePath, "ps", "--format", "json")...)
+	env := composeCommandEnv()
+	var (
+		result system.CommandResult
+		err    error
+	)
+	switch {
+	case len(env) == 0 && capture != nil:
+		result, err = capture(ctx, dir, "podman", composeArgsForPath(composePath, "ps", "--format", "json")...)
+	default:
+		result, err = system.CaptureResultWithEnv(
+			ctx,
+			dir,
+			env,
+			"podman",
+			composeArgsForPath(composePath, "ps", "--format", "json")...,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +187,7 @@ func ListContainers(ctx context.Context, dir, composePath string, capture Captur
 }
 
 func (c Client) runCompose(ctx context.Context, dir string, args ...string) error {
-	runner, flush := filteredRunner(c.Runner)
+	runner, flush := filteredRunner(withComposeEnv(c.Runner))
 	err := runner.Run(ctx, dir, "podman", args...)
 	flushErr := flush()
 	if err != nil {
@@ -187,6 +204,7 @@ func (c Client) runComposeQuiet(ctx context.Context, dir string, args ...string)
 	runner, flush := filteredRunner(system.Runner{
 		Stdout: &stdout,
 		Stderr: &stderr,
+		Env:    composeCommandEnv(),
 	})
 	err := runner.Run(ctx, dir, "podman", args...)
 	flushErr := flush()
@@ -203,6 +221,35 @@ func (c Client) runComposeQuiet(ctx context.Context, dir string, args ...string)
 	}
 
 	return flushErr
+}
+
+func PreferredProvider() string {
+	if provider := strings.TrimSpace(os.Getenv("PODMAN_COMPOSE_PROVIDER")); provider != "" {
+		return provider
+	}
+	if system.CommandExists("podman-compose") {
+		return "podman-compose"
+	}
+
+	return ""
+}
+
+func SupportsPSJSON() bool {
+	return PreferredProvider() != "podman-compose"
+}
+
+func composeCommandEnv() []string {
+	provider := PreferredProvider()
+	if provider == "" || strings.TrimSpace(os.Getenv("PODMAN_COMPOSE_PROVIDER")) != "" {
+		return nil
+	}
+
+	return []string{"PODMAN_COMPOSE_PROVIDER=" + provider}
+}
+
+func withComposeEnv(runner system.Runner) system.Runner {
+	runner.Env = append(append([]string(nil), runner.Env...), composeCommandEnv()...)
+	return runner
 }
 
 func composeArgs(cfg configpkg.Config, subcommand string, extra ...string) []string {
@@ -307,8 +354,10 @@ func filteredRunner(runner system.Runner) (system.Runner, func() error) {
 	stderr := newComposeNoiseFilter(runner.Stderr)
 
 	return system.Runner{
+			Stdin:  runner.Stdin,
 			Stdout: stdout,
 			Stderr: stderr,
+			Env:    append([]string(nil), runner.Env...),
 		}, func() error {
 			if err := stdout.Flush(); err != nil {
 				return err
@@ -378,7 +427,26 @@ func (f *composeNoiseFilter) writeReadyLines() error {
 
 func shouldSkipComposeLine(line string) bool {
 	cleaned := strings.TrimSpace(composeANSIPattern.ReplaceAllString(line, ""))
-	return cleaned == "" || strings.HasPrefix(cleaned, ">>>> Executing external compose provider")
+	switch {
+	case cleaned == "":
+		return true
+	case strings.HasPrefix(cleaned, ">>>> Executing external compose provider"):
+		return true
+	case strings.HasPrefix(cleaned, "podman-compose version:"):
+		return true
+	case strings.HasPrefix(cleaned, "using podman version:"):
+		return true
+	case strings.HasPrefix(cleaned, "** excluding:"):
+		return true
+	case strings.HasPrefix(cleaned, "['podman',"):
+		return true
+	case strings.HasPrefix(cleaned, "podman "):
+		return true
+	case strings.HasPrefix(cleaned, "exit code: "):
+		return true
+	default:
+		return false
+	}
 }
 
 func cleanComposeOutput(raw string) string {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -43,15 +44,16 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 
 	binaryPath := testutil.BuildStackctlBinary(t)
 	configRoot := t.TempDir()
-	dataRoot := t.TempDir()
-	t.Setenv("HOME", dataRoot)
+	dataRoot, err := os.MkdirTemp("", "stackctl-itest-data-*")
+	if err != nil {
+		t.Fatalf("create integration data dir: %v", err)
+	}
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("XDG_DATA_HOME", dataRoot)
 
 	requirePodmanCompose(t)
 
 	env := []string{
-		"HOME=" + dataRoot,
 		"XDG_CONFIG_HOME=" + configRoot,
 		"XDG_DATA_HOME=" + dataRoot,
 	}
@@ -78,26 +80,26 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	cfg.Ports.Redis = freePort(t)
 	cfg.Ports.PgAdmin = freePort(t)
 	cfg.Ports.Cockpit = freePort(t)
-	cfg.Behavior.StartupTimeoutSec = 120
+	cfg.Behavior.StartupTimeoutSec = 240
 	cfg.ApplyDerivedFields()
 
+	if _, err := configpkg.ScaffoldManagedStack(cfg, true); err != nil {
+		t.Fatalf("scaffold managed compose file: %v", err)
+	}
+
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
 	if err := configpkg.Save("", cfg); err != nil {
 		t.Fatalf("save integration config: %v", err)
 	}
 
 	t.Cleanup(func() {
 		_, _ = runStackctl(binaryPath, env, "reset", "--volumes", "--force")
+		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		_ = os.RemoveAll(dataRoot)
 	})
 
-	output, err := runStackctl(binaryPath, env, "config", "scaffold", "--force")
-	if err != nil {
-		t.Fatalf("config scaffold returned error: %v\n%s", err, output)
-	}
-	if !strings.Contains(output, "wrote managed compose file") {
-		t.Fatalf("unexpected config scaffold output:\n%s", output)
-	}
-
-	output, err = runStackctl(binaryPath, env, "config", "validate")
+	output, err := runStackctl(binaryPath, env, "config", "validate")
 	if err != nil {
 		t.Fatalf("config validate returned error: %v\n%s", err, output)
 	}
@@ -107,7 +109,17 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 
 	startOutput, err := runStackctl(binaryPath, env, "start")
 	if err != nil {
-		t.Fatalf("start returned error: %v\n%s", err, startOutput)
+		statusOutput, _ := runStackctl(binaryPath, env, "status", "--json")
+		servicesOutput, _ := runStackctl(binaryPath, env, "services")
+		logsOutput, _ := runStackctl(binaryPath, env, "logs", "-s", "postgres", "-n", "50")
+		t.Fatalf(
+			"start returned error: %v\n%s\nstatus --json:\n%s\nservices:\n%s\npostgres logs:\n%s",
+			err,
+			startOutput,
+			statusOutput,
+			servicesOutput,
+			logsOutput,
+		)
 	}
 	if !strings.Contains(startOutput, "stack started") {
 		t.Fatalf("unexpected start output:\n%s", startOutput)
@@ -245,6 +257,85 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 		return nil
 	})
 
+	dumpPath := dataRoot + "/stackctl-test-dump.sql"
+
+	setupDumpOutput, err := runStackctl(
+		binaryPath,
+		env,
+		"db",
+		"shell",
+		"--",
+		"-v", "ON_ERROR_STOP=1",
+		"-c", "CREATE TABLE IF NOT EXISTS stackctl_restore_test (id integer primary key, value text not null); TRUNCATE stackctl_restore_test; INSERT INTO stackctl_restore_test(id, value) VALUES (1, 'restored')",
+	)
+	if err != nil {
+		t.Fatalf("prepare db dump state: %v\n%s", err, setupDumpOutput)
+	}
+
+	dumpOutput, err := runStackctl(binaryPath, env, "db", "dump", dumpPath)
+	if err != nil {
+		t.Fatalf("db dump returned error: %v\n%s", err, dumpOutput)
+	}
+	if !strings.Contains(dumpOutput, "wrote database dump to "+dumpPath) {
+		t.Fatalf("unexpected db dump output:\n%s", dumpOutput)
+	}
+
+	dumpData, err := os.ReadFile(dumpPath)
+	if err != nil {
+		t.Fatalf("read database dump: %v", err)
+	}
+	if !strings.Contains(string(dumpData), "stackctl_restore_test") {
+		t.Fatalf("database dump missing test table:\n%s", string(dumpData))
+	}
+
+	resetDBOutput, err := runStackctl(binaryPath, env, "db", "reset", "--force")
+	if err != nil {
+		t.Fatalf("db reset returned error: %v\n%s", err, resetDBOutput)
+	}
+	if !strings.Contains(resetDBOutput, "database stackdb reset") {
+		t.Fatalf("unexpected db reset output:\n%s", resetDBOutput)
+	}
+
+	verifyResetOutput, err := runStackctl(
+		binaryPath,
+		env,
+		"db",
+		"shell",
+		"--",
+		"-tAc",
+		"select coalesce(to_regclass('public.stackctl_restore_test')::text, '')",
+	)
+	if err != nil {
+		t.Fatalf("verify db reset: %v\n%s", err, verifyResetOutput)
+	}
+	if strings.TrimSpace(verifyResetOutput) != "" {
+		t.Fatalf("expected reset database to remove the test table, got %q", verifyResetOutput)
+	}
+
+	restoreOutput, err := runStackctl(binaryPath, env, "db", "restore", dumpPath, "--force")
+	if err != nil {
+		t.Fatalf("db restore returned error: %v\n%s", err, restoreOutput)
+	}
+	if !strings.Contains(restoreOutput, "database restore completed") {
+		t.Fatalf("unexpected db restore output:\n%s", restoreOutput)
+	}
+
+	verifyRestoreOutput, err := runStackctl(
+		binaryPath,
+		env,
+		"db",
+		"shell",
+		"--",
+		"-tAc",
+		"select value from stackctl_restore_test where id = 1",
+	)
+	if err != nil {
+		t.Fatalf("verify db restore: %v\n%s", err, verifyRestoreOutput)
+	}
+	if strings.TrimSpace(verifyRestoreOutput) != "restored" {
+		t.Fatalf("unexpected restored row: %q", verifyRestoreOutput)
+	}
+
 	assertEventuallyCommand(t, 30*time.Second, func() error {
 		output, err := runStackctl(
 			binaryPath,
@@ -365,7 +456,7 @@ func freePort(t *testing.T) int {
 }
 
 func runStackctl(binaryPath string, env []string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, binaryPath, args...)

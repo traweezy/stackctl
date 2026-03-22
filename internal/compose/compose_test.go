@@ -63,6 +63,28 @@ func TestComposeNoiseFilterFlushesPartialLine(t *testing.T) {
 	}
 }
 
+func TestComposeNoiseFilterSkipsPodmanComposeTraceLines(t *testing.T) {
+	var out strings.Builder
+	filter := newComposeNoiseFilter(&out)
+
+	input := "podman-compose version: 1.0.6\n" +
+		"['podman', '--version', '']\n" +
+		"using podman version: 4.9.3\n" +
+		"podman exec --interactive demo psql -tAc select 1\n" +
+		"stackuser:stackdb\n" +
+		"exit code: 0\n"
+	if _, err := filter.Write([]byte(input)); err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+	if err := filter.Flush(); err != nil {
+		t.Fatalf("Flush returned error: %v", err)
+	}
+
+	if got := out.String(); got != "stackuser:stackdb\n" {
+		t.Fatalf("unexpected filtered output: %q", got)
+	}
+}
+
 func TestLogsRunsPodmanComposeLogsCommand(t *testing.T) {
 	cfg, logPath := writeFakePodman(t)
 
@@ -83,6 +105,7 @@ func TestLogsRunsPodmanComposeLogsCommand(t *testing.T) {
 
 func TestListContainersParsesComposeJSONStream(t *testing.T) {
 	cfg := configpkg.Default()
+	t.Setenv("PODMAN_COMPOSE_PROVIDER", "docker-compose")
 
 	containers, err := ListContainers(context.Background(), cfg.Stack.Dir, configpkg.ComposePath(cfg), func(context.Context, string, string, ...string) (system.CommandResult, error) {
 		return system.CommandResult{
@@ -123,6 +146,7 @@ func TestListContainersParsesComposeJSONStream(t *testing.T) {
 
 func TestListContainersParsesArrayOutputWithLegacyPortShape(t *testing.T) {
 	cfg := configpkg.Default()
+	t.Setenv("PODMAN_COMPOSE_PROVIDER", "docker-compose")
 
 	containers, err := ListContainers(context.Background(), cfg.Stack.Dir, configpkg.ComposePath(cfg), func(context.Context, string, string, ...string) (system.CommandResult, error) {
 		return system.CommandResult{
@@ -280,6 +304,46 @@ func TestUpForwardsComposeOutputOnFailure(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "failed to pull image") {
 		t.Fatalf("stderr missing compose failure output: %q", stderr.String())
+	}
+}
+
+func TestComposeCommandsPreferPodmanComposeProviderWhenAvailable(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "podman.log")
+	cfg, _ := writeFakePodmanScriptInDir(
+		t,
+		dir,
+		"#!/bin/sh\nprintf 'provider=%s\\n' \"$PODMAN_COMPOSE_PROVIDER\" > "+shellQuote(logPath)+"\nprintf '%s\\n' \"$@\" >> "+shellQuote(logPath)+"\n",
+	)
+	if err := os.WriteFile(filepath.Join(dir, "podman-compose"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake podman-compose: %v", err)
+	}
+	t.Setenv("PODMAN_COMPOSE_PROVIDER", "")
+
+	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
+	if err := client.Up(context.Background(), cfg); err != nil {
+		t.Fatalf("Up returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read compose log: %v", err)
+	}
+	if !strings.Contains(string(data), "provider=podman-compose") {
+		t.Fatalf("expected podman-compose provider env, got %q", string(data))
+	}
+}
+
+func TestSupportsPSJSONFalseWhenPodmanComposeProviderIsPreferred(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "podman-compose"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake podman-compose: %v", err)
+	}
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("PODMAN_COMPOSE_PROVIDER", "")
+
+	if SupportsPSJSON() {
+		t.Fatal("expected podman-compose provider to disable compose ps json support")
 	}
 }
 
