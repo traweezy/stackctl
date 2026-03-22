@@ -66,10 +66,21 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	cfg := Default()
+	cfg.Services.Postgres.Image = "docker.io/library/postgres:17"
+	cfg.Services.Postgres.DataVolume = "stack_postgres_data"
+	cfg.Services.Postgres.MaintenanceDatabase = "template1"
 	cfg.Connection.PostgresUsername = "stackuser"
 	cfg.Connection.PostgresPassword = "stackpass"
 	cfg.Connection.PostgresDatabase = "stackdb"
+	cfg.Services.Redis.Image = "docker.io/library/redis:7.4"
+	cfg.Services.Redis.DataVolume = "stack_redis_data"
+	cfg.Services.Redis.AppendOnly = true
+	cfg.Services.Redis.SavePolicy = "900 1 300 10"
+	cfg.Services.Redis.MaxMemoryPolicy = "allkeys-lru"
 	cfg.Connection.RedisPassword = "redispass"
+	cfg.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:9"
+	cfg.Services.PgAdmin.DataVolume = "stack_pgadmin_data"
+	cfg.Services.PgAdmin.ServerMode = true
 	cfg.Connection.PgAdminEmail = "pgadmin@example.com"
 	cfg.Connection.PgAdminPassword = "pgsecret"
 	cfg.Ports.Postgres = 15432
@@ -89,6 +100,12 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	if !strings.Contains(string(data), "local-postgres") {
 		t.Fatalf("unexpected scaffolded compose file: %s", string(data))
 	}
+	if !strings.Contains(string(data), "image: \"docker.io/library/postgres:17\"") {
+		t.Fatalf("expected rendered postgres image, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "stack_postgres_data:/var/lib/postgresql/data") {
+		t.Fatalf("expected rendered postgres data volume, got: %s", string(data))
+	}
 	if !strings.Contains(string(data), "POSTGRES_USER: \"stackuser\"") {
 		t.Fatalf("expected rendered postgres username, got: %s", string(data))
 	}
@@ -101,14 +118,35 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	if !strings.Contains(string(data), "\"15432:5432\"") {
 		t.Fatalf("expected rendered postgres port mapping, got: %s", string(data))
 	}
+	if !strings.Contains(string(data), "image: \"docker.io/library/redis:7.4\"") {
+		t.Fatalf("expected rendered redis image, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "stack_redis_data:/data") {
+		t.Fatalf("expected rendered redis data volume, got: %s", string(data))
+	}
 	if !strings.Contains(string(data), "redis-server") || !strings.Contains(string(data), "--requirepass") || !strings.Contains(string(data), "\"redispass\"") {
 		t.Fatalf("expected rendered redis auth command, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "--appendonly") || !strings.Contains(string(data), "\"yes\"") {
+		t.Fatalf("expected rendered redis appendonly command, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "\"900 1 300 10\"") || !strings.Contains(string(data), "\"allkeys-lru\"") {
+		t.Fatalf("expected rendered redis tuning, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "image: \"docker.io/dpage/pgadmin4:9\"") {
+		t.Fatalf("expected rendered pgadmin image, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "stack_pgadmin_data:/var/lib/pgadmin") {
+		t.Fatalf("expected rendered pgadmin data volume, got: %s", string(data))
 	}
 	if !strings.Contains(string(data), "PGADMIN_DEFAULT_EMAIL: \"pgadmin@example.com\"") {
 		t.Fatalf("expected rendered pgadmin email, got: %s", string(data))
 	}
 	if !strings.Contains(string(data), "PGADMIN_DEFAULT_PASSWORD: \"pgsecret\"") {
 		t.Fatalf("expected rendered pgadmin password, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "PGADMIN_CONFIG_SERVER_MODE: \"True\"") {
+		t.Fatalf("expected rendered pgadmin server mode, got: %s", string(data))
 	}
 }
 
@@ -130,6 +168,9 @@ func TestScaffoldManagedStackOmitsPgAdminWhenDisabled(t *testing.T) {
 	if strings.Contains(string(data), "pgadmin:") {
 		t.Fatalf("expected pgadmin service to be omitted, got: %s", string(data))
 	}
+	if strings.Contains(string(data), "pgadmin_data") {
+		t.Fatalf("expected pgadmin volume to be omitted, got: %s", string(data))
+	}
 }
 
 func TestScaffoldManagedStackOmitsRedisAuthWhenPasswordIsBlank(t *testing.T) {
@@ -149,6 +190,9 @@ func TestScaffoldManagedStackOmitsRedisAuthWhenPasswordIsBlank(t *testing.T) {
 	}
 	if strings.Contains(string(data), "--requirepass") {
 		t.Fatalf("expected redis auth to be omitted, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "--appendonly") || !strings.Contains(string(data), "\"no\"") {
+		t.Fatalf("expected redis defaults to stay rendered, got: %s", string(data))
 	}
 }
 

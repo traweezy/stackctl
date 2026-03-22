@@ -199,6 +199,7 @@ func TestDBResetRunsTerminateDropAndCreateCommands(t *testing.T) {
 		cfg.Connection.PostgresDatabase = "stackdb"
 		cfg.Connection.PostgresUsername = "stackuser"
 		cfg.Connection.PostgresPassword = "stackpass"
+		cfg.Services.Postgres.MaintenanceDatabase = "template1"
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 		d.composeExec = func(_ context.Context, _ system.Runner, _ configpkg.Config, service string, env []string, commandArgs []string, tty bool) error {
 			if service != "postgres" {
@@ -230,7 +231,7 @@ func TestDBResetRunsTerminateDropAndCreateCommands(t *testing.T) {
 		"DROP DATABASE IF EXISTS \"stackdb\"",
 		"CREATE DATABASE \"stackdb\"",
 	} {
-		if commands[idx][0] != "psql" || !containsSequence(commands[idx], []string{"-c", sql}) {
+		if commands[idx][0] != "psql" || !containsSequence(commands[idx], []string{"-d", "template1"}) || !containsSequence(commands[idx], []string{"-c", sql}) {
 			t.Fatalf("unexpected reset command %d: %q", idx, commands[idx])
 		}
 	}

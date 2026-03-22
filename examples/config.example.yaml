@@ -8,6 +8,20 @@ services:
   postgres_container: local-postgres
   redis_container: local-redis
   pgadmin_container: local-pgadmin
+  postgres:
+    image: docker.io/library/postgres:16
+    data_volume: postgres_data
+    maintenance_database: postgres
+  redis:
+    image: docker.io/library/redis:7
+    data_volume: redis_data
+    appendonly: false
+    save_policy: 3600 1 300 100 60 10000
+    maxmemory_policy: noeviction
+  pgadmin:
+    image: docker.io/dpage/pgadmin4:latest
+    data_volume: pgadmin_data
+    server_mode: false
 
 connection:
   host: localhost

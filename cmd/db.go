@@ -282,7 +282,7 @@ func newDBResetCmd() *cobra.Command {
 				append(
 					[]string{"psql"},
 					append(
-						postgresConnArgs(cfg, "postgres"),
+						postgresConnArgs(cfg, cfg.Services.Postgres.MaintenanceDatabase),
 						"-v", "ON_ERROR_STOP=1",
 						"-c", fmt.Sprintf(
 							"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s AND pid <> pg_backend_pid()",
@@ -311,7 +311,7 @@ func newDBResetCmd() *cobra.Command {
 					append(
 						[]string{"psql"},
 						append(
-							postgresConnArgs(cfg, "postgres"),
+							postgresConnArgs(cfg, cfg.Services.Postgres.MaintenanceDatabase),
 							"-v", "ON_ERROR_STOP=1",
 							"-c", sql,
 						)...,

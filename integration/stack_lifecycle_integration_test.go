@@ -22,19 +22,26 @@ import (
 )
 
 type runtimeServiceJSON struct {
-	Name          string `json:"name"`
-	DisplayName   string `json:"display_name"`
-	Status        string `json:"status"`
-	ContainerName string `json:"container_name"`
-	Host          string `json:"host"`
-	ExternalPort  int    `json:"external_port"`
-	InternalPort  int    `json:"internal_port"`
-	Database      string `json:"database"`
-	Email         string `json:"email"`
-	Username      string `json:"username"`
-	Password      string `json:"password"`
-	URL           string `json:"url"`
-	DSN           string `json:"dsn"`
+	Name            string `json:"name"`
+	DisplayName     string `json:"display_name"`
+	Status          string `json:"status"`
+	ContainerName   string `json:"container_name"`
+	Image           string `json:"image"`
+	DataVolume      string `json:"data_volume"`
+	Host            string `json:"host"`
+	ExternalPort    int    `json:"external_port"`
+	InternalPort    int    `json:"internal_port"`
+	Database        string `json:"database"`
+	MaintenanceDB   string `json:"maintenance_database"`
+	Email           string `json:"email"`
+	Username        string `json:"username"`
+	Password        string `json:"password"`
+	AppendOnly      *bool  `json:"appendonly"`
+	SavePolicy      string `json:"save_policy"`
+	MaxMemoryPolicy string `json:"maxmemory_policy"`
+	ServerMode      string `json:"server_mode"`
+	URL             string `json:"url"`
+	DSN             string `json:"dsn"`
 }
 
 func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
@@ -69,6 +76,13 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	cfg.Services.PostgresContainer = "stackctl-it-postgres-" + suffix
 	cfg.Services.RedisContainer = "stackctl-it-redis-" + suffix
 	cfg.Services.PgAdminContainer = "stackctl-it-pgadmin-" + suffix
+	cfg.Services.Postgres.DataVolume = "stackctl_it_postgres_data_" + suffix
+	cfg.Services.Redis.DataVolume = "stackctl_it_redis_data_" + suffix
+	cfg.Services.Redis.AppendOnly = true
+	cfg.Services.Redis.SavePolicy = "900 1 300 10"
+	cfg.Services.Redis.MaxMemoryPolicy = "allkeys-lru"
+	cfg.Services.PgAdmin.DataVolume = "stackctl_it_pgadmin_data_" + suffix
+	cfg.Services.PgAdmin.ServerMode = true
 	cfg.Connection.Host = "127.0.0.1"
 	cfg.Connection.PostgresDatabase = "stackdb"
 	cfg.Connection.PostgresUsername = "stackuser"
@@ -147,11 +161,20 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	if postgres := servicesByName["postgres"]; postgres.Status != "running" || postgres.DSN != "postgres://stackuser:stackpass@127.0.0.1:"+strconv.Itoa(cfg.Ports.Postgres)+"/stackdb" {
 		t.Fatalf("unexpected postgres service: %+v", postgres)
 	}
+	if postgres := servicesByName["postgres"]; postgres.DataVolume != cfg.Services.Postgres.DataVolume || postgres.MaintenanceDB != cfg.Services.Postgres.MaintenanceDatabase {
+		t.Fatalf("unexpected postgres config: %+v", postgres)
+	}
 	if redis := servicesByName["redis"]; redis.Status != "running" || redis.DSN != "redis://:redispass@127.0.0.1:"+strconv.Itoa(cfg.Ports.Redis) {
 		t.Fatalf("unexpected redis service: %+v", redis)
 	}
+	if redis := servicesByName["redis"]; redis.DataVolume != cfg.Services.Redis.DataVolume || redis.AppendOnly == nil || !*redis.AppendOnly || redis.SavePolicy != cfg.Services.Redis.SavePolicy || redis.MaxMemoryPolicy != cfg.Services.Redis.MaxMemoryPolicy {
+		t.Fatalf("unexpected redis config: %+v", redis)
+	}
 	if pgadmin := servicesByName["pgadmin"]; pgadmin.Status != "running" || pgadmin.Email != "pgadmin@example.com" || pgadmin.Password != "" {
 		t.Fatalf("unexpected pgadmin service: %+v", pgadmin)
+	}
+	if pgadmin := servicesByName["pgadmin"]; pgadmin.DataVolume != cfg.Services.PgAdmin.DataVolume || pgadmin.ServerMode != "enabled" {
+		t.Fatalf("unexpected pgadmin config: %+v", pgadmin)
 	}
 	if cockpit := servicesByName["cockpit"]; cockpit.Status == "" || cockpit.URL != "https://127.0.0.1:"+strconv.Itoa(cfg.Ports.Cockpit) {
 		t.Fatalf("unexpected cockpit service: %+v", cockpit)
@@ -253,6 +276,32 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 		}
 		if strings.TrimSpace(output) != "stackuser:stackdb" {
 			return fmt.Errorf("unexpected db shell identity: %q", output)
+		}
+		return nil
+	})
+
+	assertEventuallyCommand(t, 30*time.Second, func() error {
+		output, err := runStackctl(
+			binaryPath,
+			env,
+			"exec",
+			"redis",
+			"--",
+			"redis-cli",
+			"-a", cfg.Connection.RedisPassword,
+			"CONFIG",
+			"GET",
+			"appendonly",
+			"save",
+			"maxmemory-policy",
+		)
+		if err != nil {
+			return err
+		}
+		for _, fragment := range []string{"appendonly", "yes", "save", "900 1 300 10", "maxmemory-policy", "allkeys-lru"} {
+			if !strings.Contains(output, fragment) {
+				return fmt.Errorf("unexpected redis config output: %q", output)
+			}
 		}
 		return nil
 	})
@@ -409,6 +458,22 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	}
 	if strings.TrimSpace(passwordOutput) != "pgsecret" {
 		t.Fatalf("unexpected pgadmin password: %q", passwordOutput)
+	}
+
+	serverModeOutput, err := runStackctl(
+		binaryPath,
+		env,
+		"exec",
+		"pgadmin",
+		"--",
+		"printenv",
+		"PGADMIN_CONFIG_SERVER_MODE",
+	)
+	if err != nil {
+		t.Fatalf("read pgadmin server mode: %v\n%s", err, serverModeOutput)
+	}
+	if strings.TrimSpace(serverModeOutput) != "True" {
+		t.Fatalf("unexpected pgadmin server mode: %q", serverModeOutput)
 	}
 
 	stopOutput, err := runStackctl(binaryPath, env, "stop")

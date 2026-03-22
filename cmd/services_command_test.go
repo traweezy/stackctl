@@ -17,9 +17,20 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		cfg.Connection.PostgresDatabase = "stackdb"
 		cfg.Connection.PostgresUsername = "stackuser"
 		cfg.Connection.PostgresPassword = "stackpass"
+		cfg.Services.Postgres.Image = "docker.io/library/postgres:17"
+		cfg.Services.Postgres.DataVolume = "stack_postgres_data"
+		cfg.Services.Postgres.MaintenanceDatabase = "template1"
 		cfg.Connection.RedisPassword = "redispass"
+		cfg.Services.Redis.Image = "docker.io/library/redis:7.4"
+		cfg.Services.Redis.DataVolume = "stack_redis_data"
+		cfg.Services.Redis.AppendOnly = true
+		cfg.Services.Redis.SavePolicy = "900 1 300 10"
+		cfg.Services.Redis.MaxMemoryPolicy = "allkeys-lru"
 		cfg.Connection.PgAdminEmail = "pgadmin@example.com"
 		cfg.Connection.PgAdminPassword = "pgsecret"
+		cfg.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:9"
+		cfg.Services.PgAdmin.DataVolume = "stack_pgadmin_data"
+		cfg.Services.PgAdmin.ServerMode = true
 		cfg.Ports.Postgres = 15432
 		cfg.Ports.Redis = 16379
 		cfg.Ports.PgAdmin = 18081
@@ -46,20 +57,31 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		"🗄️ Postgres",
 		"Status: running",
 		"Container: local-postgres",
+		"Image: docker.io/library/postgres:17",
+		"Data volume: stack_postgres_data",
 		"Host: devbox",
 		"Port: 15432 -> 5432",
 		"Database: stackdb",
+		"Maintenance DB: template1",
 		"Username: stackuser",
 		"Password: stackpass",
 		"DSN: postgres://stackuser:stackpass@devbox:15432/stackdb",
 		"⚡ Redis",
 		"Container: local-redis",
+		"Image: docker.io/library/redis:7.4",
+		"Data volume: stack_redis_data",
 		"Port: 16379 -> 6379",
 		"Password: redispass",
+		"Appendonly: enabled",
+		"Save policy: 900 1 300 10",
+		"Maxmemory policy: allkeys-lru",
 		"DSN: redis://:redispass@devbox:16379",
 		"🌐 pgAdmin",
+		"Image: docker.io/dpage/pgadmin4:9",
+		"Data volume: stack_pgadmin_data",
 		"Email: pgadmin@example.com",
 		"Password: pgsecret",
+		"Server mode: enabled",
 		"URL: http://devbox:18081",
 		"🖥️ Cockpit",
 		"URL: https://devbox:19090",
@@ -102,9 +124,20 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 		cfg.Connection.PostgresDatabase = "stackdb"
 		cfg.Connection.PostgresUsername = "stackuser"
 		cfg.Connection.PostgresPassword = "stackpass"
+		cfg.Services.Postgres.Image = "docker.io/library/postgres:17"
+		cfg.Services.Postgres.DataVolume = "stack_postgres_data"
+		cfg.Services.Postgres.MaintenanceDatabase = "template1"
 		cfg.Connection.RedisPassword = "redispass"
+		cfg.Services.Redis.Image = "docker.io/library/redis:7.4"
+		cfg.Services.Redis.DataVolume = "stack_redis_data"
+		cfg.Services.Redis.AppendOnly = true
+		cfg.Services.Redis.SavePolicy = "900 1 300 10"
+		cfg.Services.Redis.MaxMemoryPolicy = "allkeys-lru"
 		cfg.Connection.PgAdminEmail = "pgadmin@example.com"
 		cfg.Connection.PgAdminPassword = "pgsecret"
+		cfg.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:9"
+		cfg.Services.PgAdmin.DataVolume = "stack_pgadmin_data"
+		cfg.Services.PgAdmin.ServerMode = true
 		cfg.Ports.Postgres = 15432
 		cfg.Ports.Redis = 16379
 		cfg.Ports.PgAdmin = 18081
@@ -138,11 +171,20 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 	if services[0].Name != "postgres" || services[0].DSN != "postgres://stackuser:stackpass@devbox:15432/stackdb" {
 		t.Fatalf("unexpected postgres service: %+v", services[0])
 	}
+	if services[0].Image != "docker.io/library/postgres:17" || services[0].DataVolume != "stack_postgres_data" || services[0].MaintenanceDB != "template1" {
+		t.Fatalf("unexpected postgres config: %+v", services[0])
+	}
 	if services[1].Name != "redis" || services[1].DSN != "redis://:redispass@devbox:16379" {
 		t.Fatalf("unexpected redis service: %+v", services[1])
 	}
+	if services[1].Image != "docker.io/library/redis:7.4" || services[1].DataVolume != "stack_redis_data" || services[1].AppendOnly == nil || !*services[1].AppendOnly || services[1].SavePolicy != "900 1 300 10" || services[1].MaxMemoryPolicy != "allkeys-lru" {
+		t.Fatalf("unexpected redis config: %+v", services[1])
+	}
 	if services[2].Name != "pgadmin" || services[2].Email != "pgadmin@example.com" || services[2].URL != "http://devbox:18081" {
 		t.Fatalf("unexpected pgadmin service: %+v", services[2])
+	}
+	if services[2].Image != "docker.io/dpage/pgadmin4:9" || services[2].DataVolume != "stack_pgadmin_data" || services[2].ServerMode != "enabled" {
+		t.Fatalf("unexpected pgadmin config: %+v", services[2])
 	}
 	if services[3].Name != "cockpit" || services[3].URL != "https://devbox:19090" || services[3].Status != "running" {
 		t.Fatalf("unexpected cockpit service: %+v", services[3])

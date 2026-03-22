@@ -30,9 +30,32 @@ type StackConfig struct {
 }
 
 type ServicesConfig struct {
-	PostgresContainer string `yaml:"postgres_container"`
-	RedisContainer    string `yaml:"redis_container"`
-	PgAdminContainer  string `yaml:"pgadmin_container"`
+	PostgresContainer string                `yaml:"postgres_container"`
+	RedisContainer    string                `yaml:"redis_container"`
+	PgAdminContainer  string                `yaml:"pgadmin_container"`
+	Postgres          PostgresServiceConfig `yaml:"postgres"`
+	Redis             RedisServiceConfig    `yaml:"redis"`
+	PgAdmin           PgAdminServiceConfig  `yaml:"pgadmin"`
+}
+
+type PostgresServiceConfig struct {
+	Image               string `yaml:"image"`
+	DataVolume          string `yaml:"data_volume"`
+	MaintenanceDatabase string `yaml:"maintenance_database"`
+}
+
+type RedisServiceConfig struct {
+	Image           string `yaml:"image"`
+	DataVolume      string `yaml:"data_volume"`
+	AppendOnly      bool   `yaml:"appendonly"`
+	SavePolicy      string `yaml:"save_policy"`
+	MaxMemoryPolicy string `yaml:"maxmemory_policy"`
+}
+
+type PgAdminServiceConfig struct {
+	Image      string `yaml:"image"`
+	DataVolume string `yaml:"data_volume"`
+	ServerMode bool   `yaml:"server_mode"`
 }
 
 type ConnectionConfig struct {
@@ -150,6 +173,36 @@ func (c *Config) ApplyDerivedFields() {
 	}
 	if c.Connection.PgAdminPassword == "" {
 		c.Connection.PgAdminPassword = "admin"
+	}
+
+	if c.Services.Postgres.Image == "" {
+		c.Services.Postgres.Image = "docker.io/library/postgres:16"
+	}
+	if c.Services.Postgres.DataVolume == "" {
+		c.Services.Postgres.DataVolume = "postgres_data"
+	}
+	if c.Services.Postgres.MaintenanceDatabase == "" {
+		c.Services.Postgres.MaintenanceDatabase = "postgres"
+	}
+
+	if c.Services.Redis.Image == "" {
+		c.Services.Redis.Image = "docker.io/library/redis:7"
+	}
+	if c.Services.Redis.DataVolume == "" {
+		c.Services.Redis.DataVolume = "redis_data"
+	}
+	if c.Services.Redis.SavePolicy == "" {
+		c.Services.Redis.SavePolicy = "3600 1 300 100 60 10000"
+	}
+	if c.Services.Redis.MaxMemoryPolicy == "" {
+		c.Services.Redis.MaxMemoryPolicy = "noeviction"
+	}
+
+	if c.Services.PgAdmin.Image == "" {
+		c.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:latest"
+	}
+	if c.Services.PgAdmin.DataVolume == "" {
+		c.Services.PgAdmin.DataVolume = "pgadmin_data"
 	}
 
 	if c.Ports.Cockpit > 0 {

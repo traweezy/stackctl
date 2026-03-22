@@ -250,6 +250,26 @@ func TestConnectUsesConfigWithoutRuntimeInspection(t *testing.T) {
 	}
 }
 
+func TestConnectAllowsExternalStackWithoutComposeFile(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Stack.Managed = false
+		cfg.Setup.ScaffoldDefaultStack = false
+		cfg.Stack.Dir = t.TempDir()
+		cfg.Connection.Host = "devbox"
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+	})
+
+	stdout, _, err := executeRoot(t, "connect")
+	if err != nil {
+		t.Fatalf("connect returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "postgres://app:app@devbox:5432/app") {
+		t.Fatalf("unexpected connect output: %s", stdout)
+	}
+}
+
 func TestStatusPrintsTable(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }

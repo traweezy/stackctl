@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: docker.io/library/postgres:16
+    image: {{ printf "%q" .Services.Postgres.Image }}
     container_name: {{ printf "%q" .Services.PostgresContainer }}
     restart: unless-stopped
     environment:
@@ -10,37 +10,57 @@ services:
     ports:
       - "{{ .Ports.Postgres }}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - {{ .Services.Postgres.DataVolume }}:/var/lib/postgresql/data
 
   redis:
-    image: docker.io/library/redis:7
+    image: {{ printf "%q" .Services.Redis.Image }}
     container_name: {{ printf "%q" .Services.RedisContainer }}
     restart: unless-stopped
-{{- if .Connection.RedisPassword }}
     command:
       - redis-server
+{{- if .Connection.RedisPassword }}
       - --requirepass
       - {{ printf "%q" .Connection.RedisPassword }}
 {{- end }}
+      - --appendonly
+{{- if .Services.Redis.AppendOnly }}
+      - "yes"
+{{- else }}
+      - "no"
+{{- end }}
+      - --save
+      - {{ printf "%q" .Services.Redis.SavePolicy }}
+      - --maxmemory-policy
+      - {{ printf "%q" .Services.Redis.MaxMemoryPolicy }}
     ports:
       - "{{ .Ports.Redis }}:6379"
     volumes:
-      - redis_data:/data
+      - {{ .Services.Redis.DataVolume }}:/data
 
 {{- if .Setup.IncludePgAdmin }}
   pgadmin:
-    image: docker.io/dpage/pgadmin4:latest
+    image: {{ printf "%q" .Services.PgAdmin.Image }}
     container_name: {{ printf "%q" .Services.PgAdminContainer }}
     restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: {{ printf "%q" .Connection.PgAdminEmail }}
       PGADMIN_DEFAULT_PASSWORD: {{ printf "%q" .Connection.PgAdminPassword }}
+{{- if .Services.PgAdmin.ServerMode }}
+      PGADMIN_CONFIG_SERVER_MODE: "True"
+{{- else }}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+{{- end }}
     ports:
       - "{{ .Ports.PgAdmin }}:80"
+    volumes:
+      - {{ .Services.PgAdmin.DataVolume }}:/var/lib/pgadmin
     depends_on:
       - postgres
 {{- end }}
 
 volumes:
-  postgres_data:
-  redis_data:
+  {{ .Services.Postgres.DataVolume }}:
+  {{ .Services.Redis.DataVolume }}:
+{{- if .Setup.IncludePgAdmin }}
+  {{ .Services.PgAdmin.DataVolume }}:
+{{- end }}

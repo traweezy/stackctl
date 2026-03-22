@@ -38,6 +38,20 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsExternalStackWithoutComposeFile(t *testing.T) {
+	cfg := Default()
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
+	cfg.Stack.Dir = t.TempDir()
+
+	issues := Validate(cfg)
+	for _, issue := range issues {
+		if issue.Field == "stack.compose_file" {
+			t.Fatalf("expected external stack validation to ignore missing compose file, got %v", issues)
+		}
+	}
+}
+
 func validateWithDir(path string) error {
 	return os.MkdirAll(path, 0o755)
 }

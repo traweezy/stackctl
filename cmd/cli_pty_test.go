@@ -27,11 +27,7 @@ func TestConfigInitInteractivePTYCustomizesConfig(t *testing.T) {
 	env := cliTestEnv(configRoot, dataRoot)
 
 	input := strings.Join([]string{
-		"",
-		"",
-		"",
-		"",
-		"",
+		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
 		"15432",
 		"16379",
 		"18081",
@@ -42,11 +38,7 @@ func TestConfigInitInteractivePTYCustomizesConfig(t *testing.T) {
 		"redispass",
 		"pgadmin@example.com",
 		"pgsecret",
-		"",
-		"",
-		"",
-		"",
-		"",
+		"", "", "", "",
 	}, "\n") + "\n"
 
 	output, err := runStackctlPTY(t, binaryPath, env, input, "config", "init")
@@ -112,11 +104,7 @@ func TestConfigEditInteractivePTYUpdatesExistingConfig(t *testing.T) {
 	}
 
 	input := strings.Join([]string{
-		"",
-		"",
-		"",
-		"",
-		"",
+		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
 		"25432",
 		"26379",
 		"28081",
@@ -127,11 +115,7 @@ func TestConfigEditInteractivePTYUpdatesExistingConfig(t *testing.T) {
 		"",
 		"ops@example.com",
 		"opspass",
-		"",
-		"",
-		"",
-		"",
-		"",
+		"", "", "", "",
 	}, "\n") + "\n"
 
 	output, err := runStackctlPTY(t, binaryPath, env, input, "config", "edit")

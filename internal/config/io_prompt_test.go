@@ -248,7 +248,7 @@ func TestRunWizardCanSwitchToExternalStack(t *testing.T) {
 	}
 
 	cfg := Default()
-	input := "dev-stack\nn\n" + externalDir + "\ncompose.custom.yaml\n" + strings.Repeat("\n", 18)
+	input := "dev-stack\nn\n" + externalDir + "\ncompose.custom.yaml\n" + strings.Repeat("\n", 27)
 
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
 	if err != nil {
@@ -271,26 +271,14 @@ func TestRunWizardCanCustomizeServiceCredentials(t *testing.T) {
 
 	cfg := Default()
 	input := strings.Join([]string{
-		"",
-		"",
-		"",
-		"",
-		"",
-		"",
-		"",
-		"",
-		"",
+		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
 		"stackdb",
 		"stackuser",
 		"stackpass",
 		"redispass",
 		"pgadmin@example.com",
 		"pgsecret",
-		"",
-		"",
-		"",
-		"",
-		"",
+		"", "", "", "",
 	}, "\n") + "\n"
 
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
@@ -314,6 +302,69 @@ func TestRunWizardCanCustomizeServiceCredentials(t *testing.T) {
 	}
 	if got.Connection.PgAdminPassword != "pgsecret" {
 		t.Fatalf("unexpected pgadmin password: %q", got.Connection.PgAdminPassword)
+	}
+}
+
+func TestRunWizardCanCustomizeServiceRuntimeSettings(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	input := strings.Join([]string{
+		"",
+		"",
+		"",
+		"docker.io/library/postgres:17",
+		"stack_postgres_data",
+		"template1",
+		"",
+		"docker.io/library/redis:7.4",
+		"stack_redis_data",
+		"y",
+		"900 1 300 10",
+		"allkeys-lru",
+		"",
+		"",
+		"docker.io/dpage/pgadmin4:9",
+		"stack_pgadmin_data",
+		"y",
+	}, "\n") + "\n"
+
+	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
+	if err != nil {
+		t.Fatalf("RunWizard returned error: %v", err)
+	}
+	if got.Services.Postgres.Image != "docker.io/library/postgres:17" {
+		t.Fatalf("unexpected postgres image: %q", got.Services.Postgres.Image)
+	}
+	if got.Services.Postgres.DataVolume != "stack_postgres_data" {
+		t.Fatalf("unexpected postgres data volume: %q", got.Services.Postgres.DataVolume)
+	}
+	if got.Services.Postgres.MaintenanceDatabase != "template1" {
+		t.Fatalf("unexpected postgres maintenance database: %q", got.Services.Postgres.MaintenanceDatabase)
+	}
+	if got.Services.Redis.Image != "docker.io/library/redis:7.4" {
+		t.Fatalf("unexpected redis image: %q", got.Services.Redis.Image)
+	}
+	if got.Services.Redis.DataVolume != "stack_redis_data" {
+		t.Fatalf("unexpected redis data volume: %q", got.Services.Redis.DataVolume)
+	}
+	if !got.Services.Redis.AppendOnly {
+		t.Fatal("expected redis appendonly to be enabled")
+	}
+	if got.Services.Redis.SavePolicy != "900 1 300 10" {
+		t.Fatalf("unexpected redis save policy: %q", got.Services.Redis.SavePolicy)
+	}
+	if got.Services.Redis.MaxMemoryPolicy != "allkeys-lru" {
+		t.Fatalf("unexpected redis maxmemory policy: %q", got.Services.Redis.MaxMemoryPolicy)
+	}
+	if got.Services.PgAdmin.Image != "docker.io/dpage/pgadmin4:9" {
+		t.Fatalf("unexpected pgadmin image: %q", got.Services.PgAdmin.Image)
+	}
+	if got.Services.PgAdmin.DataVolume != "stack_pgadmin_data" {
+		t.Fatalf("unexpected pgadmin data volume: %q", got.Services.PgAdmin.DataVolume)
+	}
+	if !got.Services.PgAdmin.ServerMode {
+		t.Fatal("expected pgadmin server mode to be enabled")
 	}
 }
 

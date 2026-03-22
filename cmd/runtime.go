@@ -273,20 +273,27 @@ type configuredService struct {
 }
 
 type runtimeService struct {
-	Name          string `json:"name"`
-	Icon          string `json:"-"`
-	DisplayName   string `json:"display_name"`
-	Status        string `json:"status"`
-	ContainerName string `json:"container_name,omitempty"`
-	Host          string `json:"host,omitempty"`
-	ExternalPort  int    `json:"external_port,omitempty"`
-	InternalPort  int    `json:"internal_port,omitempty"`
-	Database      string `json:"database,omitempty"`
-	Email         string `json:"email,omitempty"`
-	Username      string `json:"username,omitempty"`
-	Password      string `json:"-"`
-	URL           string `json:"url,omitempty"`
-	DSN           string `json:"dsn,omitempty"`
+	Name            string `json:"name"`
+	Icon            string `json:"-"`
+	DisplayName     string `json:"display_name"`
+	Status          string `json:"status"`
+	ContainerName   string `json:"container_name,omitempty"`
+	Image           string `json:"image,omitempty"`
+	DataVolume      string `json:"data_volume,omitempty"`
+	Host            string `json:"host,omitempty"`
+	ExternalPort    int    `json:"external_port,omitempty"`
+	InternalPort    int    `json:"internal_port,omitempty"`
+	Database        string `json:"database,omitempty"`
+	MaintenanceDB   string `json:"maintenance_database,omitempty"`
+	Email           string `json:"email,omitempty"`
+	Username        string `json:"username,omitempty"`
+	Password        string `json:"-"`
+	AppendOnly      *bool  `json:"appendonly,omitempty"`
+	SavePolicy      string `json:"save_policy,omitempty"`
+	MaxMemoryPolicy string `json:"maxmemory_policy,omitempty"`
+	ServerMode      string `json:"server_mode,omitempty"`
+	URL             string `json:"url,omitempty"`
+	DSN             string `json:"dsn,omitempty"`
 }
 
 type connectionEntry struct {
@@ -330,25 +337,33 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 			DisplayName:   "Postgres",
 			Status:        containerStatus(containerByName, cfg.Services.PostgresContainer),
 			ContainerName: cfg.Services.PostgresContainer,
+			Image:         cfg.Services.Postgres.Image,
+			DataVolume:    cfg.Services.Postgres.DataVolume,
 			Host:          cfg.Connection.Host,
 			ExternalPort:  cfg.Ports.Postgres,
 			InternalPort:  containerInternalPort(containerByName, cfg.Services.PostgresContainer, cfg.Ports.Postgres),
 			Database:      cfg.Connection.PostgresDatabase,
+			MaintenanceDB: cfg.Services.Postgres.MaintenanceDatabase,
 			Username:      cfg.Connection.PostgresUsername,
 			Password:      cfg.Connection.PostgresPassword,
 			DSN:           postgresDSN(cfg),
 		},
 		{
-			Name:          "redis",
-			Icon:          "⚡",
-			DisplayName:   "Redis",
-			Status:        containerStatus(containerByName, cfg.Services.RedisContainer),
-			ContainerName: cfg.Services.RedisContainer,
-			Host:          cfg.Connection.Host,
-			ExternalPort:  cfg.Ports.Redis,
-			InternalPort:  containerInternalPort(containerByName, cfg.Services.RedisContainer, cfg.Ports.Redis),
-			Password:      cfg.Connection.RedisPassword,
-			DSN:           redisDSN(cfg),
+			Name:            "redis",
+			Icon:            "⚡",
+			DisplayName:     "Redis",
+			Status:          containerStatus(containerByName, cfg.Services.RedisContainer),
+			ContainerName:   cfg.Services.RedisContainer,
+			Image:           cfg.Services.Redis.Image,
+			DataVolume:      cfg.Services.Redis.DataVolume,
+			Host:            cfg.Connection.Host,
+			ExternalPort:    cfg.Ports.Redis,
+			InternalPort:    containerInternalPort(containerByName, cfg.Services.RedisContainer, cfg.Ports.Redis),
+			Password:        cfg.Connection.RedisPassword,
+			AppendOnly:      boolPointer(cfg.Services.Redis.AppendOnly),
+			SavePolicy:      cfg.Services.Redis.SavePolicy,
+			MaxMemoryPolicy: cfg.Services.Redis.MaxMemoryPolicy,
+			DSN:             redisDSN(cfg),
 		},
 	}
 
@@ -359,11 +374,14 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 			DisplayName:   "pgAdmin",
 			Status:        containerStatus(containerByName, cfg.Services.PgAdminContainer),
 			ContainerName: cfg.Services.PgAdminContainer,
+			Image:         cfg.Services.PgAdmin.Image,
+			DataVolume:    cfg.Services.PgAdmin.DataVolume,
 			Host:          cfg.Connection.Host,
 			ExternalPort:  cfg.Ports.PgAdmin,
 			InternalPort:  containerInternalPort(containerByName, cfg.Services.PgAdminContainer, cfg.Ports.PgAdmin),
 			Email:         cfg.Connection.PgAdminEmail,
 			Password:      cfg.Connection.PgAdminPassword,
+			ServerMode:    pgAdminModeLabel(cfg.Services.PgAdmin.ServerMode),
 			URL:           cfg.URLs.PgAdmin,
 		})
 	}
@@ -417,6 +435,16 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 				return err
 			}
 		}
+		if service.Image != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Image: %s\n", service.Image); err != nil {
+				return err
+			}
+		}
+		if service.DataVolume != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Data volume: %s\n", service.DataVolume); err != nil {
+				return err
+			}
+		}
 		if service.Host != "" && service.ExternalPort > 0 {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Host: %s\n", service.Host); err != nil {
 				return err
@@ -427,6 +455,11 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 		}
 		if service.Database != "" {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Database: %s\n", service.Database); err != nil {
+				return err
+			}
+		}
+		if service.MaintenanceDB != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Maintenance DB: %s\n", service.MaintenanceDB); err != nil {
 				return err
 			}
 		}
@@ -442,6 +475,30 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 		}
 		if service.Password != "" {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Password: %s\n", service.Password); err != nil {
+				return err
+			}
+		}
+		if service.AppendOnly != nil {
+			appendOnlyValue := "disabled"
+			if *service.AppendOnly {
+				appendOnlyValue = "enabled"
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Appendonly: %s\n", appendOnlyValue); err != nil {
+				return err
+			}
+		}
+		if service.SavePolicy != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Save policy: %s\n", service.SavePolicy); err != nil {
+				return err
+			}
+		}
+		if service.MaxMemoryPolicy != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Maxmemory policy: %s\n", service.MaxMemoryPolicy); err != nil {
+				return err
+			}
+		}
+		if service.ServerMode != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Server mode: %s\n", service.ServerMode); err != nil {
 				return err
 			}
 		}
@@ -538,6 +595,18 @@ func serviceCopyTarget(cfg configpkg.Config, target string) (string, string, err
 func normalizedCopyTarget(target string) string {
 	replacer := strings.NewReplacer("-", "", "_", "", " ", "")
 	return replacer.Replace(strings.ToLower(strings.TrimSpace(target)))
+}
+
+func boolPointer(value bool) *bool {
+	return &value
+}
+
+func pgAdminModeLabel(serverMode bool) string {
+	if serverMode {
+		return "enabled"
+	}
+
+	return "disabled"
 }
 
 func postgresDSN(cfg configpkg.Config) string {

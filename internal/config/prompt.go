@@ -64,17 +64,91 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	}
 	cfg.Services.PostgresContainer = postgresContainer
 
+	postgresImage, err := session.askString("Postgres image", cfg.Services.Postgres.Image, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Services.Postgres.Image = postgresImage
+
+	postgresDataVolume, err := session.askString("Postgres data volume", cfg.Services.Postgres.DataVolume, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Services.Postgres.DataVolume = postgresDataVolume
+
+	maintenanceDatabase, err := session.askString("Postgres maintenance database", cfg.Services.Postgres.MaintenanceDatabase, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Services.Postgres.MaintenanceDatabase = maintenanceDatabase
+
 	redisContainer, err := session.askString("Redis container name", cfg.Services.RedisContainer, nonEmpty)
 	if err != nil {
 		return Config{}, err
 	}
 	cfg.Services.RedisContainer = redisContainer
 
-	pgAdminContainer, err := session.askString("pgAdmin container name", cfg.Services.PgAdminContainer, nonEmpty)
+	redisImage, err := session.askString("Redis image", cfg.Services.Redis.Image, nonEmpty)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.Services.PgAdminContainer = pgAdminContainer
+	cfg.Services.Redis.Image = redisImage
+
+	redisDataVolume, err := session.askString("Redis data volume", cfg.Services.Redis.DataVolume, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Services.Redis.DataVolume = redisDataVolume
+
+	redisAppendOnly, err := session.askBool("Enable Redis appendonly persistence", cfg.Services.Redis.AppendOnly)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Services.Redis.AppendOnly = redisAppendOnly
+
+	redisSavePolicy, err := session.askString("Redis save policy", cfg.Services.Redis.SavePolicy, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Services.Redis.SavePolicy = redisSavePolicy
+
+	redisMaxMemoryPolicy, err := session.askString("Redis maxmemory policy", cfg.Services.Redis.MaxMemoryPolicy, nonEmpty)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Services.Redis.MaxMemoryPolicy = redisMaxMemoryPolicy
+
+	includePgAdmin, err := session.askBool("Include pgAdmin in the stack", cfg.Setup.IncludePgAdmin)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Setup.IncludePgAdmin = includePgAdmin
+
+	if cfg.Setup.IncludePgAdmin {
+		pgAdminContainer, err := session.askString("pgAdmin container name", cfg.Services.PgAdminContainer, nonEmpty)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Services.PgAdminContainer = pgAdminContainer
+
+		pgAdminImage, err := session.askString("pgAdmin image", cfg.Services.PgAdmin.Image, nonEmpty)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Services.PgAdmin.Image = pgAdminImage
+
+		pgAdminDataVolume, err := session.askString("pgAdmin data volume", cfg.Services.PgAdmin.DataVolume, nonEmpty)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Services.PgAdmin.DataVolume = pgAdminDataVolume
+
+		pgAdminServerMode, err := session.askBool("Run pgAdmin in server mode", cfg.Services.PgAdmin.ServerMode)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Services.PgAdmin.ServerMode = pgAdminServerMode
+	}
 
 	postgresPort, err := session.askPort("Postgres port", cfg.Ports.Postgres)
 	if err != nil {
@@ -88,11 +162,13 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	}
 	cfg.Ports.Redis = redisPort
 
-	pgAdminPort, err := session.askPort("pgAdmin port", cfg.Ports.PgAdmin)
-	if err != nil {
-		return Config{}, err
+	if cfg.Setup.IncludePgAdmin {
+		pgAdminPort, err := session.askPort("pgAdmin port", cfg.Ports.PgAdmin)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Ports.PgAdmin = pgAdminPort
 	}
-	cfg.Ports.PgAdmin = pgAdminPort
 
 	cockpitPort, err := session.askPort("Cockpit port", cfg.Ports.Cockpit)
 	if err != nil {
@@ -124,17 +200,19 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	}
 	cfg.Connection.RedisPassword = redisPassword
 
-	pgAdminEmail, err := session.askString("pgAdmin email", cfg.Connection.PgAdminEmail, nonEmpty)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Connection.PgAdminEmail = pgAdminEmail
+	if cfg.Setup.IncludePgAdmin {
+		pgAdminEmail, err := session.askString("pgAdmin email", cfg.Connection.PgAdminEmail, nonEmpty)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Connection.PgAdminEmail = pgAdminEmail
 
-	pgAdminPassword, err := session.askString("pgAdmin password", cfg.Connection.PgAdminPassword, nonEmpty)
-	if err != nil {
-		return Config{}, err
+		pgAdminPassword, err := session.askString("pgAdmin password", cfg.Connection.PgAdminPassword, nonEmpty)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Connection.PgAdminPassword = pgAdminPassword
 	}
-	cfg.Connection.PgAdminPassword = pgAdminPassword
 
 	waitForServices, err := session.askBool("Wait for services on start", cfg.Behavior.WaitForServicesStart)
 	if err != nil {
@@ -153,12 +231,6 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 		return Config{}, err
 	}
 	cfg.Setup.InstallCockpit = installCockpit
-
-	includePgAdmin, err := session.askBool("Include pgAdmin in the stack", cfg.Setup.IncludePgAdmin)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Setup.IncludePgAdmin = includePgAdmin
 
 	if !cfg.Stack.Managed {
 		cfg.Setup.ScaffoldDefaultStack = false

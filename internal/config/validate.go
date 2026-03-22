@@ -61,7 +61,7 @@ func Validate(cfg Config) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Field: "stack.compose_file", Message: fmt.Sprintf("managed stack must use %s", DefaultComposeFileName)})
 		}
 	}
-	if strings.TrimSpace(cfg.Stack.Dir) != "" && filepath.IsAbs(cfg.Stack.Dir) && strings.TrimSpace(cfg.Stack.ComposeFile) != "" {
+	if cfg.Stack.Managed && strings.TrimSpace(cfg.Stack.Dir) != "" && filepath.IsAbs(cfg.Stack.Dir) && strings.TrimSpace(cfg.Stack.ComposeFile) != "" {
 		composePath := ComposePath(cfg)
 		if info, err := os.Stat(composePath); err != nil {
 			issues = append(issues, ValidationIssue{Field: "stack.compose_file", Message: fmt.Sprintf("file does not exist: %s", composePath)})
@@ -71,30 +71,50 @@ func Validate(cfg Config) []ValidationIssue {
 	}
 
 	for field, value := range map[string]string{
-		"services.postgres_container":  cfg.Services.PostgresContainer,
-		"services.redis_container":     cfg.Services.RedisContainer,
-		"services.pgadmin_container":   cfg.Services.PgAdminContainer,
-		"connection.host":              cfg.Connection.Host,
-		"connection.postgres_database": cfg.Connection.PostgresDatabase,
-		"connection.postgres_username": cfg.Connection.PostgresUsername,
-		"connection.postgres_password": cfg.Connection.PostgresPassword,
-		"connection.pgadmin_email":     cfg.Connection.PgAdminEmail,
-		"connection.pgadmin_password":  cfg.Connection.PgAdminPassword,
+		"services.postgres_container":            cfg.Services.PostgresContainer,
+		"services.redis_container":               cfg.Services.RedisContainer,
+		"services.postgres.image":                cfg.Services.Postgres.Image,
+		"services.postgres.data_volume":          cfg.Services.Postgres.DataVolume,
+		"services.postgres.maintenance_database": cfg.Services.Postgres.MaintenanceDatabase,
+		"services.redis.image":                   cfg.Services.Redis.Image,
+		"services.redis.data_volume":             cfg.Services.Redis.DataVolume,
+		"services.redis.save_policy":             cfg.Services.Redis.SavePolicy,
+		"services.redis.maxmemory_policy":        cfg.Services.Redis.MaxMemoryPolicy,
+		"connection.host":                        cfg.Connection.Host,
+		"connection.postgres_database":           cfg.Connection.PostgresDatabase,
+		"connection.postgres_username":           cfg.Connection.PostgresUsername,
+		"connection.postgres_password":           cfg.Connection.PostgresPassword,
 	} {
 		if strings.TrimSpace(value) == "" {
 			issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
 		}
 	}
 
+	if cfg.Setup.IncludePgAdmin {
+		for field, value := range map[string]string{
+			"services.pgadmin_container":   cfg.Services.PgAdminContainer,
+			"services.pgadmin.image":       cfg.Services.PgAdmin.Image,
+			"services.pgadmin.data_volume": cfg.Services.PgAdmin.DataVolume,
+			"connection.pgadmin_email":     cfg.Connection.PgAdminEmail,
+			"connection.pgadmin_password":  cfg.Connection.PgAdminPassword,
+		} {
+			if strings.TrimSpace(value) == "" {
+				issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
+			}
+		}
+	}
+
 	for field, value := range map[string]int{
 		"ports.postgres": cfg.Ports.Postgres,
 		"ports.redis":    cfg.Ports.Redis,
-		"ports.pgadmin":  cfg.Ports.PgAdmin,
 		"ports.cockpit":  cfg.Ports.Cockpit,
 	} {
 		if value < 1 || value > 65535 {
 			issues = append(issues, ValidationIssue{Field: field, Message: "must be between 1 and 65535"})
 		}
+	}
+	if cfg.Setup.IncludePgAdmin && (cfg.Ports.PgAdmin < 1 || cfg.Ports.PgAdmin > 65535) {
+		issues = append(issues, ValidationIssue{Field: "ports.pgadmin", Message: "must be between 1 and 65535"})
 	}
 
 	if cfg.Behavior.StartupTimeoutSec <= 0 {
