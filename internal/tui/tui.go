@@ -168,6 +168,19 @@ type keyMap struct {
 	Quit              key.Binding
 }
 
+type helpBindings struct {
+	short []key.Binding
+	full  [][]key.Binding
+}
+
+func (h helpBindings) ShortHelp() []key.Binding {
+	return h.short
+}
+
+func (h helpBindings) FullHelp() [][]key.Binding {
+	return h.full
+}
+
 func defaultKeyMap() keyMap {
 	return keyMap{
 		NextSection: key.NewBinding(
@@ -226,20 +239,6 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("q", "esc", "ctrl+c"),
 			key.WithHelp("q", "quit"),
 		),
-	}
-}
-
-func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextSection, k.Action, k.NextItem, k.WatchLogs, k.Refresh, k.Quit}
-}
-
-func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.NextSection, k.PrevSection, k.Action},
-		{k.Confirm, k.Cancel, k.Refresh},
-		{k.PrevItem, k.NextItem, k.WatchLogs},
-		{k.ToggleAutoRefresh, k.ToggleLayout, k.ToggleSecrets},
-		{k.ToggleHelp, k.Quit},
 	}
 }
 
@@ -495,7 +494,7 @@ func (m Model) View() tea.View {
 	header := renderHeader(m)
 	status := renderGlobalStatus(m, m.width)
 	body := renderBody(m)
-	footer := footerStyle().Width(m.width).Render(m.help.View(m.keys))
+	footer := footerStyle().Width(m.width).Render(m.help.View(m.helpBindings()))
 
 	blocks := []string{header}
 	if status != "" {
@@ -506,6 +505,46 @@ func (m Model) View() tea.View {
 	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, blocks...))
 	view.AltScreen = true
 	return view
+}
+
+func (m Model) helpBindings() helpBindings {
+	short := []key.Binding{m.keys.NextSection}
+	if m.runner != nil {
+		short = append(short, m.keys.Action)
+	}
+	if m.activeHasSelectionList() {
+		short = append(short, m.keys.NextItem)
+	}
+	if m.showWatchLogsHelp() {
+		short = append(short, m.keys.WatchLogs)
+	}
+	short = append(short, m.keys.Refresh, m.keys.Quit)
+
+	row1 := []key.Binding{m.keys.NextSection, m.keys.PrevSection}
+	if m.runner != nil {
+		row1 = append(row1, m.keys.Action)
+	}
+
+	row2 := []key.Binding{m.keys.Confirm, m.keys.Cancel, m.keys.Refresh}
+
+	row3 := []key.Binding{}
+	if m.activeHasSelectionList() {
+		row3 = append(row3, m.keys.PrevItem, m.keys.NextItem)
+	}
+	if m.showWatchLogsHelp() {
+		row3 = append(row3, m.keys.WatchLogs)
+	}
+
+	full := [][]key.Binding{row1, row2}
+	if len(row3) > 0 {
+		full = append(full, row3)
+	}
+	full = append(full,
+		[]key.Binding{m.keys.ToggleAutoRefresh, m.keys.ToggleLayout, m.keys.ToggleSecrets},
+		[]key.Binding{m.keys.ToggleHelp, m.keys.Quit},
+	)
+
+	return helpBindings{short: short, full: full}
 }
 
 func loadSnapshotCmd(loader Loader) tea.Cmd {
@@ -619,6 +658,11 @@ func (m Model) selectedLogWatchService() (Service, bool) {
 	default:
 		return Service{}, false
 	}
+}
+
+func (m Model) showWatchLogsHelp() bool {
+	service, ok := m.selectedLogWatchService()
+	return ok && isStackService(service)
 }
 
 func logWatchServiceName(service Service) string {
@@ -958,8 +1002,6 @@ func renderOverview(snapshot Snapshot, layout layoutMode) string {
 	}
 	lines = append(lines, subsectionTitleStyle().Render("Helpful commands"))
 	lines = append(lines, "  "+overviewCommandHints(stackServices))
-	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, overviewSection)))
 
 	return strings.Join(lines, "\n")
 }

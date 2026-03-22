@@ -565,6 +565,61 @@ func TestWatchLogsKeyWarnsForHostTools(t *testing.T) {
 	}
 }
 
+func TestServiceDetailShowsConciseLiveLogHint(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres"},
+		},
+	}
+	current.active = servicesSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	content := current.currentContent()
+	if !collapsedContainsTest(content, "Live logs: press w for the full stream.") {
+		t.Fatalf("expected concise live-log hint:\n%s", content)
+	}
+	for _, fragment := range []string{
+		"w watch selected service",
+		"Returns here when the stream exits.",
+	} {
+		if strings.Contains(content, fragment) {
+			t.Fatalf("expected services content to omit %q:\n%s", fragment, content)
+		}
+	}
+}
+
+func TestFooterHelpShowsWatchLogsOnlyWhenAvailable(t *testing.T) {
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(LogWatchRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		nil,
+	)
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres"},
+		},
+	}
+	current.active = servicesSection
+	current.normalizeSelections()
+
+	if !strings.Contains(current.help.View(current.helpBindings()), "watch logs") {
+		t.Fatalf("expected footer help to show live-log shortcut for stack services")
+	}
+
+	current.active = overviewSection
+	if strings.Contains(current.help.View(current.helpBindings()), "watch logs") {
+		t.Fatalf("expected overview footer help to hide live-log shortcut")
+	}
+}
+
 func TestLogWatchDoneReloadsSnapshot(t *testing.T) {
 	loadCount := 0
 	model := NewInspectionModel(

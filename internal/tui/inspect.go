@@ -258,7 +258,6 @@ func renderServiceListPane(snapshot Snapshot, selected string) string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render("j/k or [ ] switch service"))
-	lines = append(lines, mutedStyle().Render("w watch selected service"))
 
 	return strings.Join(lines, "\n")
 }
@@ -270,7 +269,7 @@ func renderServiceDetailPane(service Service, showSecrets bool, layout layoutMod
 	}
 	lines = append(lines, renderServiceBlock(service, showSecrets, layout, !isStackService(service))...)
 	lines = append(lines, "")
-	lines = append(lines, renderLogWatchHint(service)...)
+	lines = append(lines, renderLogWatchHint(service))
 
 	return strings.Join(lines, "\n")
 }
@@ -309,7 +308,6 @@ func renderPortListPane(snapshot Snapshot, selected string) string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render("j/k or [ ] switch port"))
-	lines = append(lines, mutedStyle().Render("w watch selected service"))
 
 	return strings.Join(lines, "\n")
 }
@@ -338,7 +336,7 @@ func renderPortDetailPane(service Service) string {
 		lines = append(lines, mutedStyle().Render("Lifecycle: external to stack lifecycle"))
 	}
 	lines = append(lines, "")
-	lines = append(lines, renderLogWatchHint(service)...)
+	lines = append(lines, renderLogWatchHint(service))
 
 	return strings.Join(lines, "\n")
 }
@@ -413,7 +411,6 @@ func renderHealthListPane(snapshot Snapshot, selected string) string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render("j/k or [ ] switch target"))
-	lines = append(lines, mutedStyle().Render("w watch selected service"))
 	lines = append(lines, "")
 	lines = append(lines, detailHeading("Doctor summary"))
 	lines = append(lines, doctorSummaryLine(snapshot.DoctorSummary))
@@ -425,7 +422,7 @@ func renderHealthDetailPane(snapshot Snapshot, service Service) string {
 	lines := []string{detailHeading("Health detail"), ""}
 	lines = append(lines, renderHealthBlock(service)...)
 	lines = append(lines, "")
-	lines = append(lines, renderLogWatchHint(service)...)
+	lines = append(lines, renderLogWatchHint(service))
 	lines = append(lines, "")
 	lines = append(lines, detailHeading("Doctor findings"))
 	findings := make([]DoctorCheck, 0, len(snapshot.DoctorChecks))
@@ -447,17 +444,10 @@ func renderHealthDetailPane(snapshot Snapshot, service Service) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderLogWatchHint(service Service) []string {
+func renderLogWatchHint(service Service) string {
 	if !isStackService(service) {
-		return []string{
-			detailHeading("Logs"),
-			mutedStyle().Render("Host tools do not use compose logs."),
-		}
+		return mutedStyle().Render("Live logs unavailable for host tools.")
 	}
 
-	return []string{
-		detailHeading("Logs"),
-		mutedStyle().Render("w watch live logs"),
-		mutedStyle().Render("Returns here when the stream exits."),
-	}
+	return mutedStyle().Render("Live logs: press w for the full stream.")
 }
