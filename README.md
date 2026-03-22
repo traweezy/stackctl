@@ -816,15 +816,31 @@ Resulting target stack:
 These are strong follow-ups once the high-priority local stack and helper
 commands are in place.
 
+#### Broader service reconfiguration
+
+- first-class per-service settings beyond the current credential fields
+  Why: support richer Postgres, Redis, and pgAdmin customization without
+  forcing users back into manual compose edits
+- richer Redis configuration such as ACLs, named users, persistence, and
+  memory-policy defaults
+  Why: local environments often need more than a single optional password
+- broader Postgres and pgAdmin configuration controls
+  Why: users will need database names, credentials, ports, admin logins,
+  and common service-level tuning knobs to stay inside `stackctl config`
+- better support for non-managed custom stacks
+  Why: external compose users should be able to keep using `stackctl`
+  without losing as much configuration awareness
+- stronger live integration coverage against real Podman environments
+  Why: customized credentials and service settings should be proven against
+  real stack startup behavior, not just unit-level rendering tests
+
 - multi-stack support such as `stackctl start dev` and
   `stackctl start staging`
 - `stackctl env` to print app-ready environment variables
 - `stackctl run ...` to launch an app with stack-aware context
 - snapshot save and restore commands for dev-state workflows
 - broader installer support beyond `apt`-based systems
-- better support for non-managed custom stacks
 - more explicit verbosity and quiet controls across runtime commands
-- broader integration coverage against real Podman environments
 
 ### Longer-term UX work
 
