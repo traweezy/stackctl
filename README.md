@@ -210,6 +210,20 @@ The managed pgAdmin service also ships with these default credentials:
 - email: `admin@example.com`
 - password: `admin`
 
+Managed service defaults also include:
+
+- Postgres image: `docker.io/library/postgres:16`
+- Postgres data volume: `postgres_data`
+- Postgres maintenance database for admin helpers: `postgres`
+- Redis image: `docker.io/library/redis:7`
+- Redis data volume: `redis_data`
+- Redis appendonly persistence: disabled
+- Redis save policy: `3600 1 300 100 60 10000`
+- Redis maxmemory policy: `noeviction`
+- pgAdmin image: `docker.io/dpage/pgadmin4:latest`
+- pgAdmin data volume: `pgadmin_data`
+- pgAdmin server mode: disabled
+
 Change them with `stackctl config edit` or by editing
 `~/.config/stackctl/config.yaml` directly.
 
@@ -247,7 +261,13 @@ In external mode:
 
 - your config points at an existing compose directory
 - you manage the compose file yourself
-- `stackctl` still handles lifecycle, status, logs, and diagnostics
+- `stackctl` still handles lifecycle, status, logs, diagnostics, and
+  config-aware helper output
+
+That means commands like `stackctl connect` still use your configured service
+values even before an external compose file is present. Runtime commands such
+as `start`, `stop`, `exec`, `logs`, and `db` still require a real compose file
+when they need to talk to containers.
 
 Use external mode if you already have a custom Podman Compose setup and want
 `stackctl` to be the operator CLI on top of it.
@@ -377,7 +397,9 @@ Flags: `-h`, `--help` only.
 Edit the current config using the interactive wizard.
 
 This is the easiest way to change service credentials, optional Redis auth,
-and managed-stack ports without editing compose files manually.
+managed-stack ports, Postgres maintenance-db behavior, Redis persistence and
+memory settings, pgAdmin server mode, and service image/data-volume settings
+without editing compose files manually.
 
 Examples:
 
@@ -391,6 +413,15 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `--non-interactive` | Save the current config after applying derived defaults |
+
+Service settings available in the config and wizard:
+
+- Postgres: image, data volume, maintenance database, database, username,
+  password, container name, and host port
+- Redis: image, data volume, password, appendonly persistence, save policy,
+  maxmemory policy, container name, and host port
+- pgAdmin: image, data volume, email, password, server mode, container name,
+  and host port
 
 #### `stackctl config validate`
 
@@ -923,6 +954,12 @@ Available today:
 - configurable Postgres database, username, password, and ports
 - optional Redis auth that flows through generated compose and DSNs
 - configurable pgAdmin login details that stay in sync with the managed stack
+- service-level image, data-volume, and tuning settings in `stackctl config`
+- configurable Postgres maintenance-database settings for admin helpers
+- configurable Redis persistence and maxmemory policy settings
+- configurable pgAdmin server-mode settings
+- external-stack configs stay valid for non-runtime commands even before a
+  compose file is present
 - machine-readable service output with `stackctl services --json`
 - clipboard-friendly service helpers with `stackctl services --copy <target>`
 - `stackctl exec <service> -- <command...>` for in-container workflows
@@ -953,21 +990,6 @@ Current CLI surface:
 
 These are the highest-value additions after the current release line.
 
-#### Broader service reconfiguration
-
-- first-class per-service settings beyond the current credential fields
-  Why: support richer Postgres, Redis, and pgAdmin customization without
-  forcing users back into manual compose edits
-- richer Redis configuration such as ACLs, named users, persistence, and
-  memory-policy defaults
-  Why: local environments often need more than a single optional password
-- broader Postgres and pgAdmin configuration controls
-  Why: users will need database names, credentials, ports, admin logins,
-  and common service-level tuning knobs to stay inside `stackctl config`
-- better support for non-managed custom stacks
-  Why: external compose users should be able to keep using `stackctl`
-  without losing as much configuration awareness
-
 #### More local services
 
 - `NATS`
@@ -993,6 +1015,8 @@ Resulting target stack:
 These are strong follow-ups once the high-priority local stack and helper
 commands are in place.
 
+- deeper service controls such as Redis ACL users, richer Postgres tuning,
+  and pgAdmin server bootstrap helpers
 - multi-stack support such as `stackctl start dev` and
   `stackctl start staging`
 - `stackctl env` to print app-ready environment variables
