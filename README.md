@@ -195,6 +195,7 @@ config:
 - Postgres database: `app`
 - Postgres username: `app`
 - Postgres password: `app`
+- Redis password: disabled by default
 - Postgres port: `5432`
 - Redis port: `6379`
 - pgAdmin URL: `http://localhost:8081`
@@ -204,6 +205,9 @@ The managed pgAdmin service also ships with these default credentials:
 
 - email: `admin@example.com`
 - password: `admin`
+
+Change them with `stackctl config edit` or by editing
+`~/.config/stackctl/config.yaml` directly.
 
 ## Where files live
 
@@ -228,7 +232,8 @@ In managed mode:
 
 - `stackctl` owns the stack directory
 - `stackctl config scaffold` can create or refresh the compose file
-- the managed compose file is rendered from your config values
+- the managed compose file is rendered from your config values, including
+  Postgres credentials, optional Redis auth, and pgAdmin login details
 
 This is the default and the easiest way to get started.
 
@@ -366,6 +371,9 @@ Flags: `-h`, `--help` only.
 #### `stackctl config edit`
 
 Edit the current config using the interactive wizard.
+
+This is the easiest way to change service credentials, optional Redis auth,
+and managed-stack ports without editing compose files manually.
 
 Examples:
 
@@ -746,6 +754,9 @@ Available today:
 - Redis
 - pgAdmin
 - Cockpit
+- configurable Postgres database, username, password, and ports
+- optional Redis auth that flows through generated compose and DSNs
+- configurable pgAdmin login details that stay in sync with the managed stack
 
 Current CLI surface:
 
@@ -799,16 +810,6 @@ Resulting target stack:
   Why: show host-to-service port mappings quickly
 - `stackctl doctor --fix`
   Why: automate safe fixes for common local-environment issues
-
-#### Service configuration customization
-
-- first-class service config overrides in `stackctl config`
-  Why: let users change Postgres database names, usernames, passwords,
-  ports, and similar service settings without editing compose files by hand
-- richer per-service defaults for local teams
-  Why: support things like pgAdmin credentials, Redis auth-related
-  settings, and future service-specific config while keeping generated
-  DSNs and URLs in sync
 
 ### Next after that
 
