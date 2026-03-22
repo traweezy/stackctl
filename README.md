@@ -310,7 +310,9 @@ Root flags:
 Open the interactive terminal dashboard.
 
 Phase one is intentionally read-only. It gives you a full-screen overview of
-the current stack config and runtime state without changing the stack.
+the current stack config and runtime state without changing the stack. It now
+includes a compact mode, optional background refresh, and read-only copy
+placeholders for the most useful DSNs and URLs.
 
 Examples:
 
@@ -323,16 +325,26 @@ Keys:
 - `tab`, `j`, `right` to move to the next section
 - `shift+tab`, `k`, `left` to move to the previous section
 - `r` to refresh
+- `a` to toggle conservative auto-refresh (`30s`)
+- `m` to toggle expanded vs compact density
 - `s` to show or hide secrets in the dashboard
 - `?` to toggle the expanded help footer
 - `q`, `esc`, `ctrl+c` to quit
 
 Sections:
 
-- `Overview`: stack paths, mode, service counts, and startup behavior
-- `Services`: read-only runtime details for each service
+- `Overview`: stack paths, mode, stack-managed service counts, and startup behavior
+- `Services`: read-only runtime details for each service, with friendlier stopped-state UX
 - `Health`: current health and reachability checks
 - `Connections`: DSNs and URLs with secrets masked by default
+
+Notes:
+
+- auto-refresh is on by default and can be turned off inside the TUI
+- compact mode trims less important runtime fields so the dashboard is easier
+  to scan on smaller terminals
+- services and connections panels now show copy placeholders for the DSNs and
+  URLs that will become real copy actions in a later phase
 
 Flags: `-h`, `--help` only.
 
