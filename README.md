@@ -800,6 +800,16 @@ Resulting target stack:
 - `stackctl doctor --fix`
   Why: automate safe fixes for common local-environment issues
 
+#### Service configuration customization
+
+- first-class service config overrides in `stackctl config`
+  Why: let users change Postgres database names, usernames, passwords,
+  ports, and similar service settings without editing compose files by hand
+- richer per-service defaults for local teams
+  Why: support things like pgAdmin credentials, Redis auth-related
+  settings, and future service-specific config while keeping generated
+  DSNs and URLs in sync
+
 ### Next after that
 
 These are strong follow-ups once the high-priority local stack and helper
