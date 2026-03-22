@@ -139,7 +139,7 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	if redis := servicesByName["redis"]; redis.Status != "running" || redis.DSN != "redis://:redispass@127.0.0.1:"+strconv.Itoa(cfg.Ports.Redis) {
 		t.Fatalf("unexpected redis service: %+v", redis)
 	}
-	if pgadmin := servicesByName["pgadmin"]; pgadmin.Status != "running" || pgadmin.Email != "pgadmin@example.com" || pgadmin.Password != "pgsecret" {
+	if pgadmin := servicesByName["pgadmin"]; pgadmin.Status != "running" || pgadmin.Email != "pgadmin@example.com" || pgadmin.Password != "" {
 		t.Fatalf("unexpected pgadmin service: %+v", pgadmin)
 	}
 	if cockpit := servicesByName["cockpit"]; cockpit.Status == "" || cockpit.URL != "https://127.0.0.1:"+strconv.Itoa(cfg.Ports.Cockpit) {

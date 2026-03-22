@@ -284,7 +284,7 @@ type runtimeService struct {
 	Database      string `json:"database,omitempty"`
 	Email         string `json:"email,omitempty"`
 	Username      string `json:"username,omitempty"`
-	Password      string `json:"password,omitempty"`
+	Password      string `json:"-"`
 	URL           string `json:"url,omitempty"`
 	DSN           string `json:"dsn,omitempty"`
 }

@@ -37,6 +37,8 @@ func BuildStackctlBinary(t testing.TB) string {
 		}
 
 		binaryPath = filepath.Join(dir, "stackctl")
+		// #nosec G204 -- test helper builds the local repo with the fixed
+		// Go toolchain and a temp output path controlled in-process.
 		cmd := exec.Command("go", "build", "-o", binaryPath, ".")
 		cmd.Dir = RepoRoot()
 		cmd.Env = os.Environ()
