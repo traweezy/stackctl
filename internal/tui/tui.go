@@ -17,6 +17,8 @@ import (
 
 const maskedSecret = "****"
 
+var autoRefreshInterval = 30 * time.Second
+
 type Loader func() (Snapshot, error)
 
 type Snapshot struct {
@@ -76,6 +78,22 @@ const (
 	connectionsSection
 )
 
+type layoutMode int
+
+const (
+	expandedLayout layoutMode = iota
+	compactLayout
+)
+
+func (m layoutMode) String() string {
+	switch m {
+	case compactLayout:
+		return "compact"
+	default:
+		return "expanded"
+	}
+}
+
 var sections = []section{
 	overviewSection,
 	servicesSection,
@@ -103,13 +121,19 @@ type snapshotMsg struct {
 	err      error
 }
 
+type autoRefreshMsg struct {
+	id int
+}
+
 type keyMap struct {
-	NextSection   key.Binding
-	PrevSection   key.Binding
-	Refresh       key.Binding
-	ToggleSecrets key.Binding
-	ToggleHelp    key.Binding
-	Quit          key.Binding
+	NextSection       key.Binding
+	PrevSection       key.Binding
+	Refresh           key.Binding
+	ToggleAutoRefresh key.Binding
+	ToggleLayout      key.Binding
+	ToggleSecrets     key.Binding
+	ToggleHelp        key.Binding
+	Quit              key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -125,6 +149,14 @@ func defaultKeyMap() keyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		ToggleAutoRefresh: key.NewBinding(
+			key.WithKeys("a"),
+			key.WithHelp("a", "toggle auto-refresh"),
+		),
+		ToggleLayout: key.NewBinding(
+			key.WithKeys("m"),
+			key.WithHelp("m", "toggle compact view"),
 		),
 		ToggleSecrets: key.NewBinding(
 			key.WithKeys("s"),
@@ -142,28 +174,32 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextSection, k.Refresh, k.ToggleSecrets, k.Quit}
+	return []key.Binding{k.NextSection, k.Refresh, k.ToggleAutoRefresh, k.ToggleLayout, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.NextSection, k.PrevSection, k.Refresh},
-		{k.ToggleSecrets, k.ToggleHelp, k.Quit},
+		{k.ToggleAutoRefresh, k.ToggleLayout, k.ToggleSecrets},
+		{k.ToggleHelp, k.Quit},
 	}
 }
 
 type Model struct {
-	width       int
-	height      int
-	active      section
-	loading     bool
-	showSecrets bool
-	errMessage  string
-	snapshot    Snapshot
-	loader      Loader
-	keys        keyMap
-	help        help.Model
-	viewport    viewport.Model
+	width         int
+	height        int
+	active        section
+	layout        layoutMode
+	loading       bool
+	autoRefresh   bool
+	autoRefreshID int
+	showSecrets   bool
+	errMessage    string
+	snapshot      Snapshot
+	loader        Loader
+	keys          keyMap
+	help          help.Model
+	viewport      viewport.Model
 }
 
 func NewModel(loader Loader) Model {
@@ -172,12 +208,14 @@ func NewModel(loader Loader) Model {
 	helpModel.ShowAll = false
 
 	return Model{
-		active:   overviewSection,
-		loading:  true,
-		loader:   loader,
-		keys:     defaultKeyMap(),
-		help:     helpModel,
-		viewport: viewportModel,
+		active:      overviewSection,
+		layout:      expandedLayout,
+		loading:     true,
+		autoRefresh: true,
+		loader:      loader,
+		keys:        defaultKeyMap(),
+		help:        helpModel,
+		viewport:    viewportModel,
 	}
 }
 
@@ -201,7 +239,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.snapshot = msg.snapshot
 		}
 		m.syncLayout()
+		if m.autoRefresh {
+			m.autoRefreshID++
+			return m, autoRefreshCmd(m.autoRefreshID)
+		}
 		return m, nil
+	case autoRefreshMsg:
+		if !m.autoRefresh || msg.id != m.autoRefreshID {
+			return m, nil
+		}
+		m.loading = true
+		return m, loadSnapshotCmd(m.loader)
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -214,8 +262,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showSecrets = !m.showSecrets
 			m.syncLayout()
 			return m, nil
+		case key.Matches(msg, m.keys.ToggleLayout):
+			if m.layout == expandedLayout {
+				m.layout = compactLayout
+			} else {
+				m.layout = expandedLayout
+			}
+			m.syncLayout()
+			return m, nil
+		case key.Matches(msg, m.keys.ToggleAutoRefresh):
+			m.autoRefresh = !m.autoRefresh
+			m.autoRefreshID++
+			m.syncLayout()
+			if m.autoRefresh {
+				return m, autoRefreshCmd(m.autoRefreshID)
+			}
+			return m, nil
 		case key.Matches(msg, m.keys.Refresh):
 			m.loading = true
+			m.autoRefreshID++
 			return m, loadSnapshotCmd(m.loader)
 		case key.Matches(msg, m.keys.NextSection):
 			m.active = nextSection(m.active)
@@ -254,6 +319,12 @@ func loadSnapshotCmd(loader Loader) tea.Cmd {
 		snapshot, err := loader()
 		return snapshotMsg{snapshot: snapshot, err: err}
 	}
+}
+
+func autoRefreshCmd(id int) tea.Cmd {
+	return tea.Tick(autoRefreshInterval, func(time.Time) tea.Msg {
+		return autoRefreshMsg{id: id}
+	})
 }
 
 func nextSection(current section) section {
@@ -303,13 +374,13 @@ func (m Model) currentContent() string {
 
 	switch m.active {
 	case overviewSection:
-		return renderOverview(m.snapshot)
+		return renderOverview(m.snapshot, m.layout)
 	case servicesSection:
-		return renderServices(m.snapshot, m.showSecrets)
+		return renderServices(m.snapshot, m.showSecrets, m.layout)
 	case healthSection:
 		return renderHealth(m.snapshot)
 	case connectionsSection:
-		return renderConnections(m.snapshot, m.showSecrets)
+		return renderConnections(m.snapshot, m.showSecrets, m.layout)
 	default:
 		return ""
 	}
@@ -405,10 +476,17 @@ func renderHeader(m Model) string {
 		stackName = "stackctl"
 	}
 
+	autoRefreshLabel := "off"
+	if m.autoRefresh {
+		autoRefreshLabel = autoRefreshInterval.String()
+	}
+
 	meta := fmt.Sprintf(
-		"%s  •  mode: %s  •  secrets: %s  •  updated: %s",
+		"%s  •  mode: %s  •  layout: %s  •  auto-refresh: %s  •  secrets: %s  •  updated: %s",
 		statusLabel,
 		mode,
+		m.layout.String(),
+		autoRefreshLabel,
 		onOffLabel(m.showSecrets),
 		loadedAt,
 	)
@@ -455,31 +533,38 @@ func renderSidebar(active section) string {
 	}
 
 	lines = append(lines, "", mutedStyle().Render("Read-only phase one"))
+	lines = append(lines, mutedStyle().Render("a auto-refresh  •  m compact"))
 
 	return strings.Join(lines, "\n")
 }
 
-func renderOverview(snapshot Snapshot) string {
+func renderOverview(snapshot Snapshot, layout layoutMode) string {
 	running, total := runningStackServiceCount(snapshot.Services)
 	lines := []string{
 		sectionTitleStyle().Render("Overview"),
 		"",
 		fmt.Sprintf("Stack: %s", emptyLabel(snapshot.StackName)),
 		fmt.Sprintf("Config: %s", emptyLabel(snapshot.ConfigPath)),
-		fmt.Sprintf("Stack dir: %s", emptyLabel(snapshot.StackDir)),
-		fmt.Sprintf("Compose: %s", emptyLabel(snapshot.ComposePath)),
 		fmt.Sprintf("Stack services running: %d / %d", running, total),
 		fmt.Sprintf("Wait on start: %s", onOffLabel(snapshot.WaitForServices)),
-		fmt.Sprintf("Startup timeout: %ds", snapshot.StartupTimeoutSec),
+	}
+	if layout == expandedLayout {
+		lines = append(lines,
+			fmt.Sprintf("Stack dir: %s", emptyLabel(snapshot.StackDir)),
+			fmt.Sprintf("Compose: %s", emptyLabel(snapshot.ComposePath)),
+			fmt.Sprintf("Startup timeout: %ds", snapshot.StartupTimeoutSec),
+		)
 	}
 	if cockpit, ok := lookupService(snapshot.Services, "Cockpit"); ok {
-		lines = append(lines, fmt.Sprintf("Cockpit: %s", displayServiceStatus(cockpit)))
+		lines = append(lines, renderStatusSummaryLine("Cockpit", displayServiceStatus(cockpit)))
 	}
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, overviewSection)))
 
 	return strings.Join(lines, "\n")
 }
 
-func renderServices(snapshot Snapshot, showSecrets bool) string {
+func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode) string {
 	lines := []string{sectionTitleStyle().Render("Services"), ""}
 	if snapshot.ServiceError != "" {
 		lines = append(lines, errorBannerStyle().Render(snapshot.ServiceError), "")
@@ -491,15 +576,15 @@ func renderServices(snapshot Snapshot, showSecrets bool) string {
 
 	for idx, service := range snapshot.Services {
 		status := displayServiceStatus(service)
-		lines = append(lines, fmt.Sprintf("%s  %s", serviceStatusBadge(status), service.DisplayName))
-		lines = append(lines, fmt.Sprintf("Status: %s", emptyLabel(status)))
-		if service.ContainerName != "" {
+		lines = append(lines, renderServiceHeading(status, service.DisplayName))
+		lines = append(lines, renderStatusLine(status))
+		if layout == expandedLayout && service.ContainerName != "" {
 			lines = append(lines, fmt.Sprintf("Container: %s", service.ContainerName))
 		}
-		if service.Image != "" {
+		if layout == expandedLayout && service.Image != "" {
 			lines = append(lines, fmt.Sprintf("Image: %s", service.Image))
 		}
-		if service.DataVolume != "" {
+		if layout == expandedLayout && service.DataVolume != "" {
 			lines = append(lines, fmt.Sprintf("Data volume: %s", service.DataVolume))
 		}
 		if service.Host != "" {
@@ -509,7 +594,7 @@ func renderServices(snapshot Snapshot, showSecrets bool) string {
 		if service.Database != "" {
 			lines = append(lines, fmt.Sprintf("Database: %s", service.Database))
 		}
-		if service.MaintenanceDB != "" {
+		if layout == expandedLayout && service.MaintenanceDB != "" {
 			lines = append(lines, fmt.Sprintf("Maintenance DB: %s", service.MaintenanceDB))
 		}
 		if service.Email != "" {
@@ -518,19 +603,19 @@ func renderServices(snapshot Snapshot, showSecrets bool) string {
 		if service.Username != "" {
 			lines = append(lines, fmt.Sprintf("Username: %s", service.Username))
 		}
-		if service.Password != "" {
+		if layout == expandedLayout && service.Password != "" {
 			lines = append(lines, fmt.Sprintf("Password: %s", maskSecret(service.Password, showSecrets)))
 		}
-		if service.AppendOnly != nil {
+		if layout == expandedLayout && service.AppendOnly != nil {
 			lines = append(lines, fmt.Sprintf("Appendonly: %s", enabledDisabled(*service.AppendOnly)))
 		}
-		if service.SavePolicy != "" {
+		if layout == expandedLayout && service.SavePolicy != "" {
 			lines = append(lines, fmt.Sprintf("Save policy: %s", service.SavePolicy))
 		}
-		if service.MaxMemoryPolicy != "" {
+		if layout == expandedLayout && service.MaxMemoryPolicy != "" {
 			lines = append(lines, fmt.Sprintf("Maxmemory policy: %s", service.MaxMemoryPolicy))
 		}
-		if service.ServerMode != "" {
+		if layout == expandedLayout && service.ServerMode != "" {
 			lines = append(lines, fmt.Sprintf("Server mode: %s", service.ServerMode))
 		}
 		if service.URL != "" {
@@ -543,6 +628,7 @@ func renderServices(snapshot Snapshot, showSecrets bool) string {
 			lines = append(lines, "")
 		}
 	}
+	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, servicesSection)))
 
 	return strings.Join(lines, "\n")
 }
@@ -558,13 +644,13 @@ func renderHealth(snapshot Snapshot) string {
 	}
 
 	for _, line := range snapshot.Health {
-		lines = append(lines, fmt.Sprintf("%s %s", healthStatusIcon(line.Status), line.Message))
+		lines = append(lines, healthLineStyle(line.Status).Render(fmt.Sprintf("%s %s", healthStatusIcon(line.Status), line.Message)))
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-func renderConnections(snapshot Snapshot, showSecrets bool) string {
+func renderConnections(snapshot Snapshot, showSecrets bool, layout layoutMode) string {
 	lines := []string{sectionTitleStyle().Render("Connections"), ""}
 	if len(snapshot.Connections) == 0 {
 		lines = append(lines, mutedStyle().Render("No connection info loaded."))
@@ -572,12 +658,18 @@ func renderConnections(snapshot Snapshot, showSecrets bool) string {
 	}
 
 	for idx, entry := range snapshot.Connections {
-		lines = append(lines, entry.Name)
-		lines = append(lines, "  "+maskConnectionValue(entry.Value, showSecrets))
+		if layout == compactLayout {
+			lines = append(lines, fmt.Sprintf("%s: %s", entry.Name, maskConnectionValue(entry.Value, showSecrets)))
+		} else {
+			lines = append(lines, entry.Name)
+			lines = append(lines, "  "+maskConnectionValue(entry.Value, showSecrets))
+		}
 		if idx < len(snapshot.Connections)-1 {
 			lines = append(lines, "")
 		}
 	}
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, connectionsSection)))
 
 	return strings.Join(lines, "\n")
 }
@@ -648,6 +740,61 @@ func servicePortLines(service Service) []string {
 	return lines
 }
 
+func renderServiceHeading(status, displayName string) string {
+	return statusStyle(status).Render(fmt.Sprintf("%s  %s", serviceStatusBadge(status), displayName))
+}
+
+func renderStatusLine(status string) string {
+	return statusStyle(status).Render(fmt.Sprintf("Status: %s", emptyLabel(status)))
+}
+
+func renderStatusSummaryLine(label, status string) string {
+	return statusStyle(status).Render(fmt.Sprintf("%s: %s", label, emptyLabel(status)))
+}
+
+func renderCopyHint(snapshot Snapshot, active section) string {
+	hints := copyHintTargets(snapshot, active)
+	if len(hints) == 0 {
+		return "Copy placeholders: no DSNs or URLs available yet."
+	}
+
+	return "Copy placeholders: " + strings.Join(hints, "  •  ")
+}
+
+func copyHintTargets(snapshot Snapshot, active section) []string {
+	targets := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+
+	add := func(label string) {
+		if strings.TrimSpace(label) == "" {
+			return
+		}
+		if _, ok := seen[label]; ok {
+			return
+		}
+		seen[label] = struct{}{}
+		targets = append(targets, label)
+	}
+
+	switch active {
+	case servicesSection:
+		for _, service := range snapshot.Services {
+			if service.DSN != "" {
+				add(service.DisplayName + " DSN")
+			}
+			if service.URL != "" {
+				add(service.DisplayName + " URL")
+			}
+		}
+	case overviewSection, connectionsSection:
+		for _, entry := range snapshot.Connections {
+			add(entry.Name)
+		}
+	}
+
+	return targets
+}
+
 func serviceStatusBadge(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "running":
@@ -657,6 +804,25 @@ func serviceStatusBadge(status string) string {
 	default:
 		return "◌"
 	}
+}
+
+func statusStyle(status string) lipgloss.Style {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "running", output.StatusOK:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("78")).Bold(true)
+	case "warning", output.StatusWarn:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("221")).Bold(true)
+	case "stopped", "not running", "missing", "not installed":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	case "error", output.StatusFail, output.StatusMiss:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+	}
+}
+
+func healthLineStyle(status string) lipgloss.Style {
+	return statusStyle(status)
 }
 
 func healthStatusIcon(status string) string {

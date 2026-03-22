@@ -18,8 +18,11 @@ func newTUICmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "tui",
 		Short: "Open the interactive stack dashboard",
-		Example: "  stackctl tui\n" +
-			"  stackctl tui",
+		Long: "Open the interactive read-only stack dashboard.\n\n" +
+			"Use a read-only operator view for overview, services, health, and\n" +
+			"connections. The dashboard supports manual refresh, optional\n" +
+			"auto-refresh, compact mode, and masked secrets by default.",
+		Example: "  stackctl tui",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			model := stacktui.NewModel(func() (stacktui.Snapshot, error) {
 				return loadTUISnapshot()
