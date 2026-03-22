@@ -156,7 +156,7 @@ func defaultKeyMap() keyMap {
 		),
 		Action: key.NewBinding(
 			key.WithKeys("1", "2", "3", "4", "5"),
-			key.WithHelp("1-5", "overview action"),
+			key.WithHelp("1-5", "action"),
 		),
 		Confirm: key.NewBinding(
 			key.WithKeys("y", "enter"),
@@ -319,7 +319,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !ok {
 				return m, nil
 			}
-			actions := availableActions(m.snapshot, m.active)
+			actions := availableActions(m.snapshot)
 			if index >= len(actions) {
 				return m, nil
 			}
@@ -458,10 +458,6 @@ func (m Model) currentContent() string {
 	if confirmation := renderConfirmation(m.confirmation); confirmation != "" {
 		blocks = append(blocks, confirmation)
 	}
-	if actionBar := renderActionBar(m); actionBar != "" {
-		blocks = append(blocks, actionBar)
-	}
-
 	switch m.active {
 	case overviewSection:
 		blocks = append(blocks, renderOverview(m.snapshot, m.layout))
@@ -620,17 +616,17 @@ func renderBody(m Model) string {
 		mainWidth = 36
 	}
 
-	sidebar := sidebarStyle().Width(sidebarWidth).Height(bodyHeight).Render(renderSidebar(m.active, m.runner != nil))
+	sidebar := sidebarStyle().Width(sidebarWidth).Height(bodyHeight).Render(renderSidebar(m))
 	main := mainPanelStyle().Width(mainWidth).Height(bodyHeight).Render(m.viewport.View())
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
 }
 
-func renderSidebar(active section, actionsEnabled bool) string {
+func renderSidebar(m Model) string {
 	lines := []string{sectionTitleStyle().Render("Sections"), ""}
 	for _, candidate := range sections {
 		label := candidate.Title()
-		if candidate == active {
+		if candidate == m.active {
 			lines = append(lines, activeNavItemStyle().Render("▸ "+label))
 			continue
 		}
@@ -638,13 +634,13 @@ func renderSidebar(active section, actionsEnabled bool) string {
 	}
 
 	lines = append(lines, "")
-	if actionsEnabled {
-		lines = append(lines, mutedStyle().Render("Phase two: actions live"))
-		lines = append(lines, mutedStyle().Render("1-5 overview  •  y/n confirm"))
-	} else {
+	if actionRail := renderActionRail(m); actionRail != "" {
+		lines = append(lines, actionRail, "")
+	} else if m.runner == nil {
 		lines = append(lines, mutedStyle().Render("Read-only dashboard"))
 	}
-	lines = append(lines, mutedStyle().Render("a auto-refresh  •  m compact"))
+	lines = append(lines, mutedStyle().Render("r refresh  •  a auto"))
+	lines = append(lines, mutedStyle().Render("m compact  •  s secrets"))
 
 	return strings.Join(lines, "\n")
 }

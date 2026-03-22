@@ -88,11 +88,7 @@ func actionIndex(keyText string) (int, bool) {
 	}
 }
 
-func availableActions(snapshot Snapshot, active section) []ActionSpec {
-	if active != overviewSection {
-		return nil
-	}
-
+func availableActions(snapshot Snapshot) []ActionSpec {
 	running, total := runningStackServiceCount(snapshot.Services)
 	includeOpen := hasOpenTargets(snapshot.Services)
 
@@ -197,37 +193,34 @@ func hasOpenTargets(services []Service) bool {
 	return false
 }
 
-func renderActionBar(m Model) string {
+func renderActionRail(m Model) string {
 	if m.runner == nil {
 		return ""
 	}
 
-	actions := availableActions(m.snapshot, m.active)
+	actions := availableActions(m.snapshot)
 	if len(actions) == 0 {
 		return ""
 	}
 
-	parts := make([]string, 0, len(actions))
+	lines := []string{sectionTitleStyle().Render("Actions")}
 	for idx, action := range actions {
 		label := fmt.Sprintf("[%d] %s", idx+1, action.Label)
 		if m.runningAction != nil && m.runningAction.Action.ID == action.ID {
 			label += "…"
 		}
-		parts = append(parts, actionChipStyle(action, m).Render(label))
-	}
-	lines := []string{
-		fmt.Sprintf(
-			"%s %s",
-			subsectionTitleStyle().Render("Actions"),
-			strings.Join(parts, "  "),
-		),
+		lines = append(lines, "  "+actionChipStyle(action, m).Render(label))
 	}
 
 	switch {
 	case m.runningAction != nil:
-		lines = append(lines, mutedStyle().Render("An action is running in the background. Refresh resumes when it finishes."))
+		lines = append(lines, "")
+		lines = append(lines, mutedStyle().Render("Action running"))
+		lines = append(lines, mutedStyle().Render("refresh pauses"))
 	case m.confirmation != nil:
-		lines = append(lines, mutedStyle().Render("Press y or enter to continue, or n/esc to cancel."))
+		lines = append(lines, "")
+		lines = append(lines, mutedStyle().Render("y/enter confirm"))
+		lines = append(lines, mutedStyle().Render("n/esc cancel"))
 	}
 
 	return strings.Join(lines, "\n")

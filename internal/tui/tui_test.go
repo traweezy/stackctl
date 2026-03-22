@@ -821,7 +821,7 @@ func TestModelRestoresSnapshotWhenActionFails(t *testing.T) {
 	}
 }
 
-func TestActionBarOnlyRendersOnOverview(t *testing.T) {
+func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
 		return ActionReport{}, nil
 	})
@@ -845,23 +845,23 @@ func TestActionBarOnlyRendersOnOverview(t *testing.T) {
 	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
 	current = updatedModel.(Model)
 
-	overviewView := current.View().Content
-	if !strings.Contains(overviewView, "Actions") || !strings.Contains(overviewView, "[1] Restart") {
-		t.Fatalf("expected overview to show compact action bar:\n%s", overviewView)
+	overviewContent := current.currentContent()
+	if strings.Contains(overviewContent, "[1] Restart") || strings.Contains(overviewContent, "Actions") {
+		t.Fatalf("expected overview panel content to stay action-free:\n%s", overviewContent)
 	}
-	if strings.Contains(overviewView, "│ [1] Restart │") {
-		t.Fatalf("expected overview action bar to avoid boxed controls:\n%s", overviewView)
+	overviewSidebar := renderSidebar(current)
+	if !strings.Contains(overviewSidebar, "Actions") || !strings.Contains(overviewSidebar, "[1] Restart") {
+		t.Fatalf("expected sidebar to show global actions:\n%s", overviewSidebar)
 	}
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	current = updatedModel.(Model)
-	servicesView := current.View().Content
-	for _, fragment := range []string{
-		"Actions [1] Restart",
-		"[1] Restart",
-	} {
-		if strings.Contains(servicesView, fragment) {
-			t.Fatalf("expected services tab to hide overview-only action UI %q:\n%s", fragment, servicesView)
-		}
+	servicesContent := current.currentContent()
+	if strings.Contains(servicesContent, "[1] Restart") || strings.Contains(servicesContent, "Actions") {
+		t.Fatalf("expected services panel content to stay action-free:\n%s", servicesContent)
+	}
+	servicesSidebar := renderSidebar(current)
+	if !strings.Contains(servicesSidebar, "Actions") || !strings.Contains(servicesSidebar, "[1] Restart") {
+		t.Fatalf("expected services sidebar to keep global actions visible:\n%s", servicesSidebar)
 	}
 }
