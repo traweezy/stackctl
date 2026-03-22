@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -11,13 +10,9 @@ import (
 )
 
 const (
-	logTailLines          = 200
-	logFollowInterval     = 3 * time.Second
-	splitPaneMinWidth     = 96
-	defaultListPaneMinW   = 34
-	defaultListPaneMaxW   = 42
-	defaultFilterPaneMinW = 24
-	defaultFilterPaneMaxW = 30
+	splitPaneMinWidth   = 96
+	defaultListPaneMinW = 34
+	defaultListPaneMaxW = 42
 )
 
 type DoctorCheck struct {
@@ -30,41 +25,6 @@ type DoctorSummary struct {
 	Warn int
 	Miss int
 	Fail int
-}
-
-type LogRequest struct {
-	Service string
-	Tail    int
-}
-
-type LogSnapshot struct {
-	Service  string
-	Output   string
-	LoadedAt time.Time
-}
-
-type LogLoader func(LogRequest) (LogSnapshot, error)
-
-type logPanelState struct {
-	Service   string
-	Follow    bool
-	Loading   bool
-	Error     string
-	Output    string
-	LoadedAt  time.Time
-	RequestID int
-}
-
-type logSnapshotMsg struct {
-	RequestID int
-	Snapshot  LogSnapshot
-	Err       error
-}
-
-type logFilter struct {
-	Name        string
-	DisplayName string
-	Status      string
 }
 
 func serviceKey(service Service) string {
@@ -108,27 +68,6 @@ func selectablePortNames(snapshot Snapshot) []string {
 	return names
 }
 
-func logFilters(snapshot Snapshot) []logFilter {
-	filters := []logFilter{{
-		Name:        "",
-		DisplayName: "All services",
-		Status:      output.StatusLogs,
-	}}
-	for _, service := range snapshot.Services {
-		key := serviceKey(service)
-		if !isStackService(service) || key == "" {
-			continue
-		}
-		filters = append(filters, logFilter{
-			Name:        key,
-			DisplayName: service.DisplayName,
-			Status:      displayServiceStatus(service),
-		})
-	}
-
-	return filters
-}
-
 func pickSelectedName(selected string, available []string) string {
 	if len(available) == 0 {
 		return ""
@@ -157,36 +96,6 @@ func cycleSelectedName(selected string, available []string, step int) string {
 
 	index = (index + step + len(available)) % len(available)
 	return available[index]
-}
-
-func pickSelectedFilter(selected string, filters []logFilter) string {
-	if len(filters) == 0 {
-		return ""
-	}
-	for _, filter := range filters {
-		if filter.Name == selected {
-			return filter.Name
-		}
-	}
-
-	return filters[0].Name
-}
-
-func cycleSelectedFilter(selected string, filters []logFilter, step int) string {
-	if len(filters) == 0 {
-		return ""
-	}
-	selected = pickSelectedFilter(selected, filters)
-	index := 0
-	for idx, filter := range filters {
-		if filter.Name == selected {
-			index = idx
-			break
-		}
-	}
-
-	index = (index + step + len(filters)) % len(filters)
-	return filters[index].Name
 }
 
 func selectedService(snapshot Snapshot, selected string) (Service, bool) {
@@ -294,14 +203,6 @@ func statusChip(label, status string) string {
 	return style.Render(strings.ToUpper(label))
 }
 
-func formatLoadedAt(value time.Time) string {
-	if value.IsZero() {
-		return "not loaded yet"
-	}
-
-	return value.Format("15:04:05")
-}
-
 func doctorSummaryLine(summary DoctorSummary) string {
 	return strings.Join([]string{
 		statusChip(fmt.Sprintf("ok %d", summary.OK), output.StatusOK),
@@ -357,6 +258,7 @@ func renderServiceListPane(snapshot Snapshot, selected string) string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render("j/k or [ ] switch service"))
+	lines = append(lines, mutedStyle().Render("w watch selected service"))
 
 	return strings.Join(lines, "\n")
 }
@@ -368,7 +270,7 @@ func renderServiceDetailPane(service Service, showSecrets bool, layout layoutMod
 	}
 	lines = append(lines, renderServiceBlock(service, showSecrets, layout, !isStackService(service))...)
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render("Logs shows scrollback. Ports shows host mappings."))
+	lines = append(lines, renderLogWatchHint(service)...)
 
 	return strings.Join(lines, "\n")
 }
@@ -407,6 +309,7 @@ func renderPortListPane(snapshot Snapshot, selected string) string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render("j/k or [ ] switch port"))
+	lines = append(lines, mutedStyle().Render("w watch selected service"))
 
 	return strings.Join(lines, "\n")
 }
@@ -434,6 +337,8 @@ func renderPortDetailPane(service Service) string {
 	if !isStackService(service) {
 		lines = append(lines, mutedStyle().Render("Lifecycle: external to stack lifecycle"))
 	}
+	lines = append(lines, "")
+	lines = append(lines, renderLogWatchHint(service)...)
 
 	return strings.Join(lines, "\n")
 }
@@ -508,6 +413,7 @@ func renderHealthListPane(snapshot Snapshot, selected string) string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render("j/k or [ ] switch target"))
+	lines = append(lines, mutedStyle().Render("w watch selected service"))
 	lines = append(lines, "")
 	lines = append(lines, detailHeading("Doctor summary"))
 	lines = append(lines, doctorSummaryLine(snapshot.DoctorSummary))
@@ -518,6 +424,8 @@ func renderHealthListPane(snapshot Snapshot, selected string) string {
 func renderHealthDetailPane(snapshot Snapshot, service Service) string {
 	lines := []string{detailHeading("Health detail"), ""}
 	lines = append(lines, renderHealthBlock(service)...)
+	lines = append(lines, "")
+	lines = append(lines, renderLogWatchHint(service)...)
 	lines = append(lines, "")
 	lines = append(lines, detailHeading("Doctor findings"))
 	findings := make([]DoctorCheck, 0, len(snapshot.DoctorChecks))
@@ -539,72 +447,17 @@ func renderHealthDetailPane(snapshot Snapshot, service Service) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderLogs(snapshot Snapshot, logs logPanelState, width int) string {
-	lines := []string{sectionTitleStyle().Render("Logs"), ""}
-	filters := logFilters(snapshot)
-	left := renderLogFilterPane(filters, logs)
-	right := renderLogDetailPane(filters, logs)
-	lines = append(lines, splitPane(left, right, width, defaultFilterPaneMinW, defaultFilterPaneMaxW))
-
-	return strings.Join(lines, "\n")
-}
-
-func renderLogFilterPane(filters []logFilter, logs logPanelState) string {
-	lines := []string{detailHeading("Log filters"), ""}
-	for _, filter := range filters {
-		label := filter.DisplayName
-		if filter.Name == "" {
-			label = "All services"
+func renderLogWatchHint(service Service) []string {
+	if !isStackService(service) {
+		return []string{
+			detailHeading("Logs"),
+			mutedStyle().Render("Host tools do not use compose logs."),
 		}
-		lines = append(lines, listItem(logs.Service == filter.Name, label, statusChip(filterChipLabel(filter), filter.Status)))
-	}
-	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render("j/k or [ ] switch filter"))
-	lines = append(lines, mutedStyle().Render("f toggle follow"))
-	if logs.Follow {
-		lines = append(lines, mutedStyle().Render("Follow interval: "+logFollowInterval.String()))
 	}
 
-	return strings.Join(lines, "\n")
-}
-
-func renderLogDetailPane(filters []logFilter, logs logPanelState) string {
-	filterLabel := "All services"
-	for _, filter := range filters {
-		if filter.Name != logs.Service {
-			continue
-		}
-		filterLabel = filter.DisplayName
-		break
+	return []string{
+		detailHeading("Logs"),
+		mutedStyle().Render("w watch live logs"),
+		mutedStyle().Render("Returns here when the stream exits."),
 	}
-
-	lines := []string{
-		detailHeading("Log output"),
-		"",
-		fmt.Sprintf("Filter: %s", filterLabel),
-		fmt.Sprintf("Tail: %d lines", logTailLines),
-		fmt.Sprintf("Follow: %s", onOffLabel(logs.Follow)),
-		fmt.Sprintf("Loaded: %s", formatLoadedAt(logs.LoadedAt)),
-	}
-	if logs.Loading {
-		lines = append(lines, mutedStyle().Render("Loading logs..."))
-	}
-	if logs.Error != "" {
-		lines = append(lines, errorBannerStyle().Render(logs.Error))
-	}
-	if strings.TrimSpace(logs.Output) == "" {
-		lines = append(lines, "", mutedStyle().Render("No logs captured for this selection yet."))
-		return strings.Join(lines, "\n")
-	}
-
-	lines = append(lines, "", logs.Output)
-	return strings.Join(lines, "\n")
-}
-
-func filterChipLabel(filter logFilter) string {
-	if filter.Name == "" {
-		return "all"
-	}
-
-	return filter.Name
 }

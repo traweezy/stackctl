@@ -61,7 +61,7 @@ func TestLoadTUISnapshotBuildsReadOnlyDashboardState(t *testing.T) {
 	}
 }
 
-func TestTUICmdHelpDocumentsInspectionPanelsAndLogFollow(t *testing.T) {
+func TestTUICmdHelpDocumentsInspectionPanelsAndLiveLogs(t *testing.T) {
 	stdout, _, err := executeRoot(t, "tui", "--help")
 	if err != nil {
 		t.Fatalf("tui --help returned error: %v", err)
@@ -69,9 +69,9 @@ func TestTUICmdHelpDocumentsInspectionPanelsAndLogFollow(t *testing.T) {
 	collapsed := strings.Join(strings.Fields(stdout), " ")
 	for _, fragment := range []string{
 		"overview, services, ports,",
-		"health, connections, logs, and action history",
-		"switch the active service/filter inside split inspection panes",
-		"press f in Logs to toggle follow mode",
+		"health, connections, and action history",
+		"switch the active service inside split inspection panes",
+		"press w from the service-focused panels to open live logs",
 	} {
 		if !strings.Contains(collapsed, fragment) {
 			t.Fatalf("expected tui help to contain %q:\n%s", fragment, stdout)
@@ -154,9 +154,10 @@ func TestBuildTUISnapshotIncludesDoctorSummary(t *testing.T) {
 	}
 }
 
-func TestLoadTUILogsUsesDefaultTailForAllServices(t *testing.T) {
+func TestBuildTUILogWatchCommandCanonicalizesAliasesAndUsesWatchMode(t *testing.T) {
 	var capturedTail int
 	var capturedService string
+	var follow bool
 
 	withTestDeps(t, func(value *commandDeps) {
 		cfg := configpkg.Default()
@@ -165,83 +166,40 @@ func TestLoadTUILogsUsesDefaultTailForAllServices(t *testing.T) {
 		value.composeLogs = func(_ context.Context, runner system.Runner, _ configpkg.Config, tail int, watch bool, _ string, service string) error {
 			capturedTail = tail
 			capturedService = service
-			if watch {
-				t.Fatalf("expected TUI logs to use snapshot mode, not watch mode")
-			}
-			if _, err := io.WriteString(runner.Stdout, "postgres up\nredis up\n"); err != nil {
-				return err
-			}
+			follow = watch
+			_, _ = io.WriteString(runner.Stdout, "postgres up\n")
 			return nil
 		}
 	})
 
-	logs, err := loadTUILogs(stacktui.LogRequest{})
+	command, err := buildTUILogWatchCommand(stacktui.LogWatchRequest{Service: "pg"})
 	if err != nil {
-		t.Fatalf("loadTUILogs returned error: %v", err)
+		t.Fatalf("buildTUILogWatchCommand returned error: %v", err)
 	}
-	if capturedTail != 200 {
-		t.Fatalf("expected default tail of 200, got %d", capturedTail)
+	command.SetStdout(io.Discard)
+	command.SetStderr(io.Discard)
+	if err := command.Run(); err != nil {
+		t.Fatalf("watch command run returned error: %v", err)
 	}
-	if capturedService != "" {
-		t.Fatalf("expected no service filter, got %q", capturedService)
-	}
-	if !strings.Contains(logs.Output, "postgres up") || !strings.Contains(logs.Output, "redis up") {
-		t.Fatalf("expected combined logs output, got %q", logs.Output)
-	}
-}
-
-func TestLoadTUILogsCanonicalizesAliasesAndReturnsPartialOutputOnError(t *testing.T) {
-	var capturedTail int
-	var capturedService string
-
-	withTestDeps(t, func(value *commandDeps) {
-		cfg := configpkg.Default()
-		cfg.ApplyDerivedFields()
-		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
-		value.composeLogs = func(_ context.Context, runner system.Runner, _ configpkg.Config, tail int, watch bool, _ string, service string) error {
-			capturedTail = tail
-			capturedService = service
-			if _, err := io.WriteString(runner.Stdout, "partial stdout\n"); err != nil {
-				return err
-			}
-			if _, err := io.WriteString(runner.Stderr, "partial stderr\n"); err != nil {
-				return err
-			}
-			return errors.New("compose logs failed")
-		}
-	})
-
-	logs, err := loadTUILogs(stacktui.LogRequest{Service: "pg", Tail: 50})
-	if err == nil {
-		t.Fatal("expected compose logs error")
-	}
-	if capturedTail != 50 {
-		t.Fatalf("expected custom tail, got %d", capturedTail)
+	if capturedTail != tuiLogWatchTail {
+		t.Fatalf("expected watch tail of %d, got %d", tuiLogWatchTail, capturedTail)
 	}
 	if capturedService != "postgres" {
 		t.Fatalf("expected postgres service alias to be normalized, got %q", capturedService)
 	}
-	if logs.Service != "postgres" {
-		t.Fatalf("expected returned snapshot service to be postgres, got %q", logs.Service)
-	}
-	for _, fragment := range []string{"partial stdout", "partial stderr"} {
-		if !strings.Contains(logs.Output, fragment) {
-			t.Fatalf("expected partial log output to contain %q, got %q", fragment, logs.Output)
-		}
-	}
-	if !strings.Contains(err.Error(), "compose logs failed") {
-		t.Fatalf("expected wrapped logs error, got %v", err)
+	if !follow {
+		t.Fatalf("expected live log watch mode")
 	}
 }
 
-func TestLoadTUILogsRejectsUnknownServiceAlias(t *testing.T) {
+func TestBuildTUILogWatchCommandRejectsUnknownServiceAlias(t *testing.T) {
 	withTestDeps(t, func(value *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.ApplyDerivedFields()
 		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 	})
 
-	_, err := loadTUILogs(stacktui.LogRequest{Service: "unknown"})
+	_, err := buildTUILogWatchCommand(stacktui.LogWatchRequest{Service: "unknown"})
 	if err == nil {
 		t.Fatal("expected invalid service alias to fail")
 	}

@@ -326,12 +326,12 @@ Keys:
 
 - `tab`, `l`, `right` to move to the next section
 - `shift+tab`, `h`, `left` to move to the previous section
-- `j`, `k`, `[`, and `]` to switch the active service, port target, health target, or log filter inside split detail panes
+- `j`, `k`, `[`, and `]` to switch the active service, port target, or health target inside split detail panes
 - `1` through `6` to run the sidebar actions
 - `y`, `enter` to confirm a stop or restart action
 - `n`, `esc` to cancel a pending confirmation
 - `r` to refresh
-- `f` to toggle log follow mode in the `Logs` section
+- `w` to watch live logs for the selected stack service from `Services`, `Ports`, or `Health`
 - `a` to toggle conservative auto-refresh (`30s`)
 - `m` to toggle expanded vs compact density
 - `s` to show or hide secrets in the dashboard
@@ -341,11 +341,10 @@ Keys:
 Sections:
 
 - `Overview`: stack paths, mode, stack-managed service counts, and startup behavior
-- `Services`: a split service list and detail pane with runtime metadata, lifecycle status, DSNs, URLs, and host-tool handling
+- `Services`: a split service list and detail pane with runtime metadata, lifecycle status, DSNs, URLs, host-tool handling, and a live-log shortcut
 - `Ports`: a split list/detail view for exposed host ports, reachability, and per-service mappings
 - `Health`: a split service-by-service health summary with runtime, reachability, and doctor detail rendering
 - `Connections`: DSNs and URLs with secrets masked by default
-- `Logs`: a split filter/output view with per-service filtering, a conservative follow mode, and scrollback
 - `History`: the current session’s action log, including cancellations, warnings, and doctor summaries
 
 Notes:
@@ -353,7 +352,7 @@ Notes:
 - auto-refresh is on by default and can be turned off inside the TUI
 - the left sidebar keeps navigation and global stack actions together so the
   active panel stays focused on inspection
-- the services, ports, health, and logs panels only split when the terminal is
+- the services, ports, and health panels only split when the terminal is
   wide enough; medium-width terminals fall back to a stacked layout to avoid
   cramped wrapping
 - Cockpit is shown as a host tool, not a stack-managed service, so
@@ -374,14 +373,11 @@ Notes:
   the UI you want
 - services and connections panels now show copy placeholders for the DSNs and
   URLs that will become real copy actions in a later phase
-- the logs panel refreshes a `200` line tail by default; filter changes reuse
-  the same tail window instead of opening a streaming subprocess
-- logs are loaded lazily when you open the `Logs` section, so the dashboard
-  startup path stays focused on the snapshot panels
-- log follow mode uses a conservative `3s` polling interval so the Bubble Tea
-  update loop stays responsive and non-blocking
-- large or extremely noisy logs are intentionally truncated to the current tail
-  window, so use `stackctl logs --watch` when you need an unrestricted stream
+- live logs are intentionally handed off to the real compose log stream with
+  `w`, so the TUI stays focused on inspection instead of embedding a cramped
+  tail viewer
+- returning from a live log watch refreshes the snapshot so service state and
+  health data stay current
 - long-running actions usually mean image pulls, Podman startup, or service
   readiness waits; leave the TUI open and let the action finish before forcing
   another lifecycle operation
@@ -1113,7 +1109,7 @@ commands are in place.
 
 These are appealing, but not ahead of the higher-value local-platform work.
 
-- deeper TUI inspection views for logs, service detail, ports, and doctor detail
+- deeper TUI inspection views for service detail, ports, and doctor detail
 - in-TUI config editing, validation, and managed-stack scaffolding
 - TUI power-user workflows such as copy actions, a command palette, and quick jumps
 - a self-update flow such as `stackctl update`

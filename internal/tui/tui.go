@@ -76,6 +76,12 @@ type Connection struct {
 	Value string
 }
 
+type LogWatchRequest struct {
+	Service string
+}
+
+type LogWatchLauncher func(LogWatchRequest) (tea.ExecCommand, error)
+
 type section int
 
 const (
@@ -84,7 +90,6 @@ const (
 	portsSection
 	healthSection
 	connectionsSection
-	logsSection
 	historySection
 )
 
@@ -110,7 +115,6 @@ var sections = []section{
 	portsSection,
 	healthSection,
 	connectionsSection,
-	logsSection,
 	historySection,
 }
 
@@ -126,8 +130,6 @@ func (s section) Title() string {
 		return "Health"
 	case connectionsSection:
 		return "Connections"
-	case logsSection:
-		return "Logs"
 	case historySection:
 		return "History"
 	default:
@@ -144,6 +146,11 @@ type autoRefreshMsg struct {
 	id int
 }
 
+type logWatchDoneMsg struct {
+	Service string
+	Err     error
+}
+
 type keyMap struct {
 	NextSection       key.Binding
 	PrevSection       key.Binding
@@ -153,7 +160,7 @@ type keyMap struct {
 	Refresh           key.Binding
 	PrevItem          key.Binding
 	NextItem          key.Binding
-	ToggleFollow      key.Binding
+	WatchLogs         key.Binding
 	ToggleAutoRefresh key.Binding
 	ToggleLayout      key.Binding
 	ToggleSecrets     key.Binding
@@ -195,9 +202,9 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("down", "j", "]"),
 			key.WithHelp("j/]", "next item"),
 		),
-		ToggleFollow: key.NewBinding(
-			key.WithKeys("f"),
-			key.WithHelp("f", "toggle log follow"),
+		WatchLogs: key.NewBinding(
+			key.WithKeys("w"),
+			key.WithHelp("w", "watch logs"),
 		),
 		ToggleAutoRefresh: key.NewBinding(
 			key.WithKeys("a"),
@@ -223,46 +230,45 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.NextSection, k.Action, k.NextItem, k.Refresh, k.Quit}
+	return []key.Binding{k.NextSection, k.Action, k.NextItem, k.WatchLogs, k.Refresh, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.NextSection, k.PrevSection, k.Action},
 		{k.Confirm, k.Cancel, k.Refresh},
-		{k.PrevItem, k.NextItem, k.ToggleFollow},
+		{k.PrevItem, k.NextItem, k.WatchLogs},
 		{k.ToggleAutoRefresh, k.ToggleLayout, k.ToggleSecrets},
 		{k.ToggleHelp, k.Quit},
 	}
 }
 
 type Model struct {
-	width           int
-	height          int
-	active          section
-	layout          layoutMode
-	loading         bool
-	autoRefresh     bool
-	autoRefreshID   int
-	showSecrets     bool
-	errMessage      string
-	snapshot        Snapshot
-	loader          Loader
-	logLoader       LogLoader
-	runner          ActionRunner
-	keys            keyMap
-	help            help.Model
-	viewport        viewport.Model
-	banner          *actionBanner
-	confirmation    *confirmationState
-	runningAction   *runningAction
-	history         []historyEntry
-	nextHistoryID   int
-	nextBannerID    int
-	selectedService string
-	selectedPort    string
-	selectedHealth  string
-	logs            logPanelState
+	width            int
+	height           int
+	active           section
+	layout           layoutMode
+	loading          bool
+	autoRefresh      bool
+	autoRefreshID    int
+	showSecrets      bool
+	errMessage       string
+	snapshot         Snapshot
+	loader           Loader
+	logWatchLauncher LogWatchLauncher
+	runner           ActionRunner
+	keys             keyMap
+	help             help.Model
+	viewport         viewport.Model
+	banner           *actionBanner
+	confirmation     *confirmationState
+	runningAction    *runningAction
+	history          []historyEntry
+	nextHistoryID    int
+	nextBannerID     int
+	selectedService  string
+	selectedPort     string
+	selectedHealth   string
 }
 
 func NewModel(loader Loader) Model {
@@ -273,29 +279,26 @@ func NewActionModel(loader Loader, runner ActionRunner) Model {
 	return newModel(loader, nil, runner)
 }
 
-func NewInspectionModel(loader Loader, logLoader LogLoader, runner ActionRunner) Model {
-	return newModel(loader, logLoader, runner)
+func NewInspectionModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRunner) Model {
+	return newModel(loader, logWatchLauncher, runner)
 }
 
-func newModel(loader Loader, logLoader LogLoader, runner ActionRunner) Model {
+func newModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRunner) Model {
 	viewportModel := viewport.New()
 	helpModel := help.New()
 	helpModel.ShowAll = false
 
 	return Model{
-		active:      overviewSection,
-		layout:      expandedLayout,
-		loading:     true,
-		autoRefresh: true,
-		loader:      loader,
-		logLoader:   logLoader,
-		runner:      runner,
-		keys:        defaultKeyMap(),
-		help:        helpModel,
-		viewport:    viewportModel,
-		logs: logPanelState{
-			Follow: false,
-		},
+		active:           overviewSection,
+		layout:           expandedLayout,
+		loading:          true,
+		autoRefresh:      true,
+		loader:           loader,
+		logWatchLauncher: logWatchLauncher,
+		runner:           runner,
+		keys:             defaultKeyMap(),
+		help:             helpModel,
+		viewport:         viewportModel,
 	}
 }
 
@@ -325,35 +328,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, autoRefreshCmd(m.autoRefreshID, m.refreshInterval())
 		}
 		return m, nil
-	case logSnapshotMsg:
-		if msg.RequestID != m.logs.RequestID {
-			return m, nil
-		}
-		hadOutput := strings.TrimSpace(m.logs.Output) != ""
-		wasAtBottom := m.viewport.AtBottom()
-		m.logs.Loading = false
+	case logWatchDoneMsg:
+		m.loading = true
+		m.autoRefreshID++
+		cmds := []tea.Cmd{loadSnapshotCmd(m.loader)}
 		if msg.Err != nil {
-			m.logs.Error = msg.Err.Error()
-		} else {
-			m.logs.Error = ""
-			m.logs.Output = msg.Snapshot.Output
-			m.logs.LoadedAt = msg.Snapshot.LoadedAt
-			m.logs.Service = msg.Snapshot.Service
+			bannerID := m.setBanner(output.StatusWarn, watchLogsErrorMessage(msg.Service, msg.Err))
+			cmds = append(cmds, clearBannerCmd(bannerID))
 		}
 		m.syncLayout()
-		if m.active == logsSection && (m.logs.Follow || !hadOutput || wasAtBottom) {
-			m.viewport.GotoBottom()
+		if m.autoRefresh {
+			cmds = append(cmds, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 	case actionMsg:
 		bannerCmd := m.completeAction(msg)
 		m.syncLayout()
 		if msg.report.Refresh || lifecycleAction(msg.action.ID) {
 			m.loading = true
-			if m.shouldLoadLogs() {
-				logCmd := m.startLogLoad()
-				return m, tea.Batch(loadSnapshotCmd(m.loader), logCmd, bannerCmd)
-			}
 			return m, tea.Batch(loadSnapshotCmd(m.loader), bannerCmd)
 		}
 		return m, bannerCmd
@@ -368,10 +360,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.loading = true
-		if m.shouldLoadLogs() {
-			logCmd := m.startLogLoad()
-			return m, tea.Batch(loadSnapshotCmd(m.loader), logCmd)
-		}
 		return m, loadSnapshotCmd(m.loader)
 	case tea.KeyPressMsg:
 		if m.confirmation != nil {
@@ -433,31 +421,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, autoRefreshCmd(m.autoRefreshID, m.refreshInterval())
 			}
 			return m, nil
-		case key.Matches(msg, m.keys.ToggleFollow):
-			if m.active != logsSection || m.logLoader == nil {
+		case key.Matches(msg, m.keys.WatchLogs):
+			if m.logWatchLauncher == nil || m.runningAction != nil {
 				return m, nil
 			}
-			m.logs.Follow = !m.logs.Follow
-			m.autoRefreshID++
+			cmd := m.startSelectedLogWatch()
 			m.syncLayout()
-			cmds := make([]tea.Cmd, 0, 2)
-			if m.logs.Follow {
-				cmds = append(cmds, m.startLogLoad())
-			}
-			if m.autoRefresh {
-				cmds = append(cmds, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
-			}
-			return m, tea.Batch(cmds...)
+			return m, cmd
 		case key.Matches(msg, m.keys.Refresh):
 			if m.runningAction != nil {
 				return m, nil
 			}
 			m.loading = true
 			m.autoRefreshID++
-			if m.shouldLoadLogs() {
-				logCmd := m.startLogLoad()
-				return m, tea.Batch(loadSnapshotCmd(m.loader), logCmd)
-			}
 			return m, loadSnapshotCmd(m.loader)
 		case key.Matches(msg, m.keys.NextItem):
 			if !m.activeHasSelectionList() {
@@ -485,16 +461,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		case key.Matches(msg, m.keys.NextSection):
 			m.active = nextSection(m.active)
-			if m.active == logsSection && m.logLoader != nil && m.logs.Output == "" && !m.logs.Loading {
-				cmd := m.startLogLoad()
-				m.autoRefreshID++
-				m.syncLayout()
-				m.resetViewportForActivePanel()
-				if m.autoRefresh {
-					return m, tea.Batch(cmd, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
-				}
-				return m, cmd
-			}
 			m.autoRefreshID++
 			m.syncLayout()
 			m.resetViewportForActivePanel()
@@ -504,16 +470,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.PrevSection):
 			m.active = previousSection(m.active)
-			if m.active == logsSection && m.logLoader != nil && m.logs.Output == "" && !m.logs.Loading {
-				cmd := m.startLogLoad()
-				m.autoRefreshID++
-				m.syncLayout()
-				m.resetViewportForActivePanel()
-				if m.autoRefresh {
-					return m, tea.Batch(cmd, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
-				}
-				return m, cmd
-			}
 			m.autoRefreshID++
 			m.syncLayout()
 			m.resetViewportForActivePanel()
@@ -559,6 +515,19 @@ func loadSnapshotCmd(loader Loader) tea.Cmd {
 	}
 }
 
+func watchLogsCmd(launcher LogWatchLauncher, request LogWatchRequest, displayName string) tea.Cmd {
+	execCmd, err := launcher(request)
+	if err != nil {
+		return func() tea.Msg {
+			return logWatchDoneMsg{Service: displayName, Err: err}
+		}
+	}
+
+	return tea.Exec(execCmd, func(err error) tea.Msg {
+		return logWatchDoneMsg{Service: displayName, Err: err}
+	})
+}
+
 func autoRefreshCmd(id int, interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(time.Time) tea.Msg {
 		return autoRefreshMsg{id: id}
@@ -582,38 +551,7 @@ func nextSection(current section) section {
 	return overviewSection
 }
 
-func loadLogSnapshotCmd(loader LogLoader, requestID int, request LogRequest) tea.Cmd {
-	return func() tea.Msg {
-		snapshot, err := loader(request)
-		return logSnapshotMsg{RequestID: requestID, Snapshot: snapshot, Err: err}
-	}
-}
-
-func (m *Model) startLogLoad() tea.Cmd {
-	if m.logLoader == nil {
-		return nil
-	}
-
-	m.logs.Loading = true
-	m.logs.Error = ""
-	m.logs.RequestID++
-	request := LogRequest{
-		Service: m.logs.Service,
-		Tail:    logTailLines,
-	}
-
-	return loadLogSnapshotCmd(m.logLoader, m.logs.RequestID, request)
-}
-
-func (m *Model) shouldLoadLogs() bool {
-	return m.logLoader != nil && m.active == logsSection
-}
-
 func (m Model) refreshInterval() time.Duration {
-	if m.active == logsSection && m.logs.Follow {
-		return logFollowInterval
-	}
-
 	return autoRefreshInterval
 }
 
@@ -621,12 +559,11 @@ func (m *Model) normalizeSelections() {
 	m.selectedService = pickSelectedName(m.selectedService, selectableServiceNames(m.snapshot))
 	m.selectedPort = pickSelectedName(m.selectedPort, selectablePortNames(m.snapshot))
 	m.selectedHealth = pickSelectedName(m.selectedHealth, selectableServiceNames(m.snapshot))
-	m.logs.Service = pickSelectedFilter(m.logs.Service, logFilters(m.snapshot))
 }
 
 func (m Model) activeHasSelectionList() bool {
 	switch m.active {
-	case servicesSection, portsSection, healthSection, logsSection:
+	case servicesSection, portsSection, healthSection:
 		return true
 	default:
 		return false
@@ -634,11 +571,6 @@ func (m Model) activeHasSelectionList() bool {
 }
 
 func (m *Model) resetViewportForActivePanel() {
-	if m.active == logsSection && strings.TrimSpace(m.logs.Output) != "" {
-		m.viewport.GotoBottom()
-		return
-	}
-
 	m.viewport.GotoTop()
 }
 
@@ -653,15 +585,57 @@ func (m *Model) cycleActiveSelection(step int) tea.Cmd {
 	case healthSection:
 		m.selectedHealth = cycleSelectedName(m.selectedHealth, selectableServiceNames(m.snapshot), step)
 		return nil
-	case logsSection:
-		previous := m.logs.Service
-		m.logs.Service = cycleSelectedFilter(m.logs.Service, logFilters(m.snapshot), step)
-		if previous != m.logs.Service || m.logs.Output == "" {
-			return m.startLogLoad()
-		}
 	}
 
 	return nil
+}
+
+func (m *Model) startSelectedLogWatch() tea.Cmd {
+	service, ok := m.selectedLogWatchService()
+	if !ok {
+		bannerID := m.setBanner(output.StatusWarn, "select a service, port, or health target to watch logs")
+		return clearBannerCmd(bannerID)
+	}
+	if !isStackService(service) {
+		bannerID := m.setBanner(output.StatusWarn, "live logs are unavailable for host tools")
+		return clearBannerCmd(bannerID)
+	}
+
+	return watchLogsCmd(
+		m.logWatchLauncher,
+		LogWatchRequest{Service: logWatchServiceName(service)},
+		service.DisplayName,
+	)
+}
+
+func (m Model) selectedLogWatchService() (Service, bool) {
+	switch m.active {
+	case servicesSection:
+		return selectedService(m.snapshot, m.selectedService)
+	case portsSection:
+		return selectedPortService(m.snapshot, m.selectedPort)
+	case healthSection:
+		return selectedService(m.snapshot, m.selectedHealth)
+	default:
+		return Service{}, false
+	}
+}
+
+func logWatchServiceName(service Service) string {
+	if strings.TrimSpace(service.Name) != "" {
+		return strings.TrimSpace(service.Name)
+	}
+
+	return serviceKey(service)
+}
+
+func watchLogsErrorMessage(service string, err error) string {
+	label := strings.TrimSpace(service)
+	if label == "" {
+		label = "selected service"
+	}
+
+	return fmt.Sprintf("watch logs for %s failed: %v", strings.ToLower(label), err)
 }
 
 func previousSection(current section) section {
@@ -710,8 +684,6 @@ func (m Model) currentContent() string {
 		blocks = append(blocks, renderHealth(m.snapshot, m.selectedHealth, contentWidth))
 	case connectionsSection:
 		blocks = append(blocks, renderConnections(m.snapshot, m.showSecrets, m.layout))
-	case logsSection:
-		blocks = append(blocks, renderLogs(m.snapshot, m.logs, contentWidth))
 	case historySection:
 		blocks = append(blocks, renderHistory(m.history))
 	default:
@@ -856,18 +828,13 @@ func renderHeader(m Model) string {
 	if m.autoRefresh {
 		autoRefreshLabel = m.refreshInterval().String()
 	}
-	logFollowMeta := ""
-	if m.active == logsSection {
-		logFollowMeta = fmt.Sprintf("  •  log-follow: %s", onOffLabel(m.logs.Follow))
-	}
 
 	meta := fmt.Sprintf(
-		"%s  •  mode: %s  •  layout: %s  •  auto-refresh: %s%s  •  secrets: %s  •  updated: %s",
+		"%s  •  mode: %s  •  layout: %s  •  auto-refresh: %s  •  secrets: %s  •  updated: %s",
 		headerStatusStyle(m).Render(statusLabel),
 		mode,
 		m.layout.String(),
 		autoRefreshLabel,
-		logFollowMeta,
 		onOffLabel(m.showSecrets),
 		loadedAt,
 	)
