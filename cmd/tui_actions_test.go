@@ -115,7 +115,7 @@ func TestRunTUIActionRestartUsesDownUpAndWait(t *testing.T) {
 	}
 }
 
-func TestRunTUIActionOpenReturnsFallbackURLs(t *testing.T) {
+func TestRunTUIActionOpenCockpitReturnsFallbackURL(t *testing.T) {
 	withTestDeps(t, func(value *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.ApplyDerivedFields()
@@ -125,20 +125,46 @@ func TestRunTUIActionOpenReturnsFallbackURLs(t *testing.T) {
 		}
 	})
 
-	report, err := runTUIAction(stacktui.ActionOpen)
+	report, err := runTUIAction(stacktui.ActionOpenCockpit)
 	if err != nil {
-		t.Fatalf("runTUIAction(open) returned error: %v", err)
+		t.Fatalf("runTUIAction(open cockpit) returned error: %v", err)
 	}
 	if report.Status != output.StatusWarn {
 		t.Fatalf("expected warning report, got %+v", report)
 	}
 	for _, fragment := range []string{
-		"browser launch is unavailable",
+		"browser launch is unavailable; use this cockpit URL",
 		"Cockpit: https://localhost:9090",
+	} {
+		if !strings.Contains(report.Message+" "+strings.Join(report.Details, " "), fragment) {
+			t.Fatalf("expected cockpit fallback report to contain %q: %+v", fragment, report)
+		}
+	}
+}
+
+func TestRunTUIActionOpenPgAdminReturnsFallbackURL(t *testing.T) {
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.openURL = func(context.Context, system.Runner, string) error {
+			return errors.New("browser unavailable")
+		}
+	})
+
+	report, err := runTUIAction(stacktui.ActionOpenPgAdmin)
+	if err != nil {
+		t.Fatalf("runTUIAction(open pgadmin) returned error: %v", err)
+	}
+	if report.Status != output.StatusWarn {
+		t.Fatalf("expected warning report, got %+v", report)
+	}
+	for _, fragment := range []string{
+		"browser launch is unavailable; use this pgadmin URL",
 		"pgAdmin: http://localhost:8081",
 	} {
 		if !strings.Contains(report.Message+" "+strings.Join(report.Details, " "), fragment) {
-			t.Fatalf("expected open fallback report to contain %q: %+v", fragment, report)
+			t.Fatalf("expected pgadmin fallback report to contain %q: %+v", fragment, report)
 		}
 	}
 }

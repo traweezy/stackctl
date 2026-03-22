@@ -14,11 +14,12 @@ import (
 type ActionID string
 
 const (
-	ActionStart   ActionID = "start"
-	ActionStop    ActionID = "stop"
-	ActionRestart ActionID = "restart"
-	ActionOpen    ActionID = "open"
-	ActionDoctor  ActionID = "doctor"
+	ActionStart       ActionID = "start"
+	ActionStop        ActionID = "stop"
+	ActionRestart     ActionID = "restart"
+	ActionOpenCockpit ActionID = "open-cockpit"
+	ActionOpenPgAdmin ActionID = "open-pgadmin"
+	ActionDoctor      ActionID = "doctor"
 )
 
 type ActionRunner func(ActionID) (ActionReport, error)
@@ -33,6 +34,7 @@ type ActionReport struct {
 type ActionSpec struct {
 	ID             ActionID
 	Label          string
+	Group          string
 	ConfirmMessage string
 	PendingMessage string
 	PendingStatus  string
@@ -81,7 +83,7 @@ func actionIndex(keyText string) (int, bool) {
 	}
 
 	switch keyText[0] {
-	case '1', '2', '3', '4', '5':
+	case '1', '2', '3', '4', '5', '6':
 		return int(keyText[0] - '1'), true
 	default:
 		return 0, false
@@ -90,7 +92,6 @@ func actionIndex(keyText string) (int, bool) {
 
 func availableActions(snapshot Snapshot) []ActionSpec {
 	running, total := runningStackServiceCount(snapshot.Services)
-	includeOpen := hasOpenTargets(snapshot.Services)
 
 	addLifecycleActions := func(actions []ActionSpec) []ActionSpec {
 		switch {
@@ -108,12 +109,11 @@ func availableActions(snapshot Snapshot) []ActionSpec {
 	actions := make([]ActionSpec, 0, 5)
 	actions = addLifecycleActions(actions)
 	actions = append(actions, actionDoctorSpec())
-	if includeOpen {
-		actions = append(actions, actionOpenSpec())
+	if includeOpenCockpit(snapshot.Services) {
+		actions = append(actions, actionOpenCockpitSpec())
 	}
-
-	if len(actions) > 5 {
-		return actions[:5]
+	if includeOpenPgAdmin(snapshot.Services) {
+		actions = append(actions, actionOpenPgAdminSpec())
 	}
 
 	return actions
@@ -123,6 +123,7 @@ func actionStartSpec() ActionSpec {
 	return ActionSpec{
 		ID:             ActionStart,
 		Label:          "Start",
+		Group:          "Stack",
 		PendingMessage: "starting stack...",
 		PendingStatus:  output.StatusStart,
 		DefaultStatus:  output.StatusOK,
@@ -133,6 +134,7 @@ func actionStopSpec() ActionSpec {
 	return ActionSpec{
 		ID:             ActionStop,
 		Label:          "Stop",
+		Group:          "Stack",
 		ConfirmMessage: "Stop the local stack now? Running services will be interrupted.",
 		PendingMessage: "stopping stack...",
 		PendingStatus:  output.StatusStop,
@@ -144,6 +146,7 @@ func actionRestartSpec() ActionSpec {
 	return ActionSpec{
 		ID:             ActionRestart,
 		Label:          "Restart",
+		Group:          "Stack",
 		ConfirmMessage: "Restart the local stack now? Running services will be interrupted.",
 		PendingMessage: "restarting stack...",
 		PendingStatus:  output.StatusRestart,
@@ -151,11 +154,23 @@ func actionRestartSpec() ActionSpec {
 	}
 }
 
-func actionOpenSpec() ActionSpec {
+func actionOpenCockpitSpec() ActionSpec {
 	return ActionSpec{
-		ID:             ActionOpen,
-		Label:          "Open UIs",
-		PendingMessage: "opening configured web UIs...",
+		ID:             ActionOpenCockpit,
+		Label:          "Open Cockpit",
+		Group:          "Open",
+		PendingMessage: "opening Cockpit...",
+		PendingStatus:  output.StatusInfo,
+		DefaultStatus:  output.StatusOK,
+	}
+}
+
+func actionOpenPgAdminSpec() ActionSpec {
+	return ActionSpec{
+		ID:             ActionOpenPgAdmin,
+		Label:          "Open pgAdmin",
+		Group:          "Open",
+		PendingMessage: "opening pgAdmin...",
 		PendingStatus:  output.StatusInfo,
 		DefaultStatus:  output.StatusOK,
 	}
@@ -165,6 +180,7 @@ func actionDoctorSpec() ActionSpec {
 	return ActionSpec{
 		ID:             ActionDoctor,
 		Label:          "Doctor",
+		Group:          "Stack",
 		PendingMessage: "running doctor diagnostics...",
 		PendingStatus:  output.StatusHealth,
 		DefaultStatus:  output.StatusOK,
@@ -180,14 +196,26 @@ func lifecycleAction(action ActionID) bool {
 	}
 }
 
-func hasOpenTargets(services []Service) bool {
+func includeOpenCockpit(services []Service) bool {
 	for _, service := range services {
-		if strings.TrimSpace(service.URL) == "" {
+		if !strings.EqualFold(service.DisplayName, "Cockpit") {
 			continue
 		}
-		if !isStackService(service) || strings.EqualFold(displayServiceStatus(service), "running") {
-			return true
+		return strings.TrimSpace(service.URL) != ""
+	}
+
+	return false
+}
+
+func includeOpenPgAdmin(services []Service) bool {
+	for _, service := range services {
+		if !strings.EqualFold(service.DisplayName, "pgAdmin") {
+			continue
 		}
+		if strings.TrimSpace(service.URL) == "" {
+			return false
+		}
+		return strings.EqualFold(displayServiceStatus(service), "running")
 	}
 
 	return false
@@ -204,7 +232,13 @@ func renderActionRail(m Model) string {
 	}
 
 	lines := []string{sectionTitleStyle().Render("Actions")}
+	currentGroup := ""
 	for idx, action := range actions {
+		if action.Group != "" && action.Group != currentGroup {
+			lines = append(lines, "")
+			lines = append(lines, subsectionTitleStyle().Render(action.Group))
+			currentGroup = action.Group
+		}
 		label := fmt.Sprintf("[%d] %s", idx+1, action.Label)
 		if m.runningAction != nil && m.runningAction.Action.ID == action.ID {
 			label += "…"
@@ -215,23 +249,13 @@ func renderActionRail(m Model) string {
 	switch {
 	case m.runningAction != nil:
 		lines = append(lines, "")
-		lines = append(lines, mutedStyle().Render("Action running"))
-		lines = append(lines, mutedStyle().Render("refresh pauses"))
+		lines = append(lines, mutedStyle().Render("Running "+m.runningAction.Action.Label))
 	case m.confirmation != nil:
 		lines = append(lines, "")
-		lines = append(lines, mutedStyle().Render("y/enter confirm"))
-		lines = append(lines, mutedStyle().Render("n/esc cancel"))
+		lines = append(lines, mutedStyle().Render("Confirm "+m.confirmation.Action.Label))
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-func renderActionBanner(banner *actionBanner) string {
-	if banner == nil || strings.TrimSpace(banner.Message) == "" {
-		return ""
-	}
-
-	return bannerStyle(banner.Status).Render(banner.Message)
 }
 
 func renderConfirmation(state *confirmationState) string {
@@ -241,16 +265,18 @@ func renderConfirmation(state *confirmationState) string {
 
 	lines := []string{
 		subsectionTitleStyle().Render("Confirm action"),
+		"",
 		state.Action.Label,
 		"",
 		state.Action.ConfirmMessage,
 		"",
-		mutedStyle().Render("y / enter to confirm  •  n / esc to cancel"),
+		mutedStyle().Render("y / enter confirm  •  n / esc cancel"),
 	}
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("221")).
+		Width(56).
 		Padding(0, 1).
 		Render(strings.Join(lines, "\n"))
 }

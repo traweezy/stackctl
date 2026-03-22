@@ -311,9 +311,9 @@ Open the interactive terminal dashboard.
 
 The TUI now includes the phase-two operator workflow. It gives you a
 full-screen dashboard for the current stack config and runtime state, plus
-sidebar actions for `start`, `stop`, `restart`, `open`, and `doctor`.
-Lifecycle actions run in the background, show optimistic state while they are
-in progress, and write a session-local action history you can review inside the
+sidebar actions for `start`, `stop`, `restart`, `doctor`, `open cockpit`, and
+`open pgadmin`. Lifecycle actions run in the background, update the header
+status, and write a session-local action history you can review inside the
 dashboard.
 
 Examples:
@@ -326,7 +326,7 @@ Keys:
 
 - `tab`, `j`, `right` to move to the next section
 - `shift+tab`, `k`, `left` to move to the previous section
-- `1` through `5` to run the sidebar actions
+- `1` through `6` to run the sidebar actions
 - `y`, `enter` to confirm a stop or restart action
 - `n`, `esc` to cancel a pending confirmation
 - `r` to refresh
@@ -349,6 +349,10 @@ Notes:
 - auto-refresh is on by default and can be turned off inside the TUI
 - the left sidebar keeps navigation and global stack actions together so the
   active panel stays focused on inspection
+- confirmations now open in a centered modal instead of taking over the active
+  panel
+- action results now appear in the global status area and in `History`, not in
+  the current inspection tab
 - compact mode trims less important runtime fields so the dashboard is easier
   to scan on smaller terminals
 - while an action is running, the TUI pauses manual and automatic refresh until
@@ -357,6 +361,8 @@ Notes:
   do not interrupt the running stack
 - `doctor` runs diagnostics without applying fixes; it stores the summary and
   any warnings or failures in the history panel
+- Cockpit and pgAdmin open as separate sidebar actions so you can launch only
+  the UI you want
 - services and connections panels now show copy placeholders for the DSNs and
   URLs that will become real copy actions in a later phase
 - long-running actions usually mean image pulls, Podman startup, or service

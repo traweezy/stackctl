@@ -27,8 +27,10 @@ func runTUIAction(action stacktui.ActionID) (stacktui.ActionReport, error) {
 		return runTUIStop(cfg)
 	case stacktui.ActionRestart:
 		return runTUIRestart(cfg)
-	case stacktui.ActionOpen:
-		return runTUIOpen(cfg)
+	case stacktui.ActionOpenCockpit:
+		return runTUIOpenTarget("Cockpit", cfg.URLs.Cockpit)
+	case stacktui.ActionOpenPgAdmin:
+		return runTUIOpenTarget("pgAdmin", cfg.URLs.PgAdmin)
 	case stacktui.ActionDoctor:
 		return runTUIDoctor()
 	default:
@@ -115,58 +117,27 @@ func runTUIRestart(cfg configpkg.Config) (stacktui.ActionReport, error) {
 	}, nil
 }
 
-func runTUIOpen(cfg configpkg.Config) (stacktui.ActionReport, error) {
-	targets := []struct {
-		name string
-		url  string
-	}{
-		{name: "Cockpit", url: cfg.URLs.Cockpit},
-	}
-	if cfg.Setup.IncludePgAdmin && strings.TrimSpace(cfg.URLs.PgAdmin) != "" {
-		targets = append(targets, struct {
-			name string
-			url  string
-		}{name: "pgAdmin", url: cfg.URLs.PgAdmin})
-	}
-
-	if len(targets) == 0 {
+func runTUIOpenTarget(name, targetURL string) (stacktui.ActionReport, error) {
+	if strings.TrimSpace(targetURL) == "" {
 		return stacktui.ActionReport{
 			Status:  output.StatusWarn,
-			Message: "no configured web UIs are available to open",
+			Message: fmt.Sprintf("no %s URL is configured", strings.ToLower(name)),
 		}, nil
 	}
 
-	opened := make([]string, 0, len(targets))
-	fallbacks := make([]string, 0, len(targets))
-	for _, target := range targets {
-		if err := deps.openURL(context.Background(), quietRunner(), target.url); err != nil {
-			fallbacks = append(fallbacks, fmt.Sprintf("%s: %s", target.name, target.url))
-			continue
-		}
-		opened = append(opened, target.name)
+	if err := deps.openURL(context.Background(), quietRunner(), targetURL); err != nil {
+		return stacktui.ActionReport{
+			Status:  output.StatusWarn,
+			Message: fmt.Sprintf("browser launch is unavailable; use this %s URL", strings.ToLower(name)),
+			Details: []string{fmt.Sprintf("%s: %s", name, targetURL)},
+		}, nil
 	}
 
-	switch {
-	case len(fallbacks) == 0:
-		return stacktui.ActionReport{
-			Status:  output.StatusOK,
-			Message: fmt.Sprintf("opened %s", strings.Join(opened, " and ")),
-			Details: opened,
-		}, nil
-	case len(opened) == 0:
-		return stacktui.ActionReport{
-			Status:  output.StatusWarn,
-			Message: "browser launch is unavailable; use the URLs below",
-			Details: fallbacks,
-		}, nil
-	default:
-		details := append([]string(nil), fallbacks...)
-		return stacktui.ActionReport{
-			Status:  output.StatusWarn,
-			Message: fmt.Sprintf("opened %s; use these URLs for the rest", strings.Join(opened, " and ")),
-			Details: details,
-		}, nil
-	}
+	return stacktui.ActionReport{
+		Status:  output.StatusOK,
+		Message: fmt.Sprintf("opened %s", name),
+		Details: []string{fmt.Sprintf("%s: %s", name, targetURL)},
+	}, nil
 }
 
 func runTUIDoctor() (stacktui.ActionReport, error) {

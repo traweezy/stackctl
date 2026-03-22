@@ -155,8 +155,8 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("shift+tab/k", "previous section"),
 		),
 		Action: key.NewBinding(
-			key.WithKeys("1", "2", "3", "4", "5"),
-			key.WithHelp("1-5", "action"),
+			key.WithKeys("1", "2", "3", "4", "5", "6"),
+			key.WithHelp("1-6", "action"),
 		),
 		Confirm: key.NewBinding(
 			key.WithKeys("y", "enter"),
@@ -385,10 +385,21 @@ func (m Model) View() tea.View {
 	}
 
 	header := renderHeader(m)
+	status := renderGlobalStatus(m, m.width)
+	confirmation := renderConfirmationModal(m, m.width)
 	body := renderBody(m)
 	footer := footerStyle().Width(m.width).Render(m.help.View(m.keys))
 
-	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
+	blocks := []string{header}
+	if status != "" {
+		blocks = append(blocks, status)
+	}
+	if confirmation != "" {
+		blocks = append(blocks, confirmation)
+	}
+	blocks = append(blocks, body, footer)
+
+	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, blocks...))
 	view.AltScreen = true
 	return view
 }
@@ -452,12 +463,6 @@ func (m Model) currentContent() string {
 	}
 
 	blocks := make([]string, 0, 4)
-	if banner := renderActionBanner(m.banner); banner != "" {
-		blocks = append(blocks, banner)
-	}
-	if confirmation := renderConfirmation(m.confirmation); confirmation != "" {
-		blocks = append(blocks, confirmation)
-	}
 	switch m.active {
 	case overviewSection:
 		blocks = append(blocks, renderOverview(m.snapshot, m.layout))
@@ -551,6 +556,31 @@ func footerStyle() lipgloss.Style {
 		Padding(0, 1)
 }
 
+func renderGlobalStatus(m Model, width int) string {
+	if m.banner == nil || strings.TrimSpace(m.banner.Message) == "" {
+		return ""
+	}
+
+	contentWidth := maxInt(20, width-2)
+	return bannerStyle(m.banner.Status).Width(contentWidth).Render(m.banner.Message)
+}
+
+func renderConfirmationModal(m Model, width int) string {
+	if m.confirmation == nil {
+		return ""
+	}
+
+	modal := renderConfirmation(m.confirmation)
+	modalWidth := minInt(maxInt(60, lipgloss.Width(modal)), maxInt(60, width-4))
+	return lipgloss.Place(
+		width,
+		lipgloss.Height(modal),
+		lipgloss.Center,
+		lipgloss.Top,
+		lipgloss.NewStyle().Width(modalWidth).Render(modal),
+	)
+}
+
 func renderHeader(m Model) string {
 	statusLabel := "Ready"
 	switch {
@@ -635,12 +665,10 @@ func renderSidebar(m Model) string {
 
 	lines = append(lines, "")
 	if actionRail := renderActionRail(m); actionRail != "" {
-		lines = append(lines, actionRail, "")
+		lines = append(lines, actionRail)
 	} else if m.runner == nil {
 		lines = append(lines, mutedStyle().Render("Read-only dashboard"))
 	}
-	lines = append(lines, mutedStyle().Render("r refresh  •  a auto"))
-	lines = append(lines, mutedStyle().Render("m compact  •  s secrets"))
 
 	return strings.Join(lines, "\n")
 }
@@ -1230,6 +1258,14 @@ func transitionalServiceStatus(status string) bool {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 

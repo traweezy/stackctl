@@ -741,6 +741,9 @@ func TestModelCancelsConfirmedActionWithoutRunningIt(t *testing.T) {
 	if current.confirmation == nil {
 		t.Fatalf("expected stop confirmation to be shown")
 	}
+	if strings.Contains(current.currentContent(), "Stop the local stack now?") {
+		t.Fatalf("expected confirmation modal to stay out of panel content:\n%s", current.currentContent())
+	}
 	if !strings.Contains(current.View().Content, "Stop the local stack now?") {
 		t.Fatalf("expected confirmation prompt in view:\n%s", current.View().Content)
 	}
@@ -816,6 +819,9 @@ func TestModelRestoresSnapshotWhenActionFails(t *testing.T) {
 	if current.snapshot.Services[0].Status != "running" {
 		t.Fatalf("expected snapshot to be restored after failure, got %+v", current.snapshot.Services)
 	}
+	if strings.Contains(current.currentContent(), "restart failed: compose unavailable") {
+		t.Fatalf("expected failure status to stay out of panel content:\n%s", current.currentContent())
+	}
 	if !strings.Contains(current.View().Content, "restart failed: compose unavailable") {
 		t.Fatalf("expected failure banner in view:\n%s", current.View().Content)
 	}
@@ -839,6 +845,20 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 				ExternalPort:  5432,
 				PortListening: true,
 			},
+			{
+				DisplayName:  "Cockpit",
+				Status:       "running",
+				Host:         "localhost",
+				ExternalPort: 9090,
+				URL:          "https://localhost:9090",
+			},
+			{
+				DisplayName:  "pgAdmin",
+				Status:       "running",
+				Host:         "localhost",
+				ExternalPort: 8081,
+				URL:          "http://localhost:8081",
+			},
 		},
 	}
 
@@ -850,7 +870,33 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 		t.Fatalf("expected overview panel content to stay action-free:\n%s", overviewContent)
 	}
 	overviewSidebar := renderSidebar(current)
-	if !strings.Contains(overviewSidebar, "Actions") || !strings.Contains(overviewSidebar, "[1] Restart") {
+	for _, fragment := range []string{
+		"Actions",
+		"[1] Restart",
+		"[2] Stop",
+		"[3] Doctor",
+		"[4] Open Cockpit",
+	} {
+		if !strings.Contains(overviewSidebar, fragment) {
+			t.Fatalf("expected sidebar to show %q:\n%s", fragment, overviewSidebar)
+		}
+	}
+	if !strings.Contains(overviewSidebar, "[5] Open pgAdmin") {
+		t.Fatalf("expected sidebar to show pgAdmin open action:\n%s", overviewSidebar)
+	}
+	for _, fragment := range []string{
+		"r refresh",
+		"m compact",
+		"s secrets",
+	} {
+		if strings.Contains(overviewSidebar, fragment) {
+			t.Fatalf("expected sidebar to avoid footer keybind duplication %q:\n%s", fragment, overviewSidebar)
+		}
+	}
+	if strings.Contains(overviewSidebar, "y/enter") || strings.Contains(overviewSidebar, "n/esc") {
+		t.Fatalf("expected sidebar to avoid confirmation key hints:\n%s", overviewSidebar)
+	}
+	if !strings.Contains(overviewSidebar, "Stack") || !strings.Contains(overviewSidebar, "Open") {
 		t.Fatalf("expected sidebar to show global actions:\n%s", overviewSidebar)
 	}
 
