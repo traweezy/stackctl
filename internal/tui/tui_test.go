@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -140,6 +141,29 @@ func TestModelAutoRefreshSchedulesAndCanBeDisabled(t *testing.T) {
 	}
 	if !strings.Contains(current.View().Content, "auto-refresh: off") {
 		t.Fatalf("expected header to show auto-refresh disabled:\n%s", current.View().Content)
+	}
+}
+
+func TestRenderHeaderPadsAndColorizesStatus(t *testing.T) {
+	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
+		return ActionReport{}, nil
+	})
+	model.snapshot = Snapshot{StackName: "dev-stack"}
+
+	raw := renderHeader(model)
+	plain := stripANSITest(raw)
+	lines := strings.Split(plain, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected multiline header, got %q", plain)
+	}
+	if !strings.HasPrefix(lines[0], "  stackctl tui") {
+		t.Fatalf("expected title row to be padded right for alignment:\n%s", plain)
+	}
+	if !strings.HasPrefix(lines[1], " Refreshing  •") {
+		t.Fatalf("expected status row to be padded and aligned:\n%s", plain)
+	}
+	if raw == plain {
+		t.Fatalf("expected header status to include ANSI styling")
 	}
 }
 
@@ -910,4 +934,10 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 	if !strings.Contains(servicesSidebar, "Actions") || !strings.Contains(servicesSidebar, "[1] Restart") {
 		t.Fatalf("expected services sidebar to keep global actions visible:\n%s", servicesSidebar)
 	}
+}
+
+var ansiStripPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSITest(value string) string {
+	return ansiStripPattern.ReplaceAllString(value, "")
 }

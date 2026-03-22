@@ -499,6 +499,25 @@ func headerMetaStyle() lipgloss.Style {
 		Foreground(lipgloss.Color("117"))
 }
 
+func headerStatusStyle(m Model) lipgloss.Style {
+	style := lipgloss.NewStyle().Bold(true)
+
+	switch {
+	case m.runningAction != nil:
+		return style.Foreground(lipgloss.Color("81"))
+	case m.confirmation != nil:
+		return style.Foreground(lipgloss.Color("221"))
+	case m.loading:
+		return style.Foreground(lipgloss.Color("117"))
+	default:
+		return style.Foreground(lipgloss.Color("78"))
+	}
+}
+
+func headerShellStyle() lipgloss.Style {
+	return lipgloss.NewStyle().PaddingLeft(1)
+}
+
 func sidebarStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -614,7 +633,7 @@ func renderHeader(m Model) string {
 
 	meta := fmt.Sprintf(
 		"%s  •  mode: %s  •  layout: %s  •  auto-refresh: %s  •  secrets: %s  •  updated: %s",
-		statusLabel,
+		headerStatusStyle(m).Render(statusLabel),
 		mode,
 		m.layout.String(),
 		autoRefreshLabel,
@@ -627,6 +646,7 @@ func renderHeader(m Model) string {
 		titleStyle().Render("stackctl tui")+" "+subtitleStyle().Render(stackName),
 		headerMetaStyle().Render(meta),
 	)
+	header = headerShellStyle().Render(header)
 
 	if m.errMessage == "" {
 		return header
