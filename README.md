@@ -1,25 +1,37 @@
 # stackctl
 
-`stackctl` is a Linux CLI for bringing up, inspecting, and troubleshooting a
-local Podman-based development stack.
+`stackctl` is a CLI for running and managing a complete local backend stack
+with zero setup.
 
-It is built for the common local-dev loop:
+```bash
+stackctl start
+```
 
-- create or load a persistent config
-- scaffold a managed stack under standard XDG paths
-- start, stop, restart, and reset local services
-- inspect runtime state with `status`, `services`, `logs`, `health`, and
-  `doctor`
-- print copy-paste-friendly endpoints with `connect`
-
-The default managed stack currently includes:
+This gives you:
 
 - PostgreSQL
 - Redis
 - pgAdmin
+- ready-to-use connection strings
 
-Cockpit is also supported as a host-level web UI when it is installed on the
-machine.
+No manual configuration required.
+
+## Why stackctl
+
+Most local dev setups require:
+
+- managing compose files manually
+- remembering ports and credentials
+- writing custom scripts
+
+stackctl provides:
+
+- interactive setup
+- consistent service management
+- built-in connection helpers
+- diagnostics and health checks
+
+All in a single CLI.
 
 > [!IMPORTANT]
 > `stackctl` is Linux-only right now.
@@ -39,7 +51,16 @@ Use `stackctl` if you want one CLI that answers:
 - which service is broken
 - where are the stack files on disk
 
-The split between the runtime inspection commands is intentional:
+## Who this is for
+
+stackctl is useful if you:
+
+- want a ready-to-use local backend stack
+- are tired of managing docker-compose files manually
+- need consistent local infrastructure across projects
+- want quick access to connection details and logs
+
+The runtime inspection commands are intentionally split:
 
 - `stackctl connect` prints minimal connection strings and URLs
 - `stackctl services` prints the full service report with status, ports,
@@ -49,6 +70,8 @@ The split between the runtime inspection commands is intentional:
 - `stackctl health` checks whether the configured endpoints are reachable
 
 ## Install
+
+### Quick install (recommended)
 
 ### Quick install from GitHub Releases
 
@@ -123,6 +146,21 @@ stackctl logs --watch
 
 If you are running from source instead of an installed binary, replace
 `stackctl` with `go run .`.
+
+## Example
+
+```bash
+stackctl start
+stackctl connect
+```
+
+```text
+Postgres
+  postgres://app:app@localhost:5432/app
+
+Redis
+  redis://localhost:6379
+```
 
 ### First run
 
@@ -690,7 +728,7 @@ git push origin v0.2.1
 
 ## Roadmap
 
-`stackctl` is moving toward a simple idea:
+stackctl is moving toward:
 
 > a local backend platform for developers
 
