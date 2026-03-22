@@ -122,6 +122,43 @@ func TestViewMasksSecretsUntilToggled(t *testing.T) {
 	}
 }
 
+func TestServicesViewShowsCockpitRuntimeDetails(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:  "Cockpit",
+				Status:       "running",
+				Host:         "devbox",
+				ExternalPort: 9090,
+				URL:          "https://devbox:9090",
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	current = updatedModel.(Model)
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"●  Cockpit",
+		"Status: running",
+		"Host: devbox",
+		"Port: 9090 -> unknown",
+		"URL: https://devbox:9090",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("expected cockpit services view to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
 func TestModelRendersInitialErrorState(t *testing.T) {
 	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})

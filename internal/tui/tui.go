@@ -498,7 +498,10 @@ func renderServices(snapshot Snapshot, showSecrets bool) string {
 		if service.DataVolume != "" {
 			lines = append(lines, fmt.Sprintf("Data volume: %s", service.DataVolume))
 		}
-		if service.Host != "" && service.ExternalPort > 0 {
+		if service.Host != "" {
+			lines = append(lines, fmt.Sprintf("Host: %s", service.Host))
+		}
+		if service.ExternalPort > 0 || service.InternalPort > 0 {
 			lines = append(lines, fmt.Sprintf("Port: %s", formatPort(service.ExternalPort, service.InternalPort)))
 		}
 		if service.Database != "" {
