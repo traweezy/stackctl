@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/traweezy/stackctl/internal/output"
 )
 
 func TestModelInitLoadsSnapshot(t *testing.T) {
@@ -581,5 +583,240 @@ func TestModelRendersInitialErrorState(t *testing.T) {
 	}
 	if !strings.Contains(view, "no stackctl config was found") {
 		t.Fatalf("expected error message in view:\n%s", view)
+	}
+}
+
+func TestModelRunsStartActionOptimisticallyAndRecordsHistory(t *testing.T) {
+	loadCount := 0
+	loader := func() (Snapshot, error) {
+		loadCount++
+		return Snapshot{
+			StackName: "dev-stack",
+			Services: []Service{
+				{
+					DisplayName:   "Postgres",
+					Status:        "running",
+					ContainerName: "stack-postgres",
+					Host:          "localhost",
+					ExternalPort:  5432,
+					PortListening: true,
+				},
+				{
+					DisplayName:   "Redis",
+					Status:        "running",
+					ContainerName: "stack-redis",
+					Host:          "localhost",
+					ExternalPort:  6379,
+					PortListening: true,
+				},
+			},
+		}, nil
+	}
+
+	model := NewActionModel(loader, func(ActionID) (ActionReport, error) {
+		return ActionReport{
+			Status:  output.StatusOK,
+			Message: "stack started",
+			Details: []string{"Wait for services: on"},
+			Refresh: true,
+		}, nil
+	})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	initial := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "missing",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+			},
+			{
+				DisplayName:   "Redis",
+				Status:        "missing",
+				ContainerName: "stack-redis",
+				Host:          "localhost",
+				ExternalPort:  6379,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: initial})
+	current = updatedModel.(Model)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
+	current = updatedModel.(Model)
+	if current.runningAction == nil {
+		t.Fatalf("expected running action state")
+	}
+	if current.snapshot.Services[0].Status != "starting" || current.snapshot.Services[1].Status != "starting" {
+		t.Fatalf("expected optimistic starting state, got %+v", current.snapshot.Services)
+	}
+	if !strings.Contains(current.View().Content, "starting stack...") {
+		t.Fatalf("expected start banner in view:\n%s", current.View().Content)
+	}
+	if cmd == nil {
+		t.Fatalf("expected async action command")
+	}
+
+	actionMsgValue, ok := cmd().(actionMsg)
+	if !ok {
+		t.Fatalf("expected actionMsg, got %T", cmd())
+	}
+
+	updatedModel, cmd = current.Update(actionMsgValue)
+	current = updatedModel.(Model)
+	if !current.loading {
+		t.Fatalf("expected snapshot refresh after successful lifecycle action")
+	}
+	if cmd == nil {
+		t.Fatalf("expected snapshot reload after successful action")
+	}
+
+	loaded, ok := cmd().(snapshotMsg)
+	if !ok {
+		t.Fatalf("expected snapshotMsg, got %T", cmd())
+	}
+	updatedModel, _ = current.Update(loaded)
+	current = updatedModel.(Model)
+	if loadCount != 1 {
+		t.Fatalf("expected loader to run once after action, got %d", loadCount)
+	}
+
+	for _, service := range current.snapshot.Services {
+		if service.Status != "running" {
+			t.Fatalf("expected refreshed running state, got %+v", current.snapshot.Services)
+		}
+	}
+
+	for i := 0; i < 4; i++ {
+		updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+		current = updatedModel.(Model)
+	}
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"History",
+		"Start",
+		"Status: completed",
+		"Message: stack started",
+		"Wait for services: on",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("expected history view to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestModelCancelsConfirmedActionWithoutRunningIt(t *testing.T) {
+	called := false
+	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
+		called = true
+		return ActionReport{}, nil
+	})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	current = updatedModel.(Model)
+	if current.confirmation == nil {
+		t.Fatalf("expected stop confirmation to be shown")
+	}
+	if !strings.Contains(current.View().Content, "Stop the local stack now?") {
+		t.Fatalf("expected confirmation prompt in view:\n%s", current.View().Content)
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	current = updatedModel.(Model)
+	if called {
+		t.Fatalf("expected cancelled action not to run")
+	}
+	if current.confirmation != nil {
+		t.Fatalf("expected confirmation to be cleared after cancellation")
+	}
+
+	for i := 0; i < 4; i++ {
+		updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+		current = updatedModel.(Model)
+	}
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"History",
+		"Stop",
+		"Status: completed with warnings",
+		"Message: stop cancelled",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("expected cancelled action history to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestModelRestoresSnapshotWhenActionFails(t *testing.T) {
+	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
+		return ActionReport{}, fmt.Errorf("compose unavailable")
+	})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+				PortListening: true,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
+	current = updatedModel.(Model)
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if current.runningAction == nil {
+		t.Fatalf("expected restart action to begin after confirmation")
+	}
+	if cmd == nil {
+		t.Fatalf("expected async restart command")
+	}
+
+	actionMsgValue, ok := cmd().(actionMsg)
+	if !ok {
+		t.Fatalf("expected actionMsg, got %T", cmd())
+	}
+	updatedModel, _ = current.Update(actionMsgValue)
+	current = updatedModel.(Model)
+	if current.snapshot.Services[0].Status != "running" {
+		t.Fatalf("expected snapshot to be restored after failure, got %+v", current.snapshot.Services)
+	}
+	if !strings.Contains(current.View().Content, "restart failed: compose unavailable") {
+		t.Fatalf("expected failure banner in view:\n%s", current.View().Content)
 	}
 }
