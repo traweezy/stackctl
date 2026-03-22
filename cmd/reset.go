@@ -37,11 +37,9 @@ func newResetCmd() *cobra.Command {
 				}
 			}
 
-			action := "stopping containers..."
+			action := "resetting stack..."
 			if volumes {
 				action = "resetting stack and removing volumes..."
-			} else {
-				action = "resetting stack..."
 			}
 			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusReset, action); err != nil {
 				return err
