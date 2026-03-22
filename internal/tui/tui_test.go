@@ -150,11 +150,102 @@ func TestServicesViewShowsCockpitRuntimeDetails(t *testing.T) {
 		"●  Cockpit",
 		"Status: running",
 		"Host: devbox",
-		"Port: 9090 -> unknown",
+		"Host port: 9090",
 		"URL: https://devbox:9090",
 	} {
 		if !strings.Contains(view, fragment) {
 			t.Fatalf("expected cockpit services view to contain %q:\n%s", fragment, view)
+		}
+	}
+	if strings.Contains(view, "unknown") {
+		t.Fatalf("expected cockpit services view to avoid unknown placeholders:\n%s", view)
+	}
+}
+
+func TestOverviewExcludesCockpitFromStackServiceCount(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "missing",
+				ContainerName: "stack-postgres",
+				ExternalPort:  5432,
+			},
+			{
+				DisplayName:   "Redis",
+				Status:        "missing",
+				ContainerName: "stack-redis",
+				ExternalPort:  6379,
+			},
+			{
+				DisplayName:  "Cockpit",
+				Status:       "running",
+				Host:         "devbox",
+				ExternalPort: 9090,
+				URL:          "https://devbox:9090",
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"Stack services running: 0 / 2",
+		"Cockpit: running",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("expected overview to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestServicesViewUsesFriendlyStoppedLabels(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "missing",
+				ContainerName: "stack-postgres",
+				ExternalPort:  5432,
+				Database:      "app",
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	current = updatedModel.(Model)
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"○  Postgres",
+		"Status: not running",
+		"Host port: 5432",
+		"Database: app",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("expected services view to contain %q:\n%s", fragment, view)
+		}
+	}
+	for _, fragment := range []string{
+		"Status: missing",
+		"unknown",
+	} {
+		if strings.Contains(view, fragment) {
+			t.Fatalf("expected services view to avoid %q:\n%s", fragment, view)
 		}
 	}
 }

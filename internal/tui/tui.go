@@ -460,7 +460,7 @@ func renderSidebar(active section) string {
 }
 
 func renderOverview(snapshot Snapshot) string {
-	running, total := runningServiceCount(snapshot.Services)
+	running, total := runningStackServiceCount(snapshot.Services)
 	lines := []string{
 		sectionTitleStyle().Render("Overview"),
 		"",
@@ -468,9 +468,12 @@ func renderOverview(snapshot Snapshot) string {
 		fmt.Sprintf("Config: %s", emptyLabel(snapshot.ConfigPath)),
 		fmt.Sprintf("Stack dir: %s", emptyLabel(snapshot.StackDir)),
 		fmt.Sprintf("Compose: %s", emptyLabel(snapshot.ComposePath)),
-		fmt.Sprintf("Services running: %d / %d", running, total),
+		fmt.Sprintf("Stack services running: %d / %d", running, total),
 		fmt.Sprintf("Wait on start: %s", onOffLabel(snapshot.WaitForServices)),
 		fmt.Sprintf("Startup timeout: %ds", snapshot.StartupTimeoutSec),
+	}
+	if cockpit, ok := lookupService(snapshot.Services, "Cockpit"); ok {
+		lines = append(lines, fmt.Sprintf("Cockpit: %s", displayServiceStatus(cockpit)))
 	}
 
 	return strings.Join(lines, "\n")
@@ -487,8 +490,9 @@ func renderServices(snapshot Snapshot, showSecrets bool) string {
 	}
 
 	for idx, service := range snapshot.Services {
-		lines = append(lines, fmt.Sprintf("%s  %s", serviceStatusBadge(service.Status), service.DisplayName))
-		lines = append(lines, fmt.Sprintf("Status: %s", emptyLabel(service.Status)))
+		status := displayServiceStatus(service)
+		lines = append(lines, fmt.Sprintf("%s  %s", serviceStatusBadge(status), service.DisplayName))
+		lines = append(lines, fmt.Sprintf("Status: %s", emptyLabel(status)))
 		if service.ContainerName != "" {
 			lines = append(lines, fmt.Sprintf("Container: %s", service.ContainerName))
 		}
@@ -501,9 +505,7 @@ func renderServices(snapshot Snapshot, showSecrets bool) string {
 		if service.Host != "" {
 			lines = append(lines, fmt.Sprintf("Host: %s", service.Host))
 		}
-		if service.ExternalPort > 0 || service.InternalPort > 0 {
-			lines = append(lines, fmt.Sprintf("Port: %s", formatPort(service.ExternalPort, service.InternalPort)))
-		}
+		lines = append(lines, servicePortLines(service)...)
 		if service.Database != "" {
 			lines = append(lines, fmt.Sprintf("Database: %s", service.Database))
 		}
@@ -590,22 +592,67 @@ func renderErrorState(message string) string {
 	}, "\n")
 }
 
-func runningServiceCount(services []Service) (int, int) {
+func runningStackServiceCount(services []Service) (int, int) {
 	running := 0
+	total := 0
 	for _, service := range services {
-		if strings.EqualFold(service.Status, "running") {
+		if !isStackService(service) {
+			continue
+		}
+		total++
+		if strings.EqualFold(displayServiceStatus(service), "running") {
 			running++
 		}
 	}
 
-	return running, len(services)
+	return running, total
+}
+
+func lookupService(services []Service, displayName string) (Service, bool) {
+	for _, service := range services {
+		if service.DisplayName == displayName {
+			return service, true
+		}
+	}
+
+	return Service{}, false
+}
+
+func isStackService(service Service) bool {
+	return strings.TrimSpace(service.ContainerName) != ""
+}
+
+func displayServiceStatus(service Service) string {
+	status := strings.TrimSpace(strings.ToLower(service.Status))
+	switch {
+	case status == "" && isStackService(service):
+		return "not running"
+	case status == "missing" && isStackService(service):
+		return "not running"
+	case status == "":
+		return "-"
+	default:
+		return status
+	}
+}
+
+func servicePortLines(service Service) []string {
+	lines := make([]string, 0, 2)
+	if service.ExternalPort > 0 {
+		lines = append(lines, fmt.Sprintf("Host port: %d", service.ExternalPort))
+	}
+	if service.InternalPort > 0 {
+		lines = append(lines, fmt.Sprintf("Container port: %d", service.InternalPort))
+	}
+
+	return lines
 }
 
 func serviceStatusBadge(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "running":
 		return "●"
-	case "stopped", "not installed", "error":
+	case "stopped", "not running", "not installed", "error":
 		return "○"
 	default:
 		return "◌"
@@ -623,17 +670,6 @@ func healthStatusIcon(status string) string {
 	default:
 		return "•"
 	}
-}
-
-func formatPort(external, internal int) string {
-	if external == 0 {
-		return "-"
-	}
-	if internal == 0 {
-		return fmt.Sprintf("%d -> unknown", external)
-	}
-
-	return fmt.Sprintf("%d -> %d", external, internal)
 }
 
 func maskConnectionValue(value string, showSecrets bool) string {
