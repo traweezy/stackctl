@@ -547,6 +547,38 @@ Flags:
 | --- | --- |
 | `--no-tty` | Disable TTY allocation for the exec session |
 
+### `stackctl db shell`
+
+Open `psql` against the configured Postgres database without remembering the
+database name, username, or container details.
+
+Examples:
+
+```bash
+stackctl db shell
+stackctl db shell -- -c "select version()"
+stackctl db shell -- -tAc "select current_user"
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--no-tty` | Disable TTY allocation for the `psql` session |
+
+### `stackctl ports`
+
+Show the configured host-to-service port mappings quickly. When runtime data is
+available, `stackctl` also fills in the discovered internal service ports.
+
+Examples:
+
+```bash
+stackctl ports
+```
+
+Flags: `-h`, `--help` only.
+
 ### `stackctl connect`
 
 Print minimal connection strings and URLs. This is intentionally smaller than
@@ -680,6 +712,8 @@ If you only remember a few commands, these are the ones most people will use:
 - `stackctl start`: bring the stack up
 - `stackctl services`: see the full runtime picture
 - `stackctl connect`: copy DSNs and URLs quickly
+- `stackctl db shell`: jump straight into `psql`
+- `stackctl ports`: check host-to-service port mappings quickly
 - `stackctl logs --watch`: keep a live log tail open while developing
 - `stackctl doctor`: diagnose environment and port problems
 
@@ -799,6 +833,8 @@ Available today:
 - configurable pgAdmin login details that stay in sync with the managed stack
 - machine-readable service output with `stackctl services --json`
 - `stackctl exec <service> -- <command...>` for in-container workflows
+- `stackctl db shell` for one-step Postgres access
+- `stackctl ports` for quick port inspection
 - live Podman integration coverage for the managed-stack lifecycle
 
 Current CLI surface:
@@ -808,6 +844,8 @@ Current CLI surface:
 - `start`, `stop`, `restart`
 - `status`
 - `services`
+- `ports`
+- `db`
 - `exec`
 - `logs`
 - `health`
@@ -843,11 +881,9 @@ Resulting target stack:
 
 - `stackctl services --copy <target>`
   Why: quick copy helpers for DSNs and URLs
-- `stackctl db shell`, `stackctl db reset`, `stackctl db dump`,
+- `stackctl db reset`, `stackctl db dump`,
   `stackctl db restore`
   Why: streamline common Postgres workflows
-- `stackctl ports`
-  Why: show host-to-service port mappings quickly
 - `stackctl doctor --fix`
   Why: automate safe fixes for common local-environment issues
 
