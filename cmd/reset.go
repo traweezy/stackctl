@@ -16,6 +16,8 @@ func newResetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reset",
 		Short: "Bring the stack down and optionally wipe volumes",
+		Example: "  stackctl reset\n" +
+			"  stackctl reset --volumes --force",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
@@ -37,9 +39,11 @@ func newResetCmd() *cobra.Command {
 
 			action := "stopping containers..."
 			if volumes {
-				action = "stopping containers and removing volumes..."
+				action = "resetting stack and removing volumes..."
+			} else {
+				action = "resetting stack..."
 			}
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusAction, action); err != nil {
+			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusReset, action); err != nil {
 				return err
 			}
 			if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, volumes); err != nil {

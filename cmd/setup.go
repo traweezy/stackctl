@@ -22,6 +22,9 @@ func newSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Prepare the local machine and stackctl config",
+		Example: "  stackctl setup\n" +
+			"  stackctl setup --non-interactive\n" +
+			"  stackctl setup --install --yes",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			createdConfig := false
 

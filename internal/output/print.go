@@ -6,12 +6,18 @@ import (
 )
 
 const (
-	StatusOK     = "OK"
-	StatusInfo   = "INFO"
-	StatusAction = "ACTION"
-	StatusMiss   = "MISS"
-	StatusWarn   = "WARN"
-	StatusFail   = "FAIL"
+	StatusOK      = "OK"
+	StatusInfo    = "INFO"
+	StatusConfig  = "CONFIG"
+	StatusStart   = "START"
+	StatusStop    = "STOP"
+	StatusRestart = "RESTART"
+	StatusReset   = "RESET"
+	StatusLogs    = "LOGS"
+	StatusHealth  = "HEALTH"
+	StatusMiss    = "MISS"
+	StatusWarn    = "WARN"
+	StatusFail    = "FAIL"
 )
 
 func StatusLine(w io.Writer, status, message string) error {
@@ -25,8 +31,20 @@ func statusPrefix(status string) string {
 		return "✅"
 	case StatusInfo:
 		return "ℹ️"
-	case StatusAction:
+	case StatusConfig:
+		return "⚙️"
+	case StatusStart:
 		return "🚀"
+	case StatusStop:
+		return "🛑"
+	case StatusRestart:
+		return "🔄"
+	case StatusReset:
+		return "🔥"
+	case StatusLogs:
+		return "📜"
+	case StatusHealth:
+		return "🩺"
 	case StatusWarn:
 		return "⚠️"
 	case StatusMiss, StatusFail:

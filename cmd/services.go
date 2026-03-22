@@ -2,18 +2,18 @@ package cmd
 
 import "github.com/spf13/cobra"
 
-func newConnectCmd() *cobra.Command {
+func newServicesCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "connect",
-		Short:   "Print minimal connection strings and URLs",
-		Example: "  stackctl connect",
+		Use:     "services",
+		Short:   "Show full connection details for configured services",
+		Example: "  stackctl services",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
 				return err
 			}
 
-			return printConnectionInfo(cmd, cfg)
+			return printServicesInfo(cmd, cfg)
 		},
 	}
 }

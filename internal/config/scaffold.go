@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"text/template"
 
 	embedded "github.com/traweezy/stackctl/templates"
 )
@@ -81,10 +83,29 @@ func ScaffoldManagedStack(cfg Config, force bool) (ScaffoldResult, error) {
 		return result, fmt.Errorf("inspect managed compose file %s: %w", result.ComposePath, err)
 	}
 
-	if err := os.WriteFile(result.ComposePath, embedded.DevStackComposeYAML(), 0o600); err != nil {
+	composeData, err := renderManagedCompose(cfg)
+	if err != nil {
+		return result, err
+	}
+
+	if err := os.WriteFile(result.ComposePath, composeData, 0o600); err != nil {
 		return result, fmt.Errorf("write managed compose file %s: %w", result.ComposePath, err)
 	}
 	result.WroteCompose = true
 
 	return result, nil
+}
+
+func renderManagedCompose(cfg Config) ([]byte, error) {
+	tmpl, err := template.New("dev-stack-compose").Option("missingkey=error").Parse(string(embedded.DevStackComposeYAML()))
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded compose template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, cfg); err != nil {
+		return nil, fmt.Errorf("render managed compose template: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }

@@ -12,8 +12,9 @@ import (
 
 func newStartCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "start",
-		Short: "Start the local development stack",
+		Use:     "start",
+		Short:   "Start the local development stack",
+		Example: "  stackctl start",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, true)
 			if err != nil {
@@ -23,7 +24,7 @@ func newStartCmd() *cobra.Command {
 				return err
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusAction, "starting containers..."); err != nil {
+			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusStart, "starting stack..."); err != nil {
 				return err
 			}
 			if err := deps.composeUp(context.Background(), runnerFor(cmd), cfg); err != nil {

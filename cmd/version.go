@@ -8,8 +8,9 @@ import (
 
 func newVersionCmd(app *App) *cobra.Command {
 	return &cobra.Command{
-		Use:   "version",
-		Short: "Print version information",
+		Use:     "version",
+		Short:   "Print version information",
+		Example: "  stackctl version",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, err := fmt.Fprintf(cmd.OutOrStdout(), "version: %s\n", app.Version)
 			if err != nil {

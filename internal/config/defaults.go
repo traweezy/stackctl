@@ -13,6 +13,12 @@ func Default() Config {
 			RedisContainer:    "local-redis",
 			PgAdminContainer:  "local-pgadmin",
 		},
+		Connection: ConnectionConfig{
+			Host:             "localhost",
+			PostgresDatabase: "app",
+			PostgresUsername: "app",
+			PostgresPassword: "app",
+		},
 		Ports: PortsConfig{
 			Postgres: 5432,
 			Redis:    6379,

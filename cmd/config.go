@@ -15,6 +15,9 @@ func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage persistent stack configuration",
+		Example: "  stackctl config view\n" +
+			"  stackctl config validate\n" +
+			"  stackctl config scaffold --force",
 	}
 
 	cmd.AddCommand(newConfigInitCmd())
@@ -35,6 +38,9 @@ func newConfigInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Create a new stackctl config",
+		Example: "  stackctl config init\n" +
+			"  stackctl config init --non-interactive\n" +
+			"  stackctl config init --force",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := deps.configFilePath()
 			if err != nil {
@@ -86,8 +92,9 @@ func newConfigInitCmd() *cobra.Command {
 
 func newConfigViewCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "view",
-		Short: "Print the current config in YAML format",
+		Use:     "view",
+		Short:   "Print the current config in YAML format",
+		Example: "  stackctl config view",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := deps.loadConfig("")
 			if err != nil {
@@ -107,8 +114,9 @@ func newConfigViewCmd() *cobra.Command {
 
 func newConfigPathCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "path",
-		Short: "Print the resolved config path",
+		Use:     "path",
+		Short:   "Print the resolved config path",
+		Example: "  stackctl config path",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := deps.configFilePath()
 			if err != nil {
@@ -127,6 +135,8 @@ func newConfigEditCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit",
 		Short: "Edit the current config using the interactive wizard",
+		Example: "  stackctl config edit\n" +
+			"  stackctl config edit --non-interactive",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := deps.configFilePath()
 			if err != nil {
@@ -162,8 +172,9 @@ func newConfigEditCmd() *cobra.Command {
 
 func newConfigValidateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "validate",
-		Short: "Validate the current config",
+		Use:     "validate",
+		Short:   "Validate the current config",
+		Example: "  stackctl config validate",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := deps.loadConfig("")
 			if err != nil {
@@ -192,6 +203,8 @@ func newConfigResetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reset",
 		Short: "Reset the config to defaults or delete it",
+		Example: "  stackctl config reset\n" +
+			"  stackctl config reset --delete --force",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := deps.configFilePath()
 			if err != nil {
@@ -250,6 +263,8 @@ func newConfigScaffoldCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "scaffold",
 		Short: "Create or refresh the managed stack files from embedded templates",
+		Example: "  stackctl config scaffold\n" +
+			"  stackctl config scaffold --force",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := deps.loadConfig("")
 			if err != nil {

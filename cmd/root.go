@@ -20,8 +20,12 @@ func NewApp() *App {
 
 func NewRootCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "stackctl",
-		Short:         "Manage a local Podman development stack",
+		Use:   "stackctl",
+		Short: "Manage a local Podman development stack",
+		Example: "  stackctl setup\n" +
+			"  stackctl start\n" +
+			"  stackctl services\n" +
+			"  stackctl logs --watch",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       app.Version,
@@ -32,6 +36,7 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.AddCommand(newStopCmd())
 	cmd.AddCommand(newRestartCmd())
 	cmd.AddCommand(newStatusCmd())
+	cmd.AddCommand(newServicesCmd())
 	cmd.AddCommand(newLogsCmd())
 	cmd.AddCommand(newOpenCmd())
 	cmd.AddCommand(newHealthCmd())

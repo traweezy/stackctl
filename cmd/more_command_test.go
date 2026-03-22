@@ -195,15 +195,21 @@ func TestConfigResetDeleteWithoutTerminalNeedsForce(t *testing.T) {
 
 func TestConnectPrintsConnectionInfo(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
-		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 	})
 
 	stdout, _, err := executeRoot(t, "connect")
 	if err != nil {
 		t.Fatalf("connect returned error: %v", err)
 	}
-	if !strings.Contains(stdout, "postgres://app:app@localhost:5432/app") {
+	if !strings.Contains(stdout, "Postgres\n  postgres://app:app@devbox:5432/app") {
 		t.Fatalf("unexpected connect output: %s", stdout)
+	}
+	if strings.Contains(stdout, "DSN:") || strings.Contains(stdout, "URL:") {
+		t.Fatalf("connect should stay minimal, got: %s", stdout)
 	}
 }
 
@@ -365,10 +371,10 @@ func TestRestartRunsDownUpWaitAndPrintsEndpoints(t *testing.T) {
 	if !strings.Contains(stdout, "✅ stack restarted") {
 		t.Fatalf("unexpected restart output: %s", stdout)
 	}
-	if !strings.Contains(stdout, "🚀 restarting containers...") {
+	if !strings.Contains(stdout, "🔄 restarting stack...") {
 		t.Fatalf("unexpected restart action output: %s", stdout)
 	}
-	if !strings.Contains(stdout, "Cockpit\n  URL: https://localhost:9090") {
+	if !strings.Contains(stdout, "Cockpit\n  https://localhost:9090") {
 		t.Fatalf("restart should print connection info: %s", stdout)
 	}
 }

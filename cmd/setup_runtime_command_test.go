@@ -268,13 +268,13 @@ func TestStartFirstRunRunsWizardComposeWaitAndPrintsEndpoints(t *testing.T) {
 	if !strings.Contains(stdout, "✅ stack started") {
 		t.Fatalf("stdout missing success line: %s", stdout)
 	}
-	if !strings.Contains(stdout, "🚀 starting containers...") {
+	if !strings.Contains(stdout, "🚀 starting stack...") {
 		t.Fatalf("stdout missing action line: %s", stdout)
 	}
-	if !strings.Contains(stdout, "Postgres\n  DSN: postgres://app:app@localhost:5432/app") {
+	if !strings.Contains(stdout, "Postgres\n  postgres://app:app@localhost:5432/app") {
 		t.Fatalf("stdout missing postgres connection info: %s", stdout)
 	}
-	if !strings.Contains(stdout, "Cockpit\n  URL: https://localhost:9090") {
+	if !strings.Contains(stdout, "Cockpit\n  https://localhost:9090") {
 		t.Fatalf("stdout missing cockpit connection info: %s", stdout)
 	}
 }

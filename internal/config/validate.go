@@ -71,9 +71,13 @@ func Validate(cfg Config) []ValidationIssue {
 	}
 
 	for field, value := range map[string]string{
-		"services.postgres_container": cfg.Services.PostgresContainer,
-		"services.redis_container":    cfg.Services.RedisContainer,
-		"services.pgadmin_container":  cfg.Services.PgAdminContainer,
+		"services.postgres_container":  cfg.Services.PostgresContainer,
+		"services.redis_container":     cfg.Services.RedisContainer,
+		"services.pgadmin_container":   cfg.Services.PgAdminContainer,
+		"connection.host":              cfg.Connection.Host,
+		"connection.postgres_database": cfg.Connection.PostgresDatabase,
+		"connection.postgres_username": cfg.Connection.PostgresUsername,
+		"connection.postgres_password": cfg.Connection.PostgresPassword,
 	} {
 		if strings.TrimSpace(value) == "" {
 			issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})

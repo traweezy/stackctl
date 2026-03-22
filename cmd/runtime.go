@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -178,17 +179,22 @@ func printStatusTable(cmd *cobra.Command, containers []system.Container, verbose
 }
 
 func printConnectionInfo(cmd *cobra.Command, cfg configpkg.Config) error {
-	lines := []string{
-		fmt.Sprintf("Postgres\n  DSN: postgres://app:app@localhost:%d/app\n", cfg.Ports.Postgres),
-		fmt.Sprintf("Redis\n  DSN: redis://localhost:%d\n", cfg.Ports.Redis),
-		fmt.Sprintf("Cockpit\n  URL: %s\n", cfg.URLs.Cockpit),
-	}
-	if cfg.Setup.IncludePgAdmin {
-		lines = append(lines, fmt.Sprintf("pgAdmin\n  URL: %s\n", cfg.URLs.PgAdmin))
+	services, err := runtimeServices(context.Background(), cfg)
+	if err != nil {
+		return err
 	}
 
-	_, err := fmt.Fprintln(cmd.OutOrStdout(), strings.Join(lines, "\n"))
-	return err
+	entries := make([]connectionEntry, 0, len(services))
+	for _, service := range services {
+		switch {
+		case service.DSN != "":
+			entries = append(entries, connectionEntry{Name: service.DisplayName, Value: service.DSN})
+		case service.URL != "":
+			entries = append(entries, connectionEntry{Name: service.DisplayName, Value: service.URL})
+		}
+	}
+
+	return printConnectionEntries(cmd, entries)
 }
 
 func healthChecks(ctx context.Context, cfg configpkg.Config) ([]outputLine, error) {
@@ -254,6 +260,26 @@ type configuredService struct {
 	Port          int
 }
 
+type runtimeService struct {
+	Icon          string
+	DisplayName   string
+	Status        string
+	ContainerName string
+	Host          string
+	ExternalPort  int
+	InternalPort  int
+	Database      string
+	Username      string
+	Password      string
+	URL           string
+	DSN           string
+}
+
+type connectionEntry struct {
+	Name  string
+	Value string
+}
+
 func configuredStackServices(cfg configpkg.Config) []configuredService {
 	services := []configuredService{
 		{Name: "postgres", ContainerName: cfg.Services.PostgresContainer, Port: cfg.Ports.Postgres},
@@ -268,6 +294,229 @@ func configuredStackServices(cfg configpkg.Config) []configuredService {
 	}
 
 	return services
+}
+
+func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeService, error) {
+	containers, err := loadStackContainers(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	containerByName := make(map[string]system.Container, len(containers))
+	for _, container := range containers {
+		for _, name := range container.Names {
+			containerByName[name] = container
+		}
+	}
+
+	services := []runtimeService{
+		{
+			Icon:          "🗄️",
+			DisplayName:   "Postgres",
+			Status:        containerStatus(containerByName, cfg.Services.PostgresContainer),
+			ContainerName: cfg.Services.PostgresContainer,
+			Host:          cfg.Connection.Host,
+			ExternalPort:  cfg.Ports.Postgres,
+			InternalPort:  containerInternalPort(containerByName, cfg.Services.PostgresContainer, cfg.Ports.Postgres),
+			Database:      cfg.Connection.PostgresDatabase,
+			Username:      cfg.Connection.PostgresUsername,
+			Password:      cfg.Connection.PostgresPassword,
+			DSN:           postgresDSN(cfg),
+		},
+		{
+			Icon:          "⚡",
+			DisplayName:   "Redis",
+			Status:        containerStatus(containerByName, cfg.Services.RedisContainer),
+			ContainerName: cfg.Services.RedisContainer,
+			Host:          cfg.Connection.Host,
+			ExternalPort:  cfg.Ports.Redis,
+			InternalPort:  containerInternalPort(containerByName, cfg.Services.RedisContainer, cfg.Ports.Redis),
+			DSN:           redisDSN(cfg),
+		},
+	}
+
+	if cfg.Setup.IncludePgAdmin {
+		services = append(services, runtimeService{
+			Icon:          "🌐",
+			DisplayName:   "pgAdmin",
+			Status:        containerStatus(containerByName, cfg.Services.PgAdminContainer),
+			ContainerName: cfg.Services.PgAdminContainer,
+			Host:          cfg.Connection.Host,
+			ExternalPort:  cfg.Ports.PgAdmin,
+			InternalPort:  containerInternalPort(containerByName, cfg.Services.PgAdminContainer, cfg.Ports.PgAdmin),
+			URL:           cfg.URLs.PgAdmin,
+		})
+	}
+
+	cockpit := deps.cockpitStatus(ctx)
+	services = append(services, runtimeService{
+		Icon:         "🖥️",
+		DisplayName:  "Cockpit",
+		Status:       cockpitStateLabel(cockpit),
+		Host:         cfg.Connection.Host,
+		ExternalPort: cfg.Ports.Cockpit,
+		URL:          cfg.URLs.Cockpit,
+	})
+
+	return services, nil
+}
+
+func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
+	services, err := runtimeServices(context.Background(), cfg)
+	if err != nil {
+		return err
+	}
+
+	for idx, service := range services {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", service.Icon, service.DisplayName); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Status: %s\n", service.Status); err != nil {
+			return err
+		}
+		if service.ContainerName != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Container: %s\n", service.ContainerName); err != nil {
+				return err
+			}
+		}
+		if service.Host != "" && service.ExternalPort > 0 {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Host: %s\n", service.Host); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Port: %s\n", formatServicePort(service.ExternalPort, service.InternalPort)); err != nil {
+				return err
+			}
+		}
+		if service.Database != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Database: %s\n", service.Database); err != nil {
+				return err
+			}
+		}
+		if service.Username != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Username: %s\n", service.Username); err != nil {
+				return err
+			}
+		}
+		if service.Password != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Password: %s\n", service.Password); err != nil {
+				return err
+			}
+		}
+		if service.URL != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  URL: %s\n", service.URL); err != nil {
+				return err
+			}
+		}
+		if service.DSN != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  DSN: %s\n", service.DSN); err != nil {
+				return err
+			}
+		}
+
+		if idx < len(services)-1 {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func printConnectionEntries(cmd *cobra.Command, entries []connectionEntry) error {
+	for idx, entry := range entries {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n  %s\n", entry.Name, entry.Value); err != nil {
+			return err
+		}
+		if idx < len(entries)-1 {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func postgresDSN(cfg configpkg.Config) string {
+	target := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(cfg.Connection.PostgresUsername, cfg.Connection.PostgresPassword),
+		Host:   fmt.Sprintf("%s:%d", cfg.Connection.Host, cfg.Ports.Postgres),
+		Path:   cfg.Connection.PostgresDatabase,
+	}
+
+	return target.String()
+}
+
+func redisDSN(cfg configpkg.Config) string {
+	target := &url.URL{
+		Scheme: "redis",
+		Host:   fmt.Sprintf("%s:%d", cfg.Connection.Host, cfg.Ports.Redis),
+	}
+
+	return target.String()
+}
+
+func containerStatus(containerByName map[string]system.Container, containerName string) string {
+	container, ok := containerByName[containerName]
+	if !ok {
+		return "missing"
+	}
+
+	state := strings.TrimSpace(strings.ToLower(container.State))
+	switch state {
+	case "running":
+		return "running"
+	case "", "created", "configured", "exited", "stopped":
+		return "stopped"
+	default:
+		return state
+	}
+}
+
+func cockpitStateLabel(state system.CockpitState) string {
+	switch {
+	case state.Active:
+		return "running"
+	case !state.Installed:
+		return "missing"
+	case strings.TrimSpace(state.State) == "":
+		return "stopped"
+	default:
+		return strings.TrimSpace(state.State)
+	}
+}
+
+func containerInternalPort(containerByName map[string]system.Container, containerName string, hostPort int) int {
+	container, ok := containerByName[containerName]
+	if !ok {
+		return 0
+	}
+
+	for _, port := range container.Ports {
+		if port.HostPort == hostPort {
+			return port.ContainerPort
+		}
+	}
+	if len(container.Ports) == 0 {
+		return 0
+	}
+
+	return container.Ports[0].ContainerPort
+}
+
+func formatServicePort(externalPort, internalPort int) string {
+	switch {
+	case externalPort > 0 && internalPort > 0:
+		return fmt.Sprintf("%d -> %d", externalPort, internalPort)
+	case externalPort > 0:
+		return fmt.Sprintf("%d -> unknown", externalPort)
+	case internalPort > 0:
+		return fmt.Sprintf("unknown -> %d", internalPort)
+	default:
+		return "unknown"
+	}
 }
 
 func shortID(value string) string {

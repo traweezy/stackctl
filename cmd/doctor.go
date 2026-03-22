@@ -11,8 +11,9 @@ import (
 
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "doctor",
-		Short: "Run read-only diagnostics for the local stack",
+		Use:     "doctor",
+		Short:   "Run read-only diagnostics for the local stack",
+		Example: "  stackctl doctor",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report, err := deps.runDoctor(context.Background())
 			if err != nil {

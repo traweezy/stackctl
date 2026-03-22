@@ -12,13 +12,14 @@ import (
 var ErrNotFound = errors.New("stackctl config not found")
 
 type Config struct {
-	Stack    StackConfig    `yaml:"stack"`
-	Services ServicesConfig `yaml:"services"`
-	Ports    PortsConfig    `yaml:"ports"`
-	URLs     URLsConfig     `yaml:"urls"`
-	Behavior BehaviorConfig `yaml:"behavior"`
-	Setup    SetupConfig    `yaml:"setup"`
-	System   SystemConfig   `yaml:"system"`
+	Stack      StackConfig      `yaml:"stack"`
+	Services   ServicesConfig   `yaml:"services"`
+	Connection ConnectionConfig `yaml:"connection"`
+	Ports      PortsConfig      `yaml:"ports"`
+	URLs       URLsConfig       `yaml:"urls"`
+	Behavior   BehaviorConfig   `yaml:"behavior"`
+	Setup      SetupConfig      `yaml:"setup"`
+	System     SystemConfig     `yaml:"system"`
 }
 
 type StackConfig struct {
@@ -32,6 +33,13 @@ type ServicesConfig struct {
 	PostgresContainer string `yaml:"postgres_container"`
 	RedisContainer    string `yaml:"redis_container"`
 	PgAdminContainer  string `yaml:"pgadmin_container"`
+}
+
+type ConnectionConfig struct {
+	Host             string `yaml:"host"`
+	PostgresDatabase string `yaml:"postgres_database"`
+	PostgresUsername string `yaml:"postgres_username"`
+	PostgresPassword string `yaml:"postgres_password"`
 }
 
 type PortsConfig struct {
@@ -122,11 +130,24 @@ func Marshal(cfg Config) ([]byte, error) {
 }
 
 func (c *Config) ApplyDerivedFields() {
+	if c.Connection.Host == "" {
+		c.Connection.Host = "localhost"
+	}
+	if c.Connection.PostgresDatabase == "" {
+		c.Connection.PostgresDatabase = "app"
+	}
+	if c.Connection.PostgresUsername == "" {
+		c.Connection.PostgresUsername = "app"
+	}
+	if c.Connection.PostgresPassword == "" {
+		c.Connection.PostgresPassword = "app"
+	}
+
 	if c.Ports.Cockpit > 0 {
-		c.URLs.Cockpit = fmt.Sprintf("https://localhost:%d", c.Ports.Cockpit)
+		c.URLs.Cockpit = fmt.Sprintf("https://%s:%d", c.Connection.Host, c.Ports.Cockpit)
 	}
 	if c.Ports.PgAdmin > 0 {
-		c.URLs.PgAdmin = fmt.Sprintf("http://localhost:%d", c.Ports.PgAdmin)
+		c.URLs.PgAdmin = fmt.Sprintf("http://%s:%d", c.Connection.Host, c.Ports.PgAdmin)
 	}
 }
 

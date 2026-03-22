@@ -10,8 +10,9 @@ import (
 
 func newStopCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "stop",
-		Short: "Stop the local development stack",
+		Use:     "stop",
+		Short:   "Stop the local development stack",
+		Example: "  stackctl stop",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
@@ -21,7 +22,7 @@ func newStopCmd() *cobra.Command {
 				return err
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusAction, "stopping containers..."); err != nil {
+			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusStop, "stopping stack..."); err != nil {
 				return err
 			}
 			if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, false); err != nil {

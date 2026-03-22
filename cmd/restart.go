@@ -12,8 +12,9 @@ import (
 
 func newRestartCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "restart",
-		Short: "Restart the local development stack",
+		Use:     "restart",
+		Short:   "Restart the local development stack",
+		Example: "  stackctl restart",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
@@ -23,7 +24,7 @@ func newRestartCmd() *cobra.Command {
 				return err
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusAction, "restarting containers..."); err != nil {
+			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusRestart, "restarting stack..."); err != nil {
 				return err
 			}
 			if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, false); err != nil {

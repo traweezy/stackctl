@@ -15,6 +15,9 @@ func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show status for containers in this stack",
+		Example: "  stackctl status\n" +
+			"  stackctl status --verbose\n" +
+			"  stackctl status --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {

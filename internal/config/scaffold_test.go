@@ -66,6 +66,10 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	cfg := Default()
+	cfg.Connection.PostgresUsername = "stackuser"
+	cfg.Connection.PostgresPassword = "stackpass"
+	cfg.Connection.PostgresDatabase = "stackdb"
+	cfg.Ports.Postgres = 15432
 
 	result, err := ScaffoldManagedStack(cfg, false)
 	if err != nil {
@@ -81,6 +85,38 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "local-postgres") {
 		t.Fatalf("unexpected scaffolded compose file: %s", string(data))
+	}
+	if !strings.Contains(string(data), "POSTGRES_USER: \"stackuser\"") {
+		t.Fatalf("expected rendered postgres username, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "POSTGRES_PASSWORD: \"stackpass\"") {
+		t.Fatalf("expected rendered postgres password, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "POSTGRES_DB: \"stackdb\"") {
+		t.Fatalf("expected rendered postgres database, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "\"15432:5432\"") {
+		t.Fatalf("expected rendered postgres port mapping, got: %s", string(data))
+	}
+}
+
+func TestScaffoldManagedStackOmitsPgAdminWhenDisabled(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	cfg.Setup.IncludePgAdmin = false
+
+	result, err := ScaffoldManagedStack(cfg, false)
+	if err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(result.ComposePath)
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	if strings.Contains(string(data), "pgadmin:") {
+		t.Fatalf("expected pgadmin service to be omitted, got: %s", string(data))
 	}
 }
 

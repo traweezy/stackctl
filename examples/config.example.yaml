@@ -9,6 +9,12 @@ services:
   redis_container: local-redis
   pgadmin_container: local-pgadmin
 
+connection:
+  host: localhost
+  postgres_database: app
+  postgres_username: app
+  postgres_password: app
+
 ports:
   postgres: 5432
   redis: 6379
