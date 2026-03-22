@@ -124,6 +124,10 @@ For normal runtime usage, `stackctl` expects:
 - `podman`
 - `podman compose`
 
+When both Docker Compose and `podman-compose` are installed, `stackctl`
+prefers `podman-compose` so Podman-managed stacks do not accidentally route
+through a Docker-backed compose provider.
+
 If you want the CLI to install supported dependencies for you:
 
 ```bash
@@ -439,7 +443,8 @@ Flags:
 ### `stackctl start`
 
 Start the local development stack. If `wait_for_services_on_start` is enabled
-in config, `stackctl` waits for the configured ports before returning.
+in config, `stackctl` waits for the core app-facing services
+(`postgres` and `redis`) before returning.
 
 Examples:
 
@@ -510,17 +515,32 @@ Examples:
 ```bash
 stackctl services
 stackctl services --json
+stackctl services --copy postgres
 ```
 
 Flags:
 
 | Flag | Meaning |
 | --- | --- |
+| `--copy <target>` | Copy a common DSN, URL, or credential to the clipboard |
 | `-j`, `--json` | Print service details as JSON |
 
 Plaintext password fields are intentionally omitted from JSON output. Use the
 DSNs, URLs, or the human-readable `stackctl services` output when you need the
 configured credentials directly.
+
+Supported copy targets:
+
+- `postgres`
+- `redis`
+- `pgadmin`
+- `cockpit`
+- `postgres-user`
+- `postgres-password`
+- `postgres-database`
+- `redis-password`
+- `pgadmin-email`
+- `pgadmin-password`
 
 ### `stackctl exec`
 
@@ -565,6 +585,57 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `--no-tty` | Disable TTY allocation for the `psql` session |
+
+### `stackctl db dump`
+
+Dump the configured Postgres database as SQL.
+
+Examples:
+
+```bash
+stackctl db dump
+stackctl db dump dump.sql
+stackctl db dump --output dump.sql
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-o`, `--output` | Write the SQL dump to a file instead of stdout |
+
+### `stackctl db restore`
+
+Restore the configured Postgres database from a SQL dump.
+
+Examples:
+
+```bash
+stackctl db restore dump.sql --force
+stackctl db restore - --force < dump.sql
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-f`, `--force` | Skip confirmation before applying the SQL dump |
+
+### `stackctl db reset`
+
+Drop and recreate the configured Postgres database.
+
+Examples:
+
+```bash
+stackctl db reset --force
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-f`, `--force` | Skip confirmation before dropping and recreating the database |
 
 ### `stackctl ports`
 
@@ -640,15 +711,22 @@ Flags:
 
 ### `stackctl doctor`
 
-Run read-only diagnostics for the local stack and surrounding environment.
+Run diagnostics for the local stack and surrounding environment. Use
+`--fix` when you want `stackctl` to apply the supported automatic fixes.
 
 Examples:
 
 ```bash
 stackctl doctor
+stackctl doctor --fix --yes
 ```
 
-Flags: `-h`, `--help` only.
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--fix` | Try to apply supported fixes for doctor findings |
+| `-y`, `--yes` | Assume yes for automatic fix prompts |
 
 ### `stackctl open`
 
@@ -712,10 +790,15 @@ If you only remember a few commands, these are the ones most people will use:
 - `stackctl start`: bring the stack up
 - `stackctl services`: see the full runtime picture
 - `stackctl connect`: copy DSNs and URLs quickly
+- `stackctl services --copy postgres`: send a ready-to-use value straight to the clipboard
 - `stackctl db shell`: jump straight into `psql`
+- `stackctl db dump`: export the local database as SQL
+- `stackctl db restore`: replay a SQL dump into the local database
+- `stackctl db reset`: recreate the configured database cleanly
 - `stackctl ports`: check host-to-service port mappings quickly
 - `stackctl logs --watch`: keep a live log tail open while developing
 - `stackctl doctor`: diagnose environment and port problems
+- `stackctl doctor --fix`: apply the safe, supported automatic fixes
 
 ## Troubleshooting
 
@@ -781,6 +864,15 @@ stackctl open
 If browser launch is unavailable, `stackctl` prints the URL instead of
 failing.
 
+### Clipboard copy fails
+
+`stackctl services --copy ...` needs a clipboard tool on Linux.
+
+Install one of:
+
+- `wl-copy` for Wayland sessions
+- `xclip` or `xsel` for X11 sessions
+
 ## Development
 
 For local development on `stackctl` itself:
@@ -832,9 +924,13 @@ Available today:
 - optional Redis auth that flows through generated compose and DSNs
 - configurable pgAdmin login details that stay in sync with the managed stack
 - machine-readable service output with `stackctl services --json`
+- clipboard-friendly service helpers with `stackctl services --copy <target>`
 - `stackctl exec <service> -- <command...>` for in-container workflows
 - `stackctl db shell` for one-step Postgres access
+- `stackctl db dump`, `stackctl db restore`, and `stackctl db reset`
+  for repeatable local database workflows
 - `stackctl ports` for quick port inspection
+- `stackctl doctor --fix` for supported automatic environment remediation
 - live Podman integration coverage for the managed-stack lifecycle
 
 Current CLI surface:
@@ -857,6 +953,21 @@ Current CLI surface:
 
 These are the highest-value additions after the current release line.
 
+#### Broader service reconfiguration
+
+- first-class per-service settings beyond the current credential fields
+  Why: support richer Postgres, Redis, and pgAdmin customization without
+  forcing users back into manual compose edits
+- richer Redis configuration such as ACLs, named users, persistence, and
+  memory-policy defaults
+  Why: local environments often need more than a single optional password
+- broader Postgres and pgAdmin configuration controls
+  Why: users will need database names, credentials, ports, admin logins,
+  and common service-level tuning knobs to stay inside `stackctl config`
+- better support for non-managed custom stacks
+  Why: external compose users should be able to keep using `stackctl`
+  without losing as much configuration awareness
+
 #### More local services
 
 - `NATS`
@@ -877,35 +988,10 @@ Resulting target stack:
 - pgAdmin
 - Cockpit
 
-#### More day-to-day CLI helpers
-
-- `stackctl services --copy <target>`
-  Why: quick copy helpers for DSNs and URLs
-- `stackctl db reset`, `stackctl db dump`,
-  `stackctl db restore`
-  Why: streamline common Postgres workflows
-- `stackctl doctor --fix`
-  Why: automate safe fixes for common local-environment issues
-
 ### Next after that
 
 These are strong follow-ups once the high-priority local stack and helper
 commands are in place.
-
-#### Broader service reconfiguration
-
-- first-class per-service settings beyond the current credential fields
-  Why: support richer Postgres, Redis, and pgAdmin customization without
-  forcing users back into manual compose edits
-- richer Redis configuration such as ACLs, named users, persistence, and
-  memory-policy defaults
-  Why: local environments often need more than a single optional password
-- broader Postgres and pgAdmin configuration controls
-  Why: users will need database names, credentials, ports, admin logins,
-  and common service-level tuning knobs to stay inside `stackctl config`
-- better support for non-managed custom stacks
-  Why: external compose users should be able to keep using `stackctl`
-  without losing as much configuration awareness
 
 - multi-stack support such as `stackctl start dev` and
   `stackctl start staging`
