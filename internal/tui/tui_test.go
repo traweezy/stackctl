@@ -422,18 +422,21 @@ func TestOverviewExcludesCockpitFromStackServiceCount(t *testing.T) {
 	current := updatedModel.(Model)
 
 	snapshot := Snapshot{
-		StackName: "dev-stack",
+		StackName:  "dev-stack",
+		ConfigPath: "/tmp/stackctl/config.yaml",
 		Services: []Service{
 			{
 				DisplayName:   "Postgres",
 				Status:        "missing",
 				ContainerName: "stack-postgres",
+				Host:          "localhost",
 				ExternalPort:  5432,
 			},
 			{
 				DisplayName:   "Redis",
 				Status:        "missing",
 				ContainerName: "stack-redis",
+				Host:          "localhost",
 				ExternalPort:  6379,
 			},
 			{
@@ -451,11 +454,71 @@ func TestOverviewExcludesCockpitFromStackServiceCount(t *testing.T) {
 
 	view := current.View().Content
 	for _, fragment := range []string{
-		"Stack services running: 0 / 2",
+		"Running: 0",
+		"Stopped: 2",
+		"Attention: 0",
 		"Cockpit: running",
+		"Stack",
+		"Runtime",
+		"Stack services: 0 / 2 running",
+		"Host: localhost",
+		"Ports: Postgres 5432  •  Redis 6379  •  Cockpit 9090",
+		"Helpful commands",
+		"stackctl start  •  stackctl services  •  stackctl health",
 	} {
 		if !strings.Contains(view, fragment) {
 			t.Fatalf("expected overview to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestOverviewExpandedLayoutShowsPathsAndManagedMode(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName:         "dev-stack",
+		ConfigPath:        "/tmp/stackctl/config.yaml",
+		StackDir:          "/tmp/stackctl/stacks/dev-stack",
+		ComposePath:       "/tmp/stackctl/stacks/dev-stack/compose.yaml",
+		Managed:           true,
+		WaitForServices:   true,
+		StartupTimeoutSec: 45,
+		Services: []Service{
+			{
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+			},
+			{
+				DisplayName:   "Redis",
+				Status:        "running",
+				ContainerName: "stack-redis",
+				Host:          "localhost",
+				ExternalPort:  6379,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"Mode: managed",
+		"Config: /tmp/stackctl/config.yaml",
+		"Paths",
+		"Stack dir: /tmp/stackctl/stacks/dev-stack",
+		"Compose: /tmp/stackctl/stacks/dev-stack/compose.yaml",
+		"Startup timeout: 45s",
+		"Wait on start: on",
+		"stackctl services  •  stackctl health  •  stackctl connect",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("expected expanded overview to contain %q:\n%s", fragment, view)
 		}
 	}
 }

@@ -438,6 +438,12 @@ func sectionTitleStyle() lipgloss.Style {
 		Foreground(lipgloss.Color("80"))
 }
 
+func subsectionTitleStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("117"))
+}
+
 func mutedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color("244"))
@@ -544,21 +550,35 @@ func renderOverview(snapshot Snapshot, layout layoutMode) string {
 	lines := []string{
 		sectionTitleStyle().Render("Overview"),
 		"",
-		fmt.Sprintf("Stack: %s", emptyLabel(snapshot.StackName)),
-		fmt.Sprintf("Config: %s", emptyLabel(snapshot.ConfigPath)),
-		fmt.Sprintf("Stack services running: %d / %d", running, total),
-		fmt.Sprintf("Wait on start: %s", onOffLabel(snapshot.WaitForServices)),
+		renderOverviewSummary(snapshot.Services),
+		"",
+		subsectionTitleStyle().Render("Stack"),
+		fmt.Sprintf("  Name: %s", emptyLabel(snapshot.StackName)),
+		fmt.Sprintf("  Mode: %s", overviewModeLabel(snapshot.Managed)),
+		fmt.Sprintf("  Config: %s", emptyLabel(snapshot.ConfigPath)),
+		"",
+		subsectionTitleStyle().Render("Runtime"),
+		fmt.Sprintf("  Stack services: %d / %d running", running, total),
+		fmt.Sprintf("  Wait on start: %s", onOffLabel(snapshot.WaitForServices)),
+	}
+	if host := overviewHost(snapshot.Services); host != "" {
+		lines = append(lines, fmt.Sprintf("  Host: %s", host))
+	}
+	if ports := overviewPortSummary(snapshot.Services); ports != "" {
+		lines = append(lines, fmt.Sprintf("  Ports: %s", ports))
 	}
 	if layout == expandedLayout {
 		lines = append(lines,
-			fmt.Sprintf("Stack dir: %s", emptyLabel(snapshot.StackDir)),
-			fmt.Sprintf("Compose: %s", emptyLabel(snapshot.ComposePath)),
-			fmt.Sprintf("Startup timeout: %ds", snapshot.StartupTimeoutSec),
+			"",
+			subsectionTitleStyle().Render("Paths"),
+			fmt.Sprintf("  Stack dir: %s", emptyLabel(snapshot.StackDir)),
+			fmt.Sprintf("  Compose: %s", emptyLabel(snapshot.ComposePath)),
+			fmt.Sprintf("  Startup timeout: %ds", snapshot.StartupTimeoutSec),
 		)
 	}
-	if cockpit, ok := lookupService(snapshot.Services, "Cockpit"); ok {
-		lines = append(lines, renderStatusSummaryLine("Cockpit", displayServiceStatus(cockpit)))
-	}
+	lines = append(lines, "")
+	lines = append(lines, subsectionTitleStyle().Render("Helpful commands"))
+	lines = append(lines, "  "+overviewCommandHints(snapshot.Services))
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, overviewSection)))
 
@@ -773,6 +793,76 @@ func renderCopyHint(snapshot Snapshot, active section) string {
 	}
 
 	return "Copy placeholders: " + strings.Join(hints, "  •  ")
+}
+
+func renderOverviewSummary(services []Service) string {
+	running := 0
+	stopped := 0
+	attention := 0
+
+	for _, service := range services {
+		if !isStackService(service) {
+			continue
+		}
+		switch displayServiceStatus(service) {
+		case "running":
+			running++
+		case "stopped", "not running", "missing":
+			stopped++
+		default:
+			attention++
+		}
+	}
+
+	parts := []string{
+		statusStyle("healthy").Render(fmt.Sprintf("Running: %d", running)),
+		statusStyle("not running").Render(fmt.Sprintf("Stopped: %d", stopped)),
+		statusStyle("warning").Render(fmt.Sprintf("Attention: %d", attention)),
+	}
+	if cockpit, ok := lookupService(services, "Cockpit"); ok {
+		parts = append(parts, renderStatusSummaryLine("Cockpit", displayServiceStatus(cockpit)))
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
+}
+
+func overviewModeLabel(managed bool) string {
+	if managed {
+		return "managed"
+	}
+
+	return "external"
+}
+
+func overviewHost(services []Service) string {
+	for _, service := range services {
+		if strings.TrimSpace(service.Host) != "" {
+			return service.Host
+		}
+	}
+
+	return ""
+}
+
+func overviewPortSummary(services []Service) string {
+	parts := make([]string, 0, len(services))
+	for _, service := range services {
+		if service.ExternalPort <= 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", service.DisplayName, service.ExternalPort))
+	}
+
+	return strings.Join(parts, "  •  ")
+}
+
+func overviewCommandHints(services []Service) string {
+	running, _ := runningStackServiceCount(services)
+	if running > 0 {
+		return "stackctl services  •  stackctl health  •  stackctl connect"
+	}
+
+	return "stackctl start  •  stackctl services  •  stackctl health"
 }
 
 func renderHealthSummary(services []Service) string {
