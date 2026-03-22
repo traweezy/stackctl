@@ -1,0 +1,91 @@
+# A default user path should create, validate, scaffold, inspect, and reset config.
+exec stackctl config init --non-interactive
+stdout 'wrote managed compose file '
+stdout 'Saved config to '
+exists .config/stackctl/config.yaml
+exists .local/share/stackctl/stacks/dev-stack/compose.yaml
+
+exec stackctl config view
+stdout 'name: dev-stack'
+stdout $WORK/.local/share/stackctl/stacks/dev-stack
+stdout 'postgres_database: app'
+stdout 'postgres_username: app'
+stdout 'postgres_password: app'
+stdout 'redis_password: ""'
+stdout 'pgadmin_email: admin@example.com'
+stdout 'pgadmin_password: admin'
+
+exec stackctl config validate
+stdout 'config is valid'
+
+exec stackctl config scaffold --force
+stdout 'wrote managed compose file '
+cmp .local/share/stackctl/stacks/dev-stack/compose.yaml expected-compose.yaml
+
+exec stackctl config path
+stdout '/.config/stackctl/config.yaml'
+
+exec stackctl connect
+cmp stdout expected-connect.txt
+
+! exec stackctl logs -s invalid
+stderr 'invalid service "invalid"; valid values: postgres, redis, pgadmin'
+
+exec stackctl config reset --force
+stdout 'Reset config at '
+exec stackctl config view
+stdout 'name: dev-stack'
+stdout $WORK/.local/share/stackctl/stacks/dev-stack
+stdout 'postgres_database: app'
+stdout 'pgadmin_email: admin@example.com'
+
+-- expected-compose.yaml --
+services:
+  postgres:
+    image: postgres:16
+    container_name: "local-postgres"
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "app"
+      POSTGRES_PASSWORD: "app"
+      POSTGRES_DB: "app"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: "local-redis"
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: "local-pgadmin"
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: "admin@example.com"
+      PGADMIN_DEFAULT_PASSWORD: "admin"
+    ports:
+      - "8081:80"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  redis_data:
+-- expected-connect.txt --
+Postgres
+  postgres://app:app@localhost:5432/app
+
+Redis
+  redis://localhost:6379
+
+pgAdmin
+  http://localhost:8081
+
+Cockpit
+  https://localhost:9090

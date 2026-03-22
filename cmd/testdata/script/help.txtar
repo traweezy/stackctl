@@ -1,0 +1,39 @@
+# Root and subcommand help should expose the current CLI surface.
+exec stackctl --help
+stdout 'stackctl setup'
+stdout 'stackctl services'
+stdout 'stackctl logs --watch'
+
+exec stackctl services --help
+stdout '--json'
+stdout 'stackctl services --json'
+
+exec stackctl status --help
+stdout '--json'
+stdout '--verbose'
+
+exec stackctl config init --help
+stdout '--force'
+stdout '--non-interactive'
+
+exec stackctl logs --help
+stdout '--service'
+stdout '--tail'
+stdout '--watch'
+
+exec stackctl health --help
+stdout '--watch'
+stdout '--interval'
+
+exec stackctl reset --help
+stdout '--force'
+stdout '--volumes'
+
+exec stackctl setup --help
+stdout '--install'
+stdout '--interactive'
+stdout '--non-interactive'
+stdout '--yes'
+
+exec stackctl version
+stdout 'version: [0-9]+\.[0-9]+\.[0-9]+'
