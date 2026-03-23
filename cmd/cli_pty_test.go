@@ -24,7 +24,7 @@ func TestConfigInitInteractivePTYCustomizesConfig(t *testing.T) {
 	t.Setenv("HOME", dataRoot)
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("XDG_DATA_HOME", dataRoot)
-	env := cliTestEnv(configRoot, dataRoot)
+	env := cliTestEnv(t, configRoot, dataRoot)
 
 	input := strings.Join([]string{
 		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
@@ -91,7 +91,7 @@ func TestConfigEditInteractivePTYUpdatesExistingConfig(t *testing.T) {
 	t.Setenv("HOME", dataRoot)
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("XDG_DATA_HOME", dataRoot)
-	env := cliTestEnv(configRoot, dataRoot)
+	env := cliTestEnv(t, configRoot, dataRoot)
 
 	cfg := configpkg.Default()
 	cfg.ApplyDerivedFields()
@@ -156,11 +156,58 @@ func TestConfigEditInteractivePTYUpdatesExistingConfig(t *testing.T) {
 	}
 }
 
-func cliTestEnv(configRoot, dataRoot string) []string {
+func cliTestEnv(t testing.TB, configRoot, dataRoot string) []string {
+	t.Helper()
+
+	fakeBin := t.TempDir()
+	podmanPath := filepath.Join(fakeBin, "podman")
+	podmanScript := `#!/bin/sh
+case "$1" in
+  compose)
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -f)
+          shift 2
+          ;;
+        version)
+          exit 0
+          ;;
+        ps)
+          printf '[]\n'
+          exit 0
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    exit 0
+    ;;
+  ps)
+    printf '[]\n'
+    exit 0
+    ;;
+  container)
+    if [ "$2" = "exists" ]; then
+      exit 1
+    fi
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`
+	if err := os.WriteFile(podmanPath, []byte(podmanScript), 0o755); err != nil {
+		t.Fatalf("write fake podman: %v", err)
+	}
+
 	return []string{
 		"HOME=" + dataRoot,
 		"XDG_CONFIG_HOME=" + configRoot,
 		"XDG_DATA_HOME=" + dataRoot,
+		"PATH=" + fakeBin,
 	}
 }
 

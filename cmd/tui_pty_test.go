@@ -24,7 +24,7 @@ func TestTUIConfigPTYCanCreateAndScaffoldFromScratch(t *testing.T) {
 	t.Setenv("HOME", dataRoot)
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("XDG_DATA_HOME", dataRoot)
-	env := cliTestEnv(configRoot, dataRoot)
+	env := cliTestEnv(t, configRoot, dataRoot)
 
 	output, err := runStackctlPTYSteps(t, binaryPath, env, []ptyStep{
 		{Delay: 250 * time.Millisecond, Input: "\t"},
@@ -57,7 +57,7 @@ func TestTUIConfigPTYCanApplyFreshConfig(t *testing.T) {
 	t.Setenv("HOME", dataRoot)
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("XDG_DATA_HOME", dataRoot)
-	env := cliTestEnv(configRoot, dataRoot)
+	env := cliTestEnv(t, configRoot, dataRoot)
 
 	output, err := runStackctlPTYSteps(t, binaryPath, env, []ptyStep{
 		{Delay: 250 * time.Millisecond, Input: "\t"},
@@ -90,7 +90,7 @@ func TestTUIConfigPTYCanTypeNAndSave(t *testing.T) {
 	t.Setenv("HOME", dataRoot)
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("XDG_DATA_HOME", dataRoot)
-	env := cliTestEnv(configRoot, dataRoot)
+	env := cliTestEnv(t, configRoot, dataRoot)
 
 	output, err := runStackctlPTYSteps(t, binaryPath, env, []ptyStep{
 		{Delay: 250 * time.Millisecond, Input: "\t"},
