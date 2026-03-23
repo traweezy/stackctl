@@ -1680,8 +1680,16 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 		t.Fatalf("expected services panel content to show contextual service actions:\n%s", servicesContent)
 	}
 	servicesSidebar := renderSidebar(current)
-	if !strings.Contains(servicesSidebar, "Actions") || !strings.Contains(servicesSidebar, "[1] Restart") {
-		t.Fatalf("expected services sidebar to keep global actions visible:\n%s", servicesSidebar)
+	for _, fragment := range []string{
+		"Actions",
+		"[1] Restart Postgres",
+		"[2] Stop Postgres",
+		"[3] Restart",
+		"[4] Stop",
+	} {
+		if !strings.Contains(servicesSidebar, fragment) {
+			t.Fatalf("expected services sidebar to show %q:\n%s", fragment, servicesSidebar)
+		}
 	}
 }
 
@@ -1818,7 +1826,7 @@ func TestConfigSectionScrollsFieldListWithoutLosingFooter(t *testing.T) {
 
 	view := current.View().Content
 	for _, fragment := range []string{
-		"Redis / Port",
+		"Redis / Save policy",
 		"ctrl+s save/apply",
 		"q quit",
 	} {

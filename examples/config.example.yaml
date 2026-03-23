@@ -7,6 +7,7 @@ stack:
 services:
   postgres_container: local-postgres
   redis_container: local-redis
+  nats_container: local-nats
   pgadmin_container: local-pgadmin
   postgres:
     image: docker.io/library/postgres:16
@@ -18,6 +19,8 @@ services:
     appendonly: false
     save_policy: 3600 1 300 100 60 10000
     maxmemory_policy: noeviction
+  nats:
+    image: docker.io/library/nats:2.12.5
   pgadmin:
     image: docker.io/dpage/pgadmin4:latest
     data_volume: pgadmin_data
@@ -29,12 +32,14 @@ connection:
   postgres_username: app
   postgres_password: app
   redis_password: ""
+  nats_token: stackctl
   pgadmin_email: admin@example.com
   pgadmin_password: admin
 
 ports:
   postgres: 5432
   redis: 6379
+  nats: 4222
   pgadmin: 8081
   cockpit: 9090
 
@@ -47,7 +52,11 @@ behavior:
   startup_timeout_seconds: 30
 
 setup:
+  include_postgres: true
+  include_redis: true
+  include_cockpit: true
   install_cockpit: true
+  include_nats: true
   include_pgadmin: true
   scaffold_default_stack: true
 

@@ -35,6 +35,9 @@ func newLogsCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if err := ensureServiceEnabled(cfg, serviceName); err != nil {
+					return err
+				}
 			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
 				return err
@@ -57,7 +60,7 @@ func newLogsCmd() *cobra.Command {
 
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Follow logs")
 	cmd.Flags().IntVarP(&tail, "tail", "n", 100, "Number of log lines to show")
-	cmd.Flags().StringVarP(&service, "service", "s", "", "Filter logs to a single service (postgres|pg, redis|rd, pgadmin)")
+	cmd.Flags().StringVarP(&service, "service", "s", "", "Filter logs to a single service (postgres|pg, redis|rd, nats|na, pgadmin)")
 	cmd.Flags().StringVar(&since, "since", "", "Show logs since a relative time or timestamp")
 
 	return cmd

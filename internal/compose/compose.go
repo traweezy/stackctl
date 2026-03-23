@@ -92,12 +92,36 @@ func (c Client) Up(ctx context.Context, cfg configpkg.Config) error {
 	return c.runComposeQuiet(ctx, cfg.Stack.Dir, composeArgs(cfg, "up", "-d")...)
 }
 
+func (c Client) UpServices(ctx context.Context, cfg configpkg.Config, forceRecreate bool, services ...string) error {
+	args := composeArgs(cfg, "up", "-d", "--no-deps")
+	if forceRecreate {
+		args = append(args, "--force-recreate")
+	}
+	args = append(args, services...)
+	return c.runComposeQuiet(ctx, cfg.Stack.Dir, args...)
+}
+
 func (c Client) Down(ctx context.Context, cfg configpkg.Config, removeVolumes bool) error {
 	args := composeArgs(cfg, "down")
 	if removeVolumes {
 		args = append(args, "-v")
 	}
 
+	return c.runComposeQuiet(ctx, cfg.Stack.Dir, args...)
+}
+
+func (c Client) DownPath(ctx context.Context, dir, composePath string, removeVolumes bool) error {
+	args := composeArgsForPath(composePath, "down")
+	if removeVolumes {
+		args = append(args, "-v")
+	}
+
+	return c.runComposeQuiet(ctx, dir, args...)
+}
+
+func (c Client) StopServices(ctx context.Context, cfg configpkg.Config, services ...string) error {
+	args := composeArgs(cfg, "stop")
+	args = append(args, services...)
 	return c.runComposeQuiet(ctx, cfg.Stack.Dir, args...)
 }
 

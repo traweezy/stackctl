@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -10,11 +12,15 @@ import (
 
 func newStopCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "stop",
-		Short:   "Stop the local development stack",
-		Example: "  stackctl stop",
+		Use:     "stop [service...]",
+		Short:   "Stop the local development stack or selected services",
+		Example: "  stackctl stop\n  stackctl stop postgres\n  stackctl stop redis nats",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
+			if err != nil {
+				return err
+			}
+			services, err := resolveTargetStackServices(cfg, args)
 			if err != nil {
 				return err
 			}
@@ -22,14 +28,21 @@ func newStopCmd() *cobra.Command {
 				return err
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusStop, "stopping stack..."); err != nil {
+			target := lifecycleTargetLabel(services)
+			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusStop, fmt.Sprintf("stopping %s...", strings.ToLower(target))); err != nil {
 				return err
 			}
-			if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, false); err != nil {
+			switch {
+			case len(services) == 0:
+				err = deps.composeDown(context.Background(), runnerFor(cmd), cfg, false)
+			default:
+				err = deps.composeStopServices(context.Background(), runnerFor(cmd), cfg, services)
+			}
+			if err != nil {
 				return err
 			}
 
-			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "stack stopped")
+			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("%s stopped", target))
 		},
 	}
 }

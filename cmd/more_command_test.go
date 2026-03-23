@@ -19,7 +19,7 @@ import (
 
 func TestDefaultCommandDepsProvidesHooks(t *testing.T) {
 	value := defaultCommandDeps()
-	if value.configFilePath == nil || value.composeUp == nil || value.composeExec == nil || value.removeFile == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
+	if value.configDirPath == nil || value.configFilePath == nil || value.knownConfigPaths == nil || value.composeUp == nil || value.composeUpServices == nil || value.composeStopServices == nil || value.composeExec == nil || value.removeFile == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
 		t.Fatal("default command deps should initialize function hooks")
 	}
 }
@@ -64,8 +64,14 @@ func TestDefaultCommandDepsClosuresExecuteAgainstFakeBinaries(t *testing.T) {
 	if err := value.composeUp(context.Background(), runner, cfg); err != nil {
 		t.Fatalf("composeUp returned error: %v", err)
 	}
+	if err := value.composeUpServices(context.Background(), runner, cfg, true, []string{"postgres"}); err != nil {
+		t.Fatalf("composeUpServices returned error: %v", err)
+	}
 	if err := value.composeDown(context.Background(), runner, cfg, true); err != nil {
 		t.Fatalf("composeDown returned error: %v", err)
+	}
+	if err := value.composeStopServices(context.Background(), runner, cfg, []string{"postgres"}); err != nil {
+		t.Fatalf("composeStopServices returned error: %v", err)
 	}
 	if err := value.composeLogs(context.Background(), runner, cfg, 10, true, "1m", "postgres"); err != nil {
 		t.Fatalf("composeLogs returned error: %v", err)
@@ -168,8 +174,13 @@ func TestConfigViewMissingConfigReturnsGuidance(t *testing.T) {
 
 func TestConfigResetForceWritesDefaults(t *testing.T) {
 	var saved configpkg.Config
+	scaffolded := false
 
 	withTestDeps(t, func(d *commandDeps) {
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+		}
 		d.saveConfig = func(_ string, cfg configpkg.Config) error {
 			saved = cfg
 			return nil
@@ -182,6 +193,9 @@ func TestConfigResetForceWritesDefaults(t *testing.T) {
 	}
 	if saved.Stack.Name != "dev-stack" {
 		t.Fatalf("unexpected saved config: %+v", saved)
+	}
+	if !scaffolded {
+		t.Fatal("expected config reset to scaffold the default managed stack")
 	}
 	if !strings.Contains(stdout, "Reset config at /tmp/stackctl/config.yaml to defaults") {
 		t.Fatalf("unexpected stdout: %s", stdout)
@@ -344,6 +358,161 @@ func TestStopRunsComposeDown(t *testing.T) {
 	}
 	if !downCalled {
 		t.Fatal("expected stop to call compose down")
+	}
+}
+
+func TestStartServiceRunsComposeUpServicesAndWaitsSelectedPort(t *testing.T) {
+	var calledServices []string
+	var forceRecreate bool
+	var waitedPorts []int
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, force bool, services []string) error {
+			forceRecreate = force
+			calledServices = append([]string(nil), services...)
+			return nil
+		}
+		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+			waitedPorts = append(waitedPorts, port)
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "start", "postgres")
+	if err != nil {
+		t.Fatalf("start postgres returned error: %v", err)
+	}
+	if !reflect.DeepEqual(calledServices, []string{"postgres"}) {
+		t.Fatalf("unexpected services: %v", calledServices)
+	}
+	if forceRecreate {
+		t.Fatal("service start should not force recreate")
+	}
+	if !reflect.DeepEqual(waitedPorts, []int{5432}) {
+		t.Fatalf("unexpected waited ports: %v", waitedPorts)
+	}
+	for _, fragment := range []string{
+		"🚀 starting postgres...",
+		"✅ Postgres started",
+		"Postgres\n  postgres://app:app@localhost:5432/app",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("stdout missing %q:\n%s", fragment, stdout)
+		}
+	}
+	if strings.Contains(stdout, "Redis\n  redis://localhost:6379") {
+		t.Fatalf("service start should only print selected connections:\n%s", stdout)
+	}
+}
+
+func TestStopServiceRunsComposeStopServices(t *testing.T) {
+	var calledServices []string
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.composeStopServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, services []string) error {
+			calledServices = append([]string(nil), services...)
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "stop", "redis")
+	if err != nil {
+		t.Fatalf("stop redis returned error: %v", err)
+	}
+	if !reflect.DeepEqual(calledServices, []string{"redis"}) {
+		t.Fatalf("unexpected services: %v", calledServices)
+	}
+	for _, fragment := range []string{
+		"🛑 stopping redis...",
+		"✅ Redis stopped",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("stdout missing %q:\n%s", fragment, stdout)
+		}
+	}
+}
+
+func TestRestartServiceRunsComposeUpServicesWithForceRecreate(t *testing.T) {
+	var calledServices []string
+	var forceRecreate bool
+	var waitedPorts []int
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, force bool, services []string) error {
+			forceRecreate = force
+			calledServices = append([]string(nil), services...)
+			return nil
+		}
+		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+			waitedPorts = append(waitedPorts, port)
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "restart", "nats")
+	if err != nil {
+		t.Fatalf("restart nats returned error: %v", err)
+	}
+	if !reflect.DeepEqual(calledServices, []string{"nats"}) {
+		t.Fatalf("unexpected services: %v", calledServices)
+	}
+	if !forceRecreate {
+		t.Fatal("service restart should force recreate")
+	}
+	if !reflect.DeepEqual(waitedPorts, []int{4222}) {
+		t.Fatalf("unexpected waited ports: %v", waitedPorts)
+	}
+	for _, fragment := range []string{
+		"🔄 restarting nats...",
+		"✅ NATS restarted",
+		"NATS\n  nats://stackctl@localhost:4222",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("stdout missing %q:\n%s", fragment, stdout)
+		}
+	}
+}
+
+func TestStartRefusesWhenAnotherLocalStackIsRunning(t *testing.T) {
+	currentPath := "/tmp/stackctl/config.yaml"
+	otherPath := "/tmp/stackctl/stacks/staging.yaml"
+	currentCfg := configpkg.Default()
+	otherCfg := configpkg.DefaultForStack("staging")
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.configFilePath = func() (string, error) { return currentPath, nil }
+		d.knownConfigPaths = func() ([]string, error) { return []string{currentPath, otherPath}, nil }
+		d.loadConfig = func(path string) (configpkg.Config, error) {
+			switch path {
+			case currentPath:
+				return currentCfg, nil
+			case otherPath:
+				return otherCfg, nil
+			default:
+				return configpkg.Config{}, configpkg.ErrNotFound
+			}
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{
+				Stdout: `[{"Names":["stackctl-staging-postgres"],"Image":"postgres:16","Status":"Up","State":"running","Ports":[]}]`,
+			}, nil
+		}
+	})
+
+	_, _, err := executeRoot(t, "start")
+	if err == nil {
+		t.Fatal("expected start to refuse when another stack is running")
+	}
+	for _, fragment := range []string{
+		"another local stack is already running: staging",
+		"`stackctl --stack staging stop`",
+	} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("expected error to contain %q: %v", fragment, err)
+		}
 	}
 }
 
@@ -664,8 +833,15 @@ func TestHealthChecksWarnWhenContainersNotRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("healthChecks returned error: %v", err)
 	}
-	if got := lines[len(lines)-3].Message; got != "postgres not running (Exited)" {
-		t.Fatalf("unexpected postgres health message: %s", got)
+	found := false
+	for _, line := range lines {
+		if line.Message == "postgres not running (Exited)" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected postgres health warning, got %+v", lines)
 	}
 }
 
@@ -682,13 +858,14 @@ func TestWaitForConfiguredServicesOnlyWaitsForCoreServicePorts(t *testing.T) {
 	cfg := configpkg.Default()
 	cfg.Ports.Postgres = 15432
 	cfg.Ports.Redis = 16379
+	cfg.Ports.NATS = 14222
 	cfg.Ports.PgAdmin = 18081
 
 	if err := waitForConfiguredServices(context.Background(), cfg); err != nil {
 		t.Fatalf("waitForConfiguredServices returned error: %v", err)
 	}
 
-	if !reflect.DeepEqual(ports, []int{15432, 16379}) {
+	if !reflect.DeepEqual(ports, []int{15432, 16379, 14222}) {
 		t.Fatalf("unexpected ports: %v", ports)
 	}
 }

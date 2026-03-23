@@ -3,6 +3,20 @@ exec stackctl --help
 stdout 'stackctl setup'
 stdout 'stackctl services'
 stdout 'stackctl exec postgres -- psql -U app -d app'
+stdout 'factory-reset'
+stdout '--stack'
+
+exec stackctl start --help
+stdout 'start [service...]'
+stdout 'stackctl start postgres'
+
+exec stackctl stop --help
+stdout 'stop [service...]'
+stdout 'stackctl stop redis nats'
+
+exec stackctl restart --help
+stdout 'restart [service...]'
+stdout 'stackctl restart postgres'
 
 exec stackctl services --help
 stdout '--json'
@@ -39,6 +53,10 @@ stdout '--interval'
 exec stackctl reset --help
 stdout '--force'
 stdout '--volumes'
+
+exec stackctl factory-reset --help
+stdout 'DANGEROUS'
+stdout '--force'
 
 exec stackctl setup --help
 stdout '--install'

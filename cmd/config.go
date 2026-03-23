@@ -241,6 +241,9 @@ func newConfigResetCmd() *cobra.Command {
 			}
 
 			cfg := deps.defaultConfig()
+			if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+				return err
+			}
 			if err := deps.saveConfig(path, cfg); err != nil {
 				return err
 			}

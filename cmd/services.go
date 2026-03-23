@@ -47,7 +47,7 @@ func newServicesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Print service details as JSON")
-	cmd.Flags().StringVar(&copyTarget, "copy", "", "Copy a service value like postgres, redis, pgadmin, or cockpit to the clipboard")
+	cmd.Flags().StringVar(&copyTarget, "copy", "", "Copy a service value like postgres, redis, nats, pgadmin, or cockpit to the clipboard")
 
 	return cmd
 }

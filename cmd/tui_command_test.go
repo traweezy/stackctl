@@ -45,20 +45,20 @@ func TestLoadTUISnapshotBuildsReadOnlyDashboardState(t *testing.T) {
 	if snapshot.StackName != "dev-stack" || !snapshot.Managed {
 		t.Fatalf("unexpected snapshot metadata: %+v", snapshot)
 	}
-	if len(snapshot.Services) != 4 {
-		t.Fatalf("expected 4 services in snapshot, got %d", len(snapshot.Services))
+	if len(snapshot.Services) != 5 {
+		t.Fatalf("expected 5 services in snapshot, got %d", len(snapshot.Services))
 	}
 	if !snapshot.Services[0].PortListening || !snapshot.Services[1].PortListening {
 		t.Fatalf("expected postgres and redis ports to be marked reachable: %+v", snapshot.Services[:2])
 	}
-	if snapshot.Services[2].PortListening || snapshot.Services[3].PortListening {
-		t.Fatalf("expected pgadmin and cockpit ports to be marked unreachable: %+v", snapshot.Services[2:])
+	if snapshot.Services[2].PortListening || snapshot.Services[3].PortListening || snapshot.Services[4].PortListening {
+		t.Fatalf("expected nats, pgadmin, and cockpit ports to be marked unreachable: %+v", snapshot.Services[2:])
 	}
 	if len(snapshot.Health) == 0 {
 		t.Fatalf("expected health lines in snapshot")
 	}
-	if len(snapshot.Connections) != 4 {
-		t.Fatalf("expected 4 connection entries, got %d", len(snapshot.Connections))
+	if len(snapshot.Connections) != 5 {
+		t.Fatalf("expected 5 connection entries, got %d", len(snapshot.Connections))
 	}
 }
 

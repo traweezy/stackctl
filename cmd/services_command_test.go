@@ -26,6 +26,8 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		cfg.Services.Redis.AppendOnly = true
 		cfg.Services.Redis.SavePolicy = "900 1 300 10"
 		cfg.Services.Redis.MaxMemoryPolicy = "allkeys-lru"
+		cfg.Connection.NATSToken = "natssecret"
+		cfg.Services.NATS.Image = "docker.io/library/nats:2.12.5"
 		cfg.Connection.PgAdminEmail = "pgadmin@example.com"
 		cfg.Connection.PgAdminPassword = "pgsecret"
 		cfg.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:9"
@@ -33,6 +35,7 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		cfg.Services.PgAdmin.ServerMode = true
 		cfg.Ports.Postgres = 15432
 		cfg.Ports.Redis = 16379
+		cfg.Ports.NATS = 14222
 		cfg.Ports.PgAdmin = 18081
 		cfg.Ports.Cockpit = 19090
 		cfg.ApplyDerivedFields()
@@ -40,7 +43,7 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
 			return system.CommandResult{
-				Stdout: `[{"Id":"postgres123456","Names":["local-postgres"],"Image":"postgres:16","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":15432,"container_port":5432,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"redis123456","Names":["local-redis"],"Image":"redis:7","Status":"Exited (0)","State":"exited","Ports":[{"host_port":16379,"container_port":6379,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"pgadmin123456","Names":["local-pgadmin"],"Image":"dpage/pgadmin4:latest","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":18081,"container_port":80,"protocol":"tcp"}],"CreatedAt":"now"}]`,
+				Stdout: `[{"Id":"postgres123456","Names":["local-postgres"],"Image":"postgres:16","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":15432,"container_port":5432,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"redis123456","Names":["local-redis"],"Image":"redis:7","Status":"Exited (0)","State":"exited","Ports":[{"host_port":16379,"container_port":6379,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"nats123456","Names":["local-nats"],"Image":"nats:2.12.5","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":14222,"container_port":4222,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"pgadmin123456","Names":["local-pgadmin"],"Image":"dpage/pgadmin4:latest","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":18081,"container_port":80,"protocol":"tcp"}],"CreatedAt":"now"}]`,
 			}, nil
 		}
 		d.cockpitStatus = func(context.Context) system.CockpitState {
@@ -76,6 +79,12 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		"Save policy: 900 1 300 10",
 		"Maxmemory policy: allkeys-lru",
 		"DSN: redis://:redispass@devbox:16379",
+		"📡 NATS",
+		"Container: local-nats",
+		"Image: docker.io/library/nats:2.12.5",
+		"Port: 14222 -> 4222",
+		"Token: natssecret",
+		"DSN: nats://natssecret@devbox:14222",
 		"🌐 pgAdmin",
 		"Image: docker.io/dpage/pgadmin4:9",
 		"Data volume: stack_pgadmin_data",
@@ -112,7 +121,7 @@ func TestServicesHandlesMissingContainersCleanly(t *testing.T) {
 		t.Fatalf("services returned error: %v", err)
 	}
 
-	if strings.Count(stdout, "Status: missing") < 3 {
+	if strings.Count(stdout, "Status: missing") < 4 {
 		t.Fatalf("expected missing services to be reported clearly: %s", stdout)
 	}
 }
@@ -133,6 +142,8 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 		cfg.Services.Redis.AppendOnly = true
 		cfg.Services.Redis.SavePolicy = "900 1 300 10"
 		cfg.Services.Redis.MaxMemoryPolicy = "allkeys-lru"
+		cfg.Connection.NATSToken = "natssecret"
+		cfg.Services.NATS.Image = "docker.io/library/nats:2.12.5"
 		cfg.Connection.PgAdminEmail = "pgadmin@example.com"
 		cfg.Connection.PgAdminPassword = "pgsecret"
 		cfg.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:9"
@@ -140,6 +151,7 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 		cfg.Services.PgAdmin.ServerMode = true
 		cfg.Ports.Postgres = 15432
 		cfg.Ports.Redis = 16379
+		cfg.Ports.NATS = 14222
 		cfg.Ports.PgAdmin = 18081
 		cfg.Ports.Cockpit = 19090
 		cfg.ApplyDerivedFields()
@@ -147,7 +159,7 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
 			return system.CommandResult{
-				Stdout: `[{"Id":"postgres123456","Names":["local-postgres"],"Image":"postgres:16","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":15432,"container_port":5432,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"redis123456","Names":["local-redis"],"Image":"redis:7","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":16379,"container_port":6379,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"pgadmin123456","Names":["local-pgadmin"],"Image":"dpage/pgadmin4:latest","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":18081,"container_port":80,"protocol":"tcp"}],"CreatedAt":"now"}]`,
+				Stdout: `[{"Id":"postgres123456","Names":["local-postgres"],"Image":"postgres:16","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":15432,"container_port":5432,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"redis123456","Names":["local-redis"],"Image":"redis:7","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":16379,"container_port":6379,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"nats123456","Names":["local-nats"],"Image":"nats:2.12.5","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":14222,"container_port":4222,"protocol":"tcp"}],"CreatedAt":"now"},{"Id":"pgadmin123456","Names":["local-pgadmin"],"Image":"dpage/pgadmin4:latest","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":18081,"container_port":80,"protocol":"tcp"}],"CreatedAt":"now"}]`,
 			}, nil
 		}
 		d.cockpitStatus = func(context.Context) system.CockpitState {
@@ -164,8 +176,8 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &services); err != nil {
 		t.Fatalf("parse services json: %v\n%s", err, stdout)
 	}
-	if len(services) != 4 {
-		t.Fatalf("expected 4 runtime services, got %d", len(services))
+	if len(services) != 5 {
+		t.Fatalf("expected 5 runtime services, got %d", len(services))
 	}
 
 	if services[0].Name != "postgres" || services[0].DSN != "postgres://stackuser:stackpass@devbox:15432/stackdb" {
@@ -180,14 +192,20 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 	if services[1].Image != "docker.io/library/redis:7.4" || services[1].DataVolume != "stack_redis_data" || services[1].AppendOnly == nil || !*services[1].AppendOnly || services[1].SavePolicy != "900 1 300 10" || services[1].MaxMemoryPolicy != "allkeys-lru" {
 		t.Fatalf("unexpected redis config: %+v", services[1])
 	}
-	if services[2].Name != "pgadmin" || services[2].Email != "pgadmin@example.com" || services[2].URL != "http://devbox:18081" {
-		t.Fatalf("unexpected pgadmin service: %+v", services[2])
+	if services[2].Name != "nats" || services[2].DSN != "nats://natssecret@devbox:14222" {
+		t.Fatalf("unexpected nats service: %+v", services[2])
 	}
-	if services[2].Image != "docker.io/dpage/pgadmin4:9" || services[2].DataVolume != "stack_pgadmin_data" || services[2].ServerMode != "enabled" {
-		t.Fatalf("unexpected pgadmin config: %+v", services[2])
+	if services[2].Image != "docker.io/library/nats:2.12.5" || services[2].ExternalPort != 14222 || services[2].InternalPort != 4222 {
+		t.Fatalf("unexpected nats config: %+v", services[2])
 	}
-	if services[3].Name != "cockpit" || services[3].URL != "https://devbox:19090" || services[3].Status != "running" {
-		t.Fatalf("unexpected cockpit service: %+v", services[3])
+	if services[3].Name != "pgadmin" || services[3].Email != "pgadmin@example.com" || services[3].URL != "http://devbox:18081" {
+		t.Fatalf("unexpected pgadmin service: %+v", services[3])
+	}
+	if services[3].Image != "docker.io/dpage/pgadmin4:9" || services[3].DataVolume != "stack_pgadmin_data" || services[3].ServerMode != "enabled" {
+		t.Fatalf("unexpected pgadmin config: %+v", services[3])
+	}
+	if services[4].Name != "cockpit" || services[4].URL != "https://devbox:19090" || services[4].Status != "running" {
+		t.Fatalf("unexpected cockpit service: %+v", services[4])
 	}
 }
 
@@ -217,6 +235,35 @@ func TestServicesCopyUsesClipboardForKnownTarget(t *testing.T) {
 		t.Fatalf("unexpected copied value: %q", copied)
 	}
 	if !strings.Contains(stdout, "copied postgres DSN to clipboard") {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestServicesCopyUsesClipboardForNATSTarget(t *testing.T) {
+	var copied string
+
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Connection.NATSToken = "natssecret"
+		cfg.Ports.NATS = 14222
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.copyToClipboard = func(_ context.Context, _ system.Runner, value string) error {
+			copied = value
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "services", "--copy", "nats")
+	if err != nil {
+		t.Fatalf("services --copy nats returned error: %v", err)
+	}
+	if copied != "nats://natssecret@devbox:14222" {
+		t.Fatalf("unexpected copied value: %q", copied)
+	}
+	if !strings.Contains(stdout, "copied NATS DSN to clipboard") {
 		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }

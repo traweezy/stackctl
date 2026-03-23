@@ -29,21 +29,28 @@ func newOpenCmd() *cobra.Command {
 			target := "cockpit"
 			if len(args) == 1 {
 				target = strings.ToLower(args[0])
+			} else if !cfg.CockpitEnabled() && cfg.PgAdminEnabled() {
+				target = "pgadmin"
 			}
 
 			switch target {
 			case "cockpit":
+				if !cfg.CockpitEnabled() {
+					return fmt.Errorf("cockpit is disabled in config")
+				}
 				return openConfiguredURL(cmd, "cockpit", cfg.URLs.Cockpit)
 			case "pgadmin":
-				if !cfg.Setup.IncludePgAdmin {
+				if !cfg.PgAdminEnabled() {
 					return fmt.Errorf("pgadmin is disabled in config")
 				}
 				return openConfiguredURL(cmd, "pgadmin", cfg.URLs.PgAdmin)
 			case "all":
-				if err := openConfiguredURL(cmd, "cockpit", cfg.URLs.Cockpit); err != nil {
-					return err
+				if cfg.CockpitEnabled() {
+					if err := openConfiguredURL(cmd, "cockpit", cfg.URLs.Cockpit); err != nil {
+						return err
+					}
 				}
-				if cfg.Setup.IncludePgAdmin {
+				if cfg.PgAdminEnabled() {
 					return openConfiguredURL(cmd, "pgadmin", cfg.URLs.PgAdmin)
 				}
 				return nil

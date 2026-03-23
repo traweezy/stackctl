@@ -1380,7 +1380,7 @@ func configFieldChanged(spec configFieldSpec, previous configpkg.Config, next co
 
 func classifyConfigImpact(impact *configImpact, key string, previous configpkg.Config, next configpkg.Config) {
 	switch {
-	case key == "connection.host", key == "services.postgres.maintenance_database", key == "setup.install_cockpit", strings.HasPrefix(key, "behavior."), strings.HasPrefix(key, "tui."), strings.HasPrefix(key, "system."):
+	case key == "connection.host", key == "services.postgres.maintenance_database", key == "setup.include_cockpit", key == "setup.install_cockpit", strings.HasPrefix(key, "behavior."), strings.HasPrefix(key, "tui."), strings.HasPrefix(key, "system."):
 		impact.localOnly = true
 	case key == "stack.name":
 		if previous.Stack.Managed || next.Stack.Managed {
@@ -1439,6 +1439,8 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Controls whether stackctl keeps the managed compose file in sync with the embedded template."
 	case "connection.host":
 		return "Changes the host name stackctl uses when it builds URLs and DSNs."
+	case "setup.include_postgres":
+		return "Adds or removes Postgres from stackctl-managed service handling."
 	case "services.postgres_container":
 		return "Changes the Postgres service and container name stackctl targets."
 	case "services.postgres.image":
@@ -1459,6 +1461,14 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Changes the Redis snapshot save policy passed to the container."
 	case "services.redis.maxmemory_policy":
 		return "Changes the Redis eviction policy passed to the container."
+	case "setup.include_redis":
+		return "Adds or removes Redis from stackctl-managed service handling."
+	case "setup.include_nats":
+		return "Adds or removes NATS from the managed stack."
+	case "services.nats_container":
+		return "Changes the NATS service and container name stackctl targets."
+	case "services.nats.image":
+		return "Changes the NATS image tag used by the managed stack template."
 	case "setup.include_pgadmin":
 		return "Adds or removes pgAdmin from the managed stack."
 	case "services.pgadmin_container":
@@ -1473,10 +1483,14 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Changes the host port published for Postgres."
 	case "ports.redis":
 		return "Changes the host port published for Redis."
+	case "ports.nats":
+		return "Changes the host port published for NATS."
 	case "ports.pgadmin":
 		return "Changes the host port published for pgAdmin."
 	case "ports.cockpit":
 		return "Changes the host port stackctl uses when it opens Cockpit."
+	case "setup.include_cockpit":
+		return "Adds or removes Cockpit from stackctl helper output and dashboard actions."
 	case "connection.postgres_database":
 		return "Changes the default Postgres database in helpers and the managed stack bootstrap environment."
 	case "connection.postgres_username":
@@ -1485,6 +1499,8 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Changes the Postgres password in helpers and the managed stack bootstrap environment."
 	case "connection.redis_password":
 		return "Adds or removes Redis authentication in helpers and the managed stack runtime arguments."
+	case "connection.nats_token":
+		return "Changes the NATS token in helpers and the managed NATS configuration."
 	case "connection.pgadmin_email":
 		return "Changes the default pgAdmin login email in helpers and the managed stack environment."
 	case "connection.pgadmin_password":
@@ -1512,7 +1528,7 @@ func effectFollowUp(spec configFieldSpec, cfg configpkg.Config) string {
 		return "Saving affects future database commands only; running services are unchanged."
 	case strings.HasPrefix(spec.Key, "tui."):
 		return "Saving affects future stackctl tui sessions only; it does not stop, start, scaffold, or restart services."
-	case spec.Key == "setup.install_cockpit" || strings.HasPrefix(spec.Key, "behavior.") || strings.HasPrefix(spec.Key, "system."):
+	case spec.Key == "setup.install_cockpit" || spec.Key == "setup.include_cockpit" || strings.HasPrefix(spec.Key, "behavior.") || strings.HasPrefix(spec.Key, "system."):
 		return "Saving affects future stackctl commands only; it does not stop, start, scaffold, or restart services."
 	case spec.Key == "stack.name" || spec.Key == "stack.managed" || spec.Key == "stack.dir" || spec.Key == "stack.compose_file":
 		return "Saving changes which stack future stackctl commands target; it does not move files or restart services automatically."
@@ -1610,6 +1626,9 @@ func redactConfigSecrets(cfg configpkg.Config) configpkg.Config {
 	if strings.TrimSpace(cfg.Connection.RedisPassword) != "" {
 		cfg.Connection.RedisPassword = maskedSecret
 	}
+	if strings.TrimSpace(cfg.Connection.NATSToken) != "" {
+		cfg.Connection.NATSToken = maskedSecret
+	}
 	if strings.TrimSpace(cfg.Connection.PgAdminPassword) != "" {
 		cfg.Connection.PgAdminPassword = maskedSecret
 	}
@@ -1620,6 +1639,7 @@ var configFieldGroupOrder = []string{
 	"Stack",
 	"Postgres",
 	"Redis",
+	"NATS",
 	"pgAdmin",
 	"Cockpit",
 	"Behavior",
@@ -1645,13 +1665,15 @@ func configFieldGroup(spec configFieldSpec) string {
 	switch {
 	case strings.HasPrefix(spec.Key, "stack."), spec.Key == "setup.scaffold_default_stack", spec.Key == "connection.host":
 		return "Stack"
-	case strings.HasPrefix(spec.Key, "services.postgres"), strings.HasPrefix(spec.Key, "ports.postgres"), strings.HasPrefix(spec.Key, "connection.postgres_"):
+	case spec.Key == "setup.include_postgres", strings.HasPrefix(spec.Key, "services.postgres"), strings.HasPrefix(spec.Key, "ports.postgres"), strings.HasPrefix(spec.Key, "connection.postgres_"):
 		return "Postgres"
-	case strings.HasPrefix(spec.Key, "services.redis"), strings.HasPrefix(spec.Key, "ports.redis"), strings.HasPrefix(spec.Key, "connection.redis_"):
+	case spec.Key == "setup.include_redis", strings.HasPrefix(spec.Key, "services.redis"), strings.HasPrefix(spec.Key, "ports.redis"), strings.HasPrefix(spec.Key, "connection.redis_"):
 		return "Redis"
+	case spec.Key == "setup.include_nats", strings.HasPrefix(spec.Key, "services.nats"), strings.HasPrefix(spec.Key, "ports.nats"), strings.HasPrefix(spec.Key, "connection.nats_"):
+		return "NATS"
 	case spec.Key == "setup.include_pgadmin", strings.HasPrefix(spec.Key, "services.pgadmin"), strings.HasPrefix(spec.Key, "ports.pgadmin"), strings.HasPrefix(spec.Key, "connection.pgadmin_"):
 		return "pgAdmin"
-	case spec.Key == "setup.install_cockpit", strings.HasPrefix(spec.Key, "ports.cockpit"):
+	case spec.Key == "setup.include_cockpit", spec.Key == "setup.install_cockpit", strings.HasPrefix(spec.Key, "ports.cockpit"):
 		return "Cockpit"
 	case strings.HasPrefix(spec.Key, "behavior."):
 		return "Behavior"
@@ -1676,7 +1698,15 @@ func configFieldLabel(spec configFieldSpec) string {
 		return "Scaffold compose"
 	case "connection.host":
 		return "Host name"
+	case "setup.include_postgres":
+		return "Enabled"
+	case "setup.include_redis":
+		return "Enabled"
+	case "setup.include_nats":
+		return "Enabled"
 	case "setup.include_pgadmin":
+		return "Enabled"
+	case "setup.include_cockpit":
 		return "Enabled"
 	case "setup.install_cockpit":
 		return "Install"
@@ -1691,6 +1721,8 @@ func configFieldLabel(spec configFieldSpec) string {
 		return titleCaseLabel(strings.TrimPrefix(spec.Label, "Postgres "))
 	case "Redis":
 		return titleCaseLabel(strings.TrimPrefix(spec.Label, "Redis "))
+	case "NATS":
+		return titleCaseLabel(strings.TrimPrefix(spec.Label, "NATS "))
 	case "pgAdmin":
 		return titleCaseLabel(strings.TrimPrefix(spec.Label, "pgAdmin "))
 	case "Cockpit":
@@ -1943,6 +1975,13 @@ func requiredText(_ configpkg.Config, value string) error {
 	return nil
 }
 
+func validStackNameText(_ configpkg.Config, value string) error {
+	if err := requiredText(configpkg.Config{}, value); err != nil {
+		return err
+	}
+	return configpkg.ValidateStackName(value)
+}
+
 func validPortText(_ configpkg.Config, value string) error {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -2012,7 +2051,7 @@ var configFieldSpecs = []configFieldSpec{
 			}
 			return nil
 		},
-		InputValidate: requiredText,
+		InputValidate: validStackNameText,
 	},
 	{
 		Key:         "stack.managed",
@@ -2077,6 +2116,18 @@ var configFieldSpecs = []configFieldSpec{
 		},
 	},
 	{
+		Key:         "setup.include_postgres",
+		Group:       "Services",
+		Label:       "Include Postgres",
+		Description: "Enable the Postgres service and its connection settings in the managed stack.",
+		Kind:        configFieldBool,
+		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.IncludePostgres },
+		SetBool: func(cfg *configpkg.Config, value bool) error {
+			cfg.Setup.IncludePostgres = value
+			return nil
+		},
+	},
+	{
 		Key:           "services.postgres_container",
 		Group:         "Services",
 		Label:         "Postgres container",
@@ -2115,6 +2166,18 @@ var configFieldSpecs = []configFieldSpec{
 		GetString:     func(cfg configpkg.Config) string { return cfg.Services.Postgres.MaintenanceDatabase },
 		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.Postgres.MaintenanceDatabase }),
 		InputValidate: requiredText,
+	},
+	{
+		Key:         "setup.include_redis",
+		Group:       "Services",
+		Label:       "Include Redis",
+		Description: "Enable the Redis service and its connection settings in the managed stack.",
+		Kind:        configFieldBool,
+		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.IncludeRedis },
+		SetBool: func(cfg *configpkg.Config, value bool) error {
+			cfg.Setup.IncludeRedis = value
+			return nil
+		},
 	},
 	{
 		Key:           "services.redis_container",
@@ -2179,6 +2242,38 @@ var configFieldSpecs = []configFieldSpec{
 		SetString:       stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.Redis.MaxMemoryPolicy }),
 		InputValidate:   requiredText,
 		Suggestions:     redisMaxMemoryPolicySuggestions,
+	},
+	{
+		Key:         "setup.include_nats",
+		Group:       "Services",
+		Label:       "Include NATS",
+		Description: "Enable the NATS service and its connection settings in the managed stack.",
+		Kind:        configFieldBool,
+		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.IncludeNATS },
+		SetBool: func(cfg *configpkg.Config, value bool) error {
+			cfg.Setup.IncludeNATS = value
+			return nil
+		},
+	},
+	{
+		Key:           "services.nats_container",
+		Group:         "Services",
+		Label:         "NATS container",
+		Description:   "The compose service and container name used for NATS.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.NATSContainer },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.NATSContainer }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:           "services.nats.image",
+		Group:         "Services",
+		Label:         "NATS image",
+		Description:   "The container image used for NATS.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.NATS.Image },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.NATS.Image }),
+		InputValidate: requiredText,
 	},
 	{
 		Key:         "setup.include_pgadmin",
@@ -2255,6 +2350,16 @@ var configFieldSpecs = []configFieldSpec{
 		InputValidate: validPortText,
 	},
 	{
+		Key:           "ports.nats",
+		Group:         "Ports",
+		Label:         "NATS port",
+		Description:   "The host port exposed for NATS.",
+		Kind:          configFieldInt,
+		GetString:     func(cfg configpkg.Config) string { return strconv.Itoa(cfg.Ports.NATS) },
+		SetString:     intSetter(func(cfg *configpkg.Config) *int { return &cfg.Ports.NATS }),
+		InputValidate: validPortText,
+	},
+	{
 		Key:           "ports.pgadmin",
 		Group:         "Ports",
 		Label:         "pgAdmin port",
@@ -2326,6 +2431,17 @@ var configFieldSpecs = []configFieldSpec{
 		SetString:   stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.RedisPassword }),
 	},
 	{
+		Key:           "connection.nats_token",
+		Group:         "Connections",
+		Label:         "NATS token",
+		Description:   "The token used for NATS client authentication and the managed NATS config file.",
+		Kind:          configFieldString,
+		Secret:        true,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Connection.NATSToken },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.NATSToken }),
+		InputValidate: requiredText,
+	},
+	{
 		Key:           "connection.pgadmin_email",
 		Group:         "Connections",
 		Label:         "pgAdmin email",
@@ -2380,6 +2496,18 @@ var configFieldSpecs = []configFieldSpec{
 		InputValidate:   positiveIntText,
 		Suggestions: func(configpkg.Config) []string {
 			return []string{"5", "10", "30", "60"}
+		},
+	},
+	{
+		Key:         "setup.include_cockpit",
+		Group:       "Setup",
+		Label:       "Include Cockpit",
+		Description: "Enable Cockpit in stackctl helper output, dashboard actions, and open commands.",
+		Kind:        configFieldBool,
+		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.IncludeCockpit },
+		SetBool: func(cfg *configpkg.Config, value bool) error {
+			cfg.Setup.IncludeCockpit = value
+			return nil
 		},
 	},
 	{

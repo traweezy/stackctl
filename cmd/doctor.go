@@ -111,7 +111,7 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 		}
 	}
 
-	if cfg.Setup.InstallCockpit && shouldEnableCockpit(report, missing) {
+	if cfg.CockpitEnabled() && cfg.Setup.InstallCockpit && shouldEnableCockpit(report, missing) {
 		ok, err := confirmAutomaticFix(cmd, yes, "Enable cockpit.socket now?")
 		if err != nil {
 			return err

@@ -17,7 +17,7 @@ func TestLogsHelpDocumentsAliasesAndWatchMode(t *testing.T) {
 	if !strings.Contains(stdout, "prints the last 100 lines and exits") {
 		t.Fatalf("stdout missing default logs behavior: %s", stdout)
 	}
-	if !strings.Contains(stdout, "postgres|pg, redis|rd, pgadmin") {
+	if !strings.Contains(stdout, "postgres|pg, redis|rd, nats|na, pgadmin") {
 		t.Fatalf("stdout missing service aliases: %s", stdout)
 	}
 	if !strings.Contains(stdout, "--watch") {

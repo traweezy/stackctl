@@ -39,7 +39,7 @@ func TestRunTUIActionStartUsesComposeUpAndWait(t *testing.T) {
 	if composeUpCalls != 1 {
 		t.Fatalf("expected composeUp once, got %d", composeUpCalls)
 	}
-	if len(waitedPorts) != 2 || waitedPorts[0] != 5432 || waitedPorts[1] != 6379 {
+	if len(waitedPorts) != 3 || waitedPorts[0] != 5432 || waitedPorts[1] != 6379 || waitedPorts[2] != 4222 {
 		t.Fatalf("unexpected waited ports: %+v", waitedPorts)
 	}
 	if !report.Refresh || report.Message != "stack started" {
@@ -107,11 +107,112 @@ func TestRunTUIActionRestartUsesDownUpAndWait(t *testing.T) {
 	if composeDownCalls != 1 || composeUpCalls != 1 {
 		t.Fatalf("expected restart to call down and up once each, got down=%d up=%d", composeDownCalls, composeUpCalls)
 	}
-	if len(waitedPorts) != 2 {
+	if len(waitedPorts) != 3 {
 		t.Fatalf("expected restart waits, got %+v", waitedPorts)
 	}
 	if report.Message != "stack restarted" || !report.Refresh {
 		t.Fatalf("unexpected restart report: %+v", report)
+	}
+}
+
+func TestRunTUIActionStartServiceUsesComposeUpServicesAndWait(t *testing.T) {
+	var calledServices []string
+	var forceRecreate bool
+	var waitedPorts []int
+
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, force bool, services []string) error {
+			forceRecreate = force
+			calledServices = append([]string(nil), services...)
+			return nil
+		}
+		value.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+			waitedPorts = append(waitedPorts, port)
+			return nil
+		}
+	})
+
+	report, err := runTUIAction(stacktui.ActionID("start-service:postgres"))
+	if err != nil {
+		t.Fatalf("runTUIAction(start-service) returned error: %v", err)
+	}
+	if forceRecreate {
+		t.Fatal("service start should not force recreate")
+	}
+	if len(calledServices) != 1 || calledServices[0] != "postgres" {
+		t.Fatalf("unexpected service selection: %v", calledServices)
+	}
+	if len(waitedPorts) != 1 || waitedPorts[0] != 5432 {
+		t.Fatalf("unexpected waited ports: %v", waitedPorts)
+	}
+	if report.Message != "Postgres started" || !report.Refresh {
+		t.Fatalf("unexpected start service report: %+v", report)
+	}
+}
+
+func TestRunTUIActionStopServiceUsesComposeStopServices(t *testing.T) {
+	var calledServices []string
+
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.composeStopServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, services []string) error {
+			calledServices = append([]string(nil), services...)
+			return nil
+		}
+	})
+
+	report, err := runTUIAction(stacktui.ActionID("stop-service:redis"))
+	if err != nil {
+		t.Fatalf("runTUIAction(stop-service) returned error: %v", err)
+	}
+	if len(calledServices) != 1 || calledServices[0] != "redis" {
+		t.Fatalf("unexpected service selection: %v", calledServices)
+	}
+	if report.Message != "Redis stopped" || !report.Refresh {
+		t.Fatalf("unexpected stop service report: %+v", report)
+	}
+}
+
+func TestRunTUIActionRestartServiceUsesForceRecreate(t *testing.T) {
+	var calledServices []string
+	var forceRecreate bool
+	var waitedPorts []int
+
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, force bool, services []string) error {
+			forceRecreate = force
+			calledServices = append([]string(nil), services...)
+			return nil
+		}
+		value.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+			waitedPorts = append(waitedPorts, port)
+			return nil
+		}
+	})
+
+	report, err := runTUIAction(stacktui.ActionID("restart-service:nats"))
+	if err != nil {
+		t.Fatalf("runTUIAction(restart-service) returned error: %v", err)
+	}
+	if !forceRecreate {
+		t.Fatal("service restart should force recreate")
+	}
+	if len(calledServices) != 1 || calledServices[0] != "nats" {
+		t.Fatalf("unexpected service selection: %v", calledServices)
+	}
+	if len(waitedPorts) != 1 || waitedPorts[0] != 4222 {
+		t.Fatalf("unexpected waited ports: %v", waitedPorts)
+	}
+	if report.Message != "NATS restarted" || !report.Refresh {
+		t.Fatalf("unexpected restart service report: %+v", report)
 	}
 }
 

@@ -157,7 +157,7 @@ func newSetupCmd() *cobra.Command {
 					return err
 				}
 
-				if cfg.Setup.InstallCockpit {
+				if cfg.CockpitEnabled() && cfg.Setup.InstallCockpit {
 					if err := deps.enableCockpit(context.Background(), runnerFor(cmd)); err != nil {
 						return err
 					}
@@ -205,7 +205,7 @@ func requiredPackages(report doctorpkg.Report, cfg configpkg.Config) []string {
 	if !doctorpkg.CheckPassed(report, "skopeo installed") {
 		required = append(required, "skopeo")
 	}
-	if cfg.Setup.InstallCockpit {
+	if cfg.CockpitEnabled() && cfg.Setup.InstallCockpit {
 		if !doctorpkg.CheckPassed(report, "cockpit.socket installed") {
 			required = append(required, "cockpit", "cockpit-podman")
 		}

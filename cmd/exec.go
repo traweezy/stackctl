@@ -36,8 +36,8 @@ func newExecCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if serviceName == "pgadmin" && !cfg.Setup.IncludePgAdmin {
-				return errors.New("pgadmin is not enabled in this stack")
+			if err := ensureServiceEnabled(cfg, serviceName); err != nil {
+				return err
 			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
 				return err

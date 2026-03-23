@@ -201,6 +201,9 @@ func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode, sele
 		return strings.Join(lines, "\n")
 	}
 
+	stackServices, _ := splitServices(snapshot.Services)
+	lines = append(lines, renderOverviewSummary(stackServices))
+
 	left := renderServiceListPane(snapshot, serviceKey(selectedService), pinned)
 	right := renderServiceDetailPane(selectedService, showSecrets, layout, pinned)
 	lines = append(lines, splitPane(left, right, width, defaultListPaneMinW, defaultListPaneMaxW))
@@ -227,7 +230,7 @@ func renderServiceListPane(snapshot Snapshot, selected string, pinned map[string
 	if len(pinnedServices) > 0 {
 		lines = append(lines, mutedStyle().Render("Pinned"))
 		for _, service := range pinnedServices {
-			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(displayServiceStatus(service), displayServiceStatus(service))))
+			lines = append(lines, listItem(selected == serviceKey(service), serviceListLabel(service), statusChip(displayServiceStatus(service), displayServiceStatus(service))))
 		}
 	}
 	if len(stackServices) > 0 {
@@ -236,7 +239,7 @@ func renderServiceListPane(snapshot Snapshot, selected string, pinned map[string
 		}
 		lines = append(lines, mutedStyle().Render("Stack services"))
 		for _, service := range stackServices {
-			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(displayServiceStatus(service), displayServiceStatus(service))))
+			lines = append(lines, listItem(selected == serviceKey(service), serviceListLabel(service), statusChip(displayServiceStatus(service), displayServiceStatus(service))))
 		}
 	}
 	if len(hostTools) > 0 {
@@ -246,7 +249,7 @@ func renderServiceListPane(snapshot Snapshot, selected string, pinned map[string
 		lines = append(lines, mutedStyle().Render("Host tools"))
 		lines = append(lines, mutedStyle().Render("Managed outside stack lifecycle."))
 		for _, service := range hostTools {
-			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(displayServiceStatus(service), displayServiceStatus(service))))
+			lines = append(lines, listItem(selected == serviceKey(service), serviceListLabel(service), statusChip(displayServiceStatus(service), displayServiceStatus(service))))
 		}
 	}
 	lines = append(lines, "")
@@ -336,7 +339,7 @@ func renderHealthListPane(snapshot Snapshot, selected string, pinned map[string]
 	if len(pinnedServices) > 0 {
 		lines = append(lines, mutedStyle().Render("Pinned"))
 		for _, service := range pinnedServices {
-			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(healthStatusLabel(service), classifyServiceHealth(service))))
+			lines = append(lines, listItem(selected == serviceKey(service), serviceListLabel(service), statusChip(healthStatusLabel(service), classifyServiceHealth(service))))
 		}
 	}
 	if len(stackServices) > 0 {
@@ -345,7 +348,7 @@ func renderHealthListPane(snapshot Snapshot, selected string, pinned map[string]
 		}
 		lines = append(lines, mutedStyle().Render("Stack services"))
 		for _, service := range stackServices {
-			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(healthStatusLabel(service), classifyServiceHealth(service))))
+			lines = append(lines, listItem(selected == serviceKey(service), serviceListLabel(service), statusChip(healthStatusLabel(service), classifyServiceHealth(service))))
 		}
 	}
 	if len(hostTools) > 0 {
@@ -354,7 +357,7 @@ func renderHealthListPane(snapshot Snapshot, selected string, pinned map[string]
 		}
 		lines = append(lines, mutedStyle().Render("Host tools"))
 		for _, service := range hostTools {
-			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(healthStatusLabel(service), classifyServiceHealth(service))))
+			lines = append(lines, listItem(selected == serviceKey(service), serviceListLabel(service), statusChip(healthStatusLabel(service), classifyServiceHealth(service))))
 		}
 	}
 	lines = append(lines, "")
@@ -410,4 +413,13 @@ func renderProductivityHint(service Service, pinned map[string]struct{}) string 
 	}
 	parts = append(parts, "g jump", ": palette")
 	return mutedStyle().Render("Actions: " + strings.Join(parts, "  •  "))
+}
+
+func serviceListLabel(service Service) string {
+	label := service.DisplayName
+	if service.ExternalPort > 0 {
+		label += fmt.Sprintf("  :%d", service.ExternalPort)
+	}
+
+	return label
 }

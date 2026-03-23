@@ -21,11 +21,15 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 	testDeps := defaultCommandDeps()
 	testDeps.stdin = bytes.NewBuffer(nil)
 	testDeps.isTerminal = func() bool { return false }
+	testDeps.configDirPath = func() (string, error) { return "/tmp/stackctl", nil }
 	testDeps.configFilePath = func() (string, error) { return "/tmp/stackctl/config.yaml", nil }
+	testDeps.knownConfigPaths = func() ([]string, error) { return []string{"/tmp/stackctl/config.yaml"}, nil }
+	testDeps.dataDirPath = func() (string, error) { return "/tmp/stackctl-data", nil }
 	testDeps.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Config{}, configpkg.ErrNotFound }
 	testDeps.saveConfig = func(string, configpkg.Config) error { return nil }
+	testDeps.removeAll = func(string) error { return nil }
 	testDeps.marshalConfig = func(configpkg.Config) ([]byte, error) { return []byte("test: true\n"), nil }
-	testDeps.defaultConfig = configpkg.Default
+	testDeps.defaultConfig = func() configpkg.Config { return configpkg.DefaultForStack(configpkg.DefaultStackName) }
 	testDeps.validateConfig = func(configpkg.Config) []configpkg.ValidationIssue { return nil }
 	testDeps.runWizard = func(_ io.Reader, _ io.Writer, cfg configpkg.Config) (configpkg.Config, error) { return cfg, nil }
 	testDeps.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return true, nil }
@@ -52,13 +56,16 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 	testDeps.cockpitStatus = func(context.Context) system.CockpitState { return system.CockpitState{} }
 	testDeps.openCommandName = func() string { return "xdg-open" }
 	testDeps.composeUp = func(context.Context, system.Runner, configpkg.Config) error { return nil }
+	testDeps.composeUpServices = func(context.Context, system.Runner, configpkg.Config, bool, []string) error { return nil }
 	testDeps.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error { return nil }
+	testDeps.composeStopServices = func(context.Context, system.Runner, configpkg.Config, []string) error { return nil }
 	testDeps.composeLogs = func(context.Context, system.Runner, configpkg.Config, int, bool, string, string) error {
 		return nil
 	}
 	testDeps.composeExec = func(context.Context, system.Runner, configpkg.Config, string, []string, []string, bool) error {
 		return nil
 	}
+	testDeps.composeDownPath = func(context.Context, system.Runner, string, string, bool) error { return nil }
 	testDeps.containerLogs = func(context.Context, system.Runner, string, int, bool, string) error { return nil }
 
 	if mutate != nil {

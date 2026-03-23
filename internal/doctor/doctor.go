@@ -75,6 +75,7 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 	if err != nil {
 		return report, err
 	}
+	cockpitEnabled := !cfgLoaded || cfg.CockpitEnabled()
 
 	if cfgLoaded {
 		report.add(output.StatusOK, fmt.Sprintf("config file found: %s", path))
@@ -139,15 +140,17 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 	}
 
 	cockpit := deps.cockpitStatus(ctx)
-	if cockpit.Installed {
-		report.add(output.StatusOK, "cockpit.socket installed")
-		if cockpit.Active {
-			report.add(output.StatusOK, "cockpit.socket active")
+	if cockpitEnabled {
+		if cockpit.Installed {
+			report.add(output.StatusOK, "cockpit.socket installed")
+			if cockpit.Active {
+				report.add(output.StatusOK, "cockpit.socket active")
+			} else {
+				report.add(output.StatusWarn, fmt.Sprintf("cockpit.socket %s", cockpit.State))
+			}
 		} else {
-			report.add(output.StatusWarn, fmt.Sprintf("cockpit.socket %s", cockpit.State))
+			report.add(output.StatusMiss, "cockpit.socket not installed")
 		}
-	} else {
-		report.add(output.StatusMiss, "cockpit.socket not installed")
 	}
 
 	if cfgLoaded {
@@ -201,15 +204,17 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 			report.add(output.StatusWarn, fmt.Sprintf("%s container not running (%s)", service.Name, container.Status))
 		}
 
-		cockpitInUse, err := deps.portInUse(cfg.Ports.Cockpit)
-		if err != nil {
-			report.add(output.StatusFail, fmt.Sprintf("port %d check failed: %v", cfg.Ports.Cockpit, err))
-		} else if cockpitInUse && cockpit.Active {
-			report.add(output.StatusOK, fmt.Sprintf("port %d is in use by cockpit", cfg.Ports.Cockpit))
-		} else if cockpitInUse {
-			report.add(output.StatusWarn, fmt.Sprintf("port %d is in use by another process, not cockpit", cfg.Ports.Cockpit))
-		} else {
-			report.add(output.StatusOK, fmt.Sprintf("port %d is free for cockpit", cfg.Ports.Cockpit))
+		if cfg.CockpitEnabled() {
+			cockpitInUse, err := deps.portInUse(cfg.Ports.Cockpit)
+			if err != nil {
+				report.add(output.StatusFail, fmt.Sprintf("port %d check failed: %v", cfg.Ports.Cockpit, err))
+			} else if cockpitInUse && cockpit.Active {
+				report.add(output.StatusOK, fmt.Sprintf("port %d is in use by cockpit", cfg.Ports.Cockpit))
+			} else if cockpitInUse {
+				report.add(output.StatusWarn, fmt.Sprintf("port %d is in use by another process, not cockpit", cfg.Ports.Cockpit))
+			} else {
+				report.add(output.StatusOK, fmt.Sprintf("port %d is free for cockpit", cfg.Ports.Cockpit))
+			}
 		}
 
 		overcommit, err := deps.redisOvercommit(ctx)
@@ -276,11 +281,29 @@ type configuredService struct {
 }
 
 func configuredServices(cfg configpkg.Config) []configuredService {
-	services := []configuredService{
-		{Name: "postgres", ContainerName: cfg.Services.PostgresContainer, Port: cfg.Ports.Postgres},
-		{Name: "redis", ContainerName: cfg.Services.RedisContainer, Port: cfg.Ports.Redis},
+	services := make([]configuredService, 0, 4)
+	if cfg.PostgresEnabled() {
+		services = append(services, configuredService{
+			Name:          "postgres",
+			ContainerName: cfg.Services.PostgresContainer,
+			Port:          cfg.Ports.Postgres,
+		})
 	}
-	if cfg.Setup.IncludePgAdmin {
+	if cfg.RedisEnabled() {
+		services = append(services, configuredService{
+			Name:          "redis",
+			ContainerName: cfg.Services.RedisContainer,
+			Port:          cfg.Ports.Redis,
+		})
+	}
+	if cfg.NATSEnabled() {
+		services = append(services, configuredService{
+			Name:          "nats",
+			ContainerName: cfg.Services.NATSContainer,
+			Port:          cfg.Ports.NATS,
+		})
+	}
+	if cfg.PgAdminEnabled() {
 		services = append(services, configuredService{
 			Name:          "pgadmin",
 			ContainerName: cfg.Services.PgAdminContainer,

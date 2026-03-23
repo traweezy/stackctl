@@ -4,6 +4,7 @@ stdout 'wrote managed compose file '
 stdout 'Saved config to '
 exists .config/stackctl/config.yaml
 exists .local/share/stackctl/stacks/dev-stack/compose.yaml
+exists .local/share/stackctl/stacks/dev-stack/nats.conf
 
 exec stackctl config view
 stdout 'name: dev-stack'
@@ -12,8 +13,10 @@ stdout 'postgres_database: app'
 stdout 'postgres_username: app'
 stdout 'postgres_password: app'
 stdout 'redis_password: ""'
+stdout 'nats_token: stackctl'
 stdout 'pgadmin_email: admin@example.com'
 stdout 'pgadmin_password: admin'
+stdout 'include_nats: true'
 
 exec stackctl config validate
 stdout 'config is valid'
@@ -21,6 +24,7 @@ stdout 'config is valid'
 exec stackctl config scaffold --force
 stdout 'wrote managed compose file '
 cmp .local/share/stackctl/stacks/dev-stack/compose.yaml expected-compose.yaml
+cmp .local/share/stackctl/stacks/dev-stack/nats.conf expected-nats.conf
 
 exec stackctl config path
 stdout '/.config/stackctl/config.yaml'
@@ -29,17 +33,22 @@ exec stackctl connect
 cmp stdout expected-connect.txt
 
 ! exec stackctl logs -s invalid
-stderr 'invalid service "invalid"; valid values: postgres, redis, pgadmin'
+stderr 'invalid service "invalid"; valid values: postgres, redis, nats, pgadmin'
 
 exec stackctl config reset --force
 stdout 'Reset config at '
+exec stackctl config validate
+stdout 'config is valid'
 exec stackctl config view
 stdout 'name: dev-stack'
 stdout $WORK/.local/share/stackctl/stacks/dev-stack
 stdout 'postgres_database: app'
+stdout 'nats_token: stackctl'
 stdout 'pgadmin_email: admin@example.com'
 
 -- expected-compose.yaml --
+name: "dev-stack"
+
 services:
   postgres:
     image: "docker.io/library/postgres:16"
@@ -53,7 +62,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
   redis:
     image: "docker.io/library/redis:7"
     container_name: "local-redis"
@@ -70,6 +78,17 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+  nats:
+    image: "docker.io/library/nats:2.12.5"
+    container_name: "local-nats"
+    restart: unless-stopped
+    command:
+      - --config
+      - /etc/nats/nats.conf
+    ports:
+      - "4222:4222"
+    volumes:
+      - ./nats.conf:/etc/nats/nats.conf:ro
   pgadmin:
     image: "docker.io/dpage/pgadmin4:latest"
     container_name: "local-pgadmin"
@@ -89,12 +108,21 @@ volumes:
   postgres_data:
   redis_data:
   pgadmin_data:
+-- expected-nats.conf --
+port: 4222
+
+authorization {
+  token: "stackctl"
+}
 -- expected-connect.txt --
 Postgres
   postgres://app:app@localhost:5432/app
 
 Redis
   redis://localhost:6379
+
+NATS
+  nats://stackctl@localhost:4222
 
 pgAdmin
   http://localhost:8081

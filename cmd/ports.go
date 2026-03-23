@@ -70,41 +70,19 @@ func loadPortMappings(ctx context.Context, cfg configpkg.Config) []portMapping {
 }
 
 func configuredPortMappings(cfg configpkg.Config) []portMapping {
-	mappings := []portMapping{
-		{
-			Service:      "postgres",
-			DisplayName:  "Postgres",
-			Host:         cfg.Connection.Host,
-			ExternalPort: cfg.Ports.Postgres,
-			InternalPort: 5432,
-		},
-		{
-			Service:      "redis",
-			DisplayName:  "Redis",
-			Host:         cfg.Connection.Host,
-			ExternalPort: cfg.Ports.Redis,
-			InternalPort: 6379,
-		},
-	}
-
-	if cfg.Setup.IncludePgAdmin {
+	mappings := make([]portMapping, 0, len(serviceDefinitions()))
+	for _, definition := range portMappingDefinitions(cfg) {
+		if definition.PrimaryPort == nil {
+			continue
+		}
 		mappings = append(mappings, portMapping{
-			Service:      "pgadmin",
-			DisplayName:  "pgAdmin",
+			Service:      definition.Key,
+			DisplayName:  definition.DisplayName,
 			Host:         cfg.Connection.Host,
-			ExternalPort: cfg.Ports.PgAdmin,
-			InternalPort: 80,
+			ExternalPort: definition.PrimaryPort(cfg),
+			InternalPort: definition.DefaultInternalPort,
 		})
 	}
-
-	mappings = append(mappings, portMapping{
-		Service:      "cockpit",
-		DisplayName:  "Cockpit",
-		Host:         cfg.Connection.Host,
-		ExternalPort: cfg.Ports.Cockpit,
-		InternalPort: 9090,
-	})
-
 	return mappings
 }
 

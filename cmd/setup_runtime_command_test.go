@@ -263,7 +263,7 @@ func TestStartFirstRunRunsWizardComposeWaitAndPrintsEndpoints(t *testing.T) {
 	if !saved || !upCalled || !scaffolded {
 		t.Fatal("expected wizard save and compose up to run")
 	}
-	if !reflect.DeepEqual(waitPorts, []int{5432, 6379}) {
+	if !reflect.DeepEqual(waitPorts, []int{5432, 6379, 4222}) {
 		t.Fatalf("wait ports = %v", waitPorts)
 	}
 	if !strings.Contains(stdout, "✅ stack started") {
@@ -274,6 +274,9 @@ func TestStartFirstRunRunsWizardComposeWaitAndPrintsEndpoints(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Postgres\n  postgres://app:app@localhost:5432/app") {
 		t.Fatalf("stdout missing postgres connection info: %s", stdout)
+	}
+	if !strings.Contains(stdout, "NATS\n  nats://stackctl@localhost:4222") {
+		t.Fatalf("stdout missing nats connection info: %s", stdout)
 	}
 	if !strings.Contains(stdout, "Cockpit\n  https://localhost:9090") {
 		t.Fatalf("stdout missing cockpit connection info: %s", stdout)
@@ -320,7 +323,7 @@ func TestLogsInvalidServiceReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected logs to reject invalid service")
 	}
-	if !strings.Contains(err.Error(), "valid values: postgres, redis, pgadmin") {
+	if !strings.Contains(err.Error(), "valid values: postgres, redis, nats, pgadmin") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -384,7 +387,7 @@ func TestHealthReportsPortAndContainerStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("health returned error: %v", err)
 	}
-	if !strings.Contains(stdout, "⚠️ cockpit port listening") {
+	if !strings.Contains(stdout, "⚠️ cockpit port not listening") {
 		t.Fatalf("stdout missing cockpit warning: %s", stdout)
 	}
 	if !strings.Contains(stdout, "✅ postgres running") {

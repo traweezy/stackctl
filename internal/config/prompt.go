@@ -18,7 +18,7 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 
 	cfg := base
 
-	stackName, err := session.askString("Stack name", cfg.Stack.Name, nonEmpty)
+	stackName, err := session.askString("Stack name", cfg.Stack.Name, validStackName)
 	if err != nil {
 		return Config{}, err
 	}
@@ -58,160 +58,29 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 		cfg.Setup.ScaffoldDefaultStack = false
 	}
 
-	postgresContainer, err := session.askString("Postgres container name", cfg.Services.PostgresContainer, nonEmpty)
-	if err != nil {
+	if err := session.configurePostgres(&cfg); err != nil {
 		return Config{}, err
 	}
-	cfg.Services.PostgresContainer = postgresContainer
-
-	postgresImage, err := session.askString("Postgres image", cfg.Services.Postgres.Image, nonEmpty)
-	if err != nil {
+	if err := session.configureRedis(&cfg); err != nil {
 		return Config{}, err
 	}
-	cfg.Services.Postgres.Image = postgresImage
-
-	postgresDataVolume, err := session.askString("Postgres data volume", cfg.Services.Postgres.DataVolume, nonEmpty)
-	if err != nil {
+	if err := session.configureNATS(&cfg); err != nil {
 		return Config{}, err
 	}
-	cfg.Services.Postgres.DataVolume = postgresDataVolume
-
-	maintenanceDatabase, err := session.askString("Postgres maintenance database", cfg.Services.Postgres.MaintenanceDatabase, nonEmpty)
-	if err != nil {
+	if err := session.configurePgAdmin(&cfg); err != nil {
 		return Config{}, err
 	}
-	cfg.Services.Postgres.MaintenanceDatabase = maintenanceDatabase
 
-	redisContainer, err := session.askString("Redis container name", cfg.Services.RedisContainer, nonEmpty)
-	if err != nil {
+	if cfg.EnabledStackServiceCount() == 0 {
+		return Config{}, fmt.Errorf("at least one stack service must be enabled")
+	}
+
+	if err := session.configureCockpit(&cfg); err != nil {
 		return Config{}, err
 	}
-	cfg.Services.RedisContainer = redisContainer
 
-	redisImage, err := session.askString("Redis image", cfg.Services.Redis.Image, nonEmpty)
-	if err != nil {
+	if err := session.printSection("Behavior"); err != nil {
 		return Config{}, err
-	}
-	cfg.Services.Redis.Image = redisImage
-
-	redisDataVolume, err := session.askString("Redis data volume", cfg.Services.Redis.DataVolume, nonEmpty)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Services.Redis.DataVolume = redisDataVolume
-
-	redisAppendOnly, err := session.askBool("Enable Redis appendonly persistence", cfg.Services.Redis.AppendOnly)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Services.Redis.AppendOnly = redisAppendOnly
-
-	redisSavePolicy, err := session.askString("Redis save policy", cfg.Services.Redis.SavePolicy, nonEmpty)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Services.Redis.SavePolicy = redisSavePolicy
-
-	redisMaxMemoryPolicy, err := session.askString("Redis maxmemory policy", cfg.Services.Redis.MaxMemoryPolicy, nonEmpty)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Services.Redis.MaxMemoryPolicy = redisMaxMemoryPolicy
-
-	includePgAdmin, err := session.askBool("Include pgAdmin in the stack", cfg.Setup.IncludePgAdmin)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Setup.IncludePgAdmin = includePgAdmin
-
-	if cfg.Setup.IncludePgAdmin {
-		pgAdminContainer, err := session.askString("pgAdmin container name", cfg.Services.PgAdminContainer, nonEmpty)
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.Services.PgAdminContainer = pgAdminContainer
-
-		pgAdminImage, err := session.askString("pgAdmin image", cfg.Services.PgAdmin.Image, nonEmpty)
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.Services.PgAdmin.Image = pgAdminImage
-
-		pgAdminDataVolume, err := session.askString("pgAdmin data volume", cfg.Services.PgAdmin.DataVolume, nonEmpty)
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.Services.PgAdmin.DataVolume = pgAdminDataVolume
-
-		pgAdminServerMode, err := session.askBool("Run pgAdmin in server mode", cfg.Services.PgAdmin.ServerMode)
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.Services.PgAdmin.ServerMode = pgAdminServerMode
-	}
-
-	postgresPort, err := session.askPort("Postgres port", cfg.Ports.Postgres)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Ports.Postgres = postgresPort
-
-	redisPort, err := session.askPort("Redis port", cfg.Ports.Redis)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Ports.Redis = redisPort
-
-	if cfg.Setup.IncludePgAdmin {
-		pgAdminPort, err := session.askPort("pgAdmin port", cfg.Ports.PgAdmin)
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.Ports.PgAdmin = pgAdminPort
-	}
-
-	cockpitPort, err := session.askPort("Cockpit port", cfg.Ports.Cockpit)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Ports.Cockpit = cockpitPort
-
-	postgresDatabase, err := session.askString("Postgres database name", cfg.Connection.PostgresDatabase, nonEmpty)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Connection.PostgresDatabase = postgresDatabase
-
-	postgresUsername, err := session.askString("Postgres username", cfg.Connection.PostgresUsername, nonEmpty)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Connection.PostgresUsername = postgresUsername
-
-	postgresPassword, err := session.askString("Postgres password", cfg.Connection.PostgresPassword, nonEmpty)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Connection.PostgresPassword = postgresPassword
-
-	redisPassword, err := session.askString("Redis password (leave blank to disable auth)", cfg.Connection.RedisPassword, nil)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Connection.RedisPassword = redisPassword
-
-	if cfg.Setup.IncludePgAdmin {
-		pgAdminEmail, err := session.askString("pgAdmin email", cfg.Connection.PgAdminEmail, nonEmpty)
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.Connection.PgAdminEmail = pgAdminEmail
-
-		pgAdminPassword, err := session.askString("pgAdmin password", cfg.Connection.PgAdminPassword, nonEmpty)
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.Connection.PgAdminPassword = pgAdminPassword
 	}
 
 	waitForServices, err := session.askBool("Wait for services on start", cfg.Behavior.WaitForServicesStart)
@@ -226,14 +95,12 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	}
 	cfg.Behavior.StartupTimeoutSec = timeoutSeconds
 
-	installCockpit, err := session.askBool("Install Cockpit during setup", cfg.Setup.InstallCockpit)
-	if err != nil {
-		return Config{}, err
-	}
-	cfg.Setup.InstallCockpit = installCockpit
-
 	if !cfg.Stack.Managed {
 		cfg.Setup.ScaffoldDefaultStack = false
+	}
+
+	if err := session.printSection("System"); err != nil {
+		return Config{}, err
 	}
 
 	packageManager, err := session.askString("Package manager", cfg.System.PackageManager, nonEmpty)
@@ -259,6 +126,270 @@ func PromptYesNo(in io.Reader, out io.Writer, question string, defaultYes bool) 
 type promptSession struct {
 	reader *bufio.Reader
 	out    io.Writer
+}
+
+func (p promptSession) printSection(title string) error {
+	_, err := fmt.Fprintf(p.out, "\n[%s]\n", title)
+	return err
+}
+
+func (p promptSession) configurePostgres(cfg *Config) error {
+	includePostgres, err := p.askBool("Include Postgres in the stack", cfg.Setup.IncludePostgres)
+	if err != nil {
+		return err
+	}
+	cfg.Setup.IncludePostgres = includePostgres
+	if !cfg.Setup.IncludePostgres {
+		return nil
+	}
+
+	if err := p.printSection("Postgres"); err != nil {
+		return err
+	}
+
+	postgresContainer, err := p.askString("Postgres container name", cfg.Services.PostgresContainer, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.PostgresContainer = postgresContainer
+
+	postgresImage, err := p.askString("Postgres image", cfg.Services.Postgres.Image, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Postgres.Image = postgresImage
+
+	postgresDataVolume, err := p.askString("Postgres data volume", cfg.Services.Postgres.DataVolume, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Postgres.DataVolume = postgresDataVolume
+
+	maintenanceDatabase, err := p.askString("Postgres maintenance database", cfg.Services.Postgres.MaintenanceDatabase, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Postgres.MaintenanceDatabase = maintenanceDatabase
+
+	postgresPort, err := p.askPort("Postgres port", cfg.Ports.Postgres)
+	if err != nil {
+		return err
+	}
+	cfg.Ports.Postgres = postgresPort
+
+	postgresDatabase, err := p.askString("Postgres database name", cfg.Connection.PostgresDatabase, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Connection.PostgresDatabase = postgresDatabase
+
+	postgresUsername, err := p.askString("Postgres username", cfg.Connection.PostgresUsername, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Connection.PostgresUsername = postgresUsername
+
+	postgresPassword, err := p.askString("Postgres password", cfg.Connection.PostgresPassword, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Connection.PostgresPassword = postgresPassword
+
+	return nil
+}
+
+func (p promptSession) configureRedis(cfg *Config) error {
+	includeRedis, err := p.askBool("Include Redis in the stack", cfg.Setup.IncludeRedis)
+	if err != nil {
+		return err
+	}
+	cfg.Setup.IncludeRedis = includeRedis
+	if !cfg.Setup.IncludeRedis {
+		return nil
+	}
+
+	if err := p.printSection("Redis"); err != nil {
+		return err
+	}
+
+	redisContainer, err := p.askString("Redis container name", cfg.Services.RedisContainer, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.RedisContainer = redisContainer
+
+	redisImage, err := p.askString("Redis image", cfg.Services.Redis.Image, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Redis.Image = redisImage
+
+	redisDataVolume, err := p.askString("Redis data volume", cfg.Services.Redis.DataVolume, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Redis.DataVolume = redisDataVolume
+
+	redisAppendOnly, err := p.askBool("Enable Redis appendonly persistence", cfg.Services.Redis.AppendOnly)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Redis.AppendOnly = redisAppendOnly
+
+	redisSavePolicy, err := p.askString("Redis save policy", cfg.Services.Redis.SavePolicy, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Redis.SavePolicy = redisSavePolicy
+
+	redisMaxMemoryPolicy, err := p.askString("Redis maxmemory policy", cfg.Services.Redis.MaxMemoryPolicy, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Redis.MaxMemoryPolicy = redisMaxMemoryPolicy
+
+	redisPort, err := p.askPort("Redis port", cfg.Ports.Redis)
+	if err != nil {
+		return err
+	}
+	cfg.Ports.Redis = redisPort
+
+	redisPassword, err := p.askString("Redis password (leave blank to disable auth)", cfg.Connection.RedisPassword, nil)
+	if err != nil {
+		return err
+	}
+	cfg.Connection.RedisPassword = redisPassword
+
+	return nil
+}
+
+func (p promptSession) configureNATS(cfg *Config) error {
+	includeNATS, err := p.askBool("Include NATS in the stack", cfg.Setup.IncludeNATS)
+	if err != nil {
+		return err
+	}
+	cfg.Setup.IncludeNATS = includeNATS
+	if !cfg.Setup.IncludeNATS {
+		return nil
+	}
+
+	if err := p.printSection("NATS"); err != nil {
+		return err
+	}
+
+	natsContainer, err := p.askString("NATS container name", cfg.Services.NATSContainer, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.NATSContainer = natsContainer
+
+	natsImage, err := p.askString("NATS image", cfg.Services.NATS.Image, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.NATS.Image = natsImage
+
+	natsPort, err := p.askPort("NATS port", cfg.Ports.NATS)
+	if err != nil {
+		return err
+	}
+	cfg.Ports.NATS = natsPort
+
+	natsToken, err := p.askString("NATS auth token", cfg.Connection.NATSToken, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Connection.NATSToken = natsToken
+
+	return nil
+}
+
+func (p promptSession) configurePgAdmin(cfg *Config) error {
+	includePgAdmin, err := p.askBool("Include pgAdmin in the stack", cfg.Setup.IncludePgAdmin)
+	if err != nil {
+		return err
+	}
+	cfg.Setup.IncludePgAdmin = includePgAdmin
+	if !cfg.Setup.IncludePgAdmin {
+		return nil
+	}
+
+	if err := p.printSection("pgAdmin"); err != nil {
+		return err
+	}
+
+	pgAdminContainer, err := p.askString("pgAdmin container name", cfg.Services.PgAdminContainer, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.PgAdminContainer = pgAdminContainer
+
+	pgAdminImage, err := p.askString("pgAdmin image", cfg.Services.PgAdmin.Image, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.PgAdmin.Image = pgAdminImage
+
+	pgAdminDataVolume, err := p.askString("pgAdmin data volume", cfg.Services.PgAdmin.DataVolume, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.PgAdmin.DataVolume = pgAdminDataVolume
+
+	pgAdminServerMode, err := p.askBool("Run pgAdmin in server mode", cfg.Services.PgAdmin.ServerMode)
+	if err != nil {
+		return err
+	}
+	cfg.Services.PgAdmin.ServerMode = pgAdminServerMode
+
+	pgAdminPort, err := p.askPort("pgAdmin port", cfg.Ports.PgAdmin)
+	if err != nil {
+		return err
+	}
+	cfg.Ports.PgAdmin = pgAdminPort
+
+	pgAdminEmail, err := p.askString("pgAdmin email", cfg.Connection.PgAdminEmail, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Connection.PgAdminEmail = pgAdminEmail
+
+	pgAdminPassword, err := p.askString("pgAdmin password", cfg.Connection.PgAdminPassword, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Connection.PgAdminPassword = pgAdminPassword
+
+	return nil
+}
+
+func (p promptSession) configureCockpit(cfg *Config) error {
+	includeCockpit, err := p.askBool("Include Cockpit helpers", cfg.Setup.IncludeCockpit)
+	if err != nil {
+		return err
+	}
+	cfg.Setup.IncludeCockpit = includeCockpit
+	if !cfg.Setup.IncludeCockpit {
+		return nil
+	}
+
+	if err := p.printSection("Cockpit"); err != nil {
+		return err
+	}
+
+	cockpitPort, err := p.askPort("Cockpit port", cfg.Ports.Cockpit)
+	if err != nil {
+		return err
+	}
+	cfg.Ports.Cockpit = cockpitPort
+
+	installCockpit, err := p.askBool("Install Cockpit during setup", cfg.Setup.InstallCockpit)
+	if err != nil {
+		return err
+	}
+	cfg.Setup.InstallCockpit = installCockpit
+
+	return nil
 }
 
 func (p promptSession) askString(label, defaultValue string, validate func(string) error) (string, error) {
@@ -397,6 +528,14 @@ func nonEmpty(value string) error {
 	}
 
 	return nil
+}
+
+func validStackName(value string) error {
+	if err := nonEmpty(value); err != nil {
+		return err
+	}
+
+	return ValidateStackName(value)
 }
 
 func positiveInt(value int) error {

@@ -1,4 +1,7 @@
+name: {{ printf "%q" .Stack.Name }}
+
 services:
+{{- if .Setup.IncludePostgres }}
   postgres:
     image: {{ printf "%q" .Services.Postgres.Image }}
     container_name: {{ printf "%q" .Services.PostgresContainer }}
@@ -11,7 +14,9 @@ services:
       - "{{ .Ports.Postgres }}:5432"
     volumes:
       - {{ .Services.Postgres.DataVolume }}:/var/lib/postgresql/data
+{{- end }}
 
+{{- if .Setup.IncludeRedis }}
   redis:
     image: {{ printf "%q" .Services.Redis.Image }}
     container_name: {{ printf "%q" .Services.RedisContainer }}
@@ -36,6 +41,21 @@ services:
       - "{{ .Ports.Redis }}:6379"
     volumes:
       - {{ .Services.Redis.DataVolume }}:/data
+{{- end }}
+
+{{- if .Setup.IncludeNATS }}
+  nats:
+    image: {{ printf "%q" .Services.NATS.Image }}
+    container_name: {{ printf "%q" .Services.NATSContainer }}
+    restart: unless-stopped
+    command:
+      - --config
+      - /etc/nats/nats.conf
+    ports:
+      - "{{ .Ports.NATS }}:4222"
+    volumes:
+      - ./nats.conf:/etc/nats/nats.conf:ro
+{{- end }}
 
 {{- if .Setup.IncludePgAdmin }}
   pgadmin:
@@ -54,13 +74,19 @@ services:
       - "{{ .Ports.PgAdmin }}:80"
     volumes:
       - {{ .Services.PgAdmin.DataVolume }}:/var/lib/pgadmin
+{{- if .Setup.IncludePostgres }}
     depends_on:
       - postgres
 {{- end }}
+{{- end }}
 
 volumes:
+{{- if .Setup.IncludePostgres }}
   {{ .Services.Postgres.DataVolume }}:
+{{- end }}
+{{- if .Setup.IncludeRedis }}
   {{ .Services.Redis.DataVolume }}:
+{{- end }}
 {{- if .Setup.IncludePgAdmin }}
   {{ .Services.PgAdmin.DataVolume }}:
 {{- end }}

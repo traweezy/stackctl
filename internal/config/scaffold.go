@@ -13,8 +13,10 @@ import (
 type ScaffoldResult struct {
 	StackDir       string
 	ComposePath    string
+	NATSConfigPath string
 	CreatedDir     bool
 	WroteCompose   bool
+	WroteNATSConfig bool
 	AlreadyPresent bool
 }
 
@@ -23,24 +25,28 @@ func ManagedStackNeedsScaffold(cfg Config) (bool, error) {
 		return false, nil
 	}
 
-	info, err := os.Stat(ComposePath(cfg))
-	if err == nil {
-		if info.IsDir() {
-			return false, fmt.Errorf("compose path %s is a directory", ComposePath(cfg))
-		}
-		return false, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
+	if missing, err := scaffoldFileMissing(ComposePath(cfg)); err != nil {
+		return false, fmt.Errorf("inspect compose file %s: %w", ComposePath(cfg), err)
+	} else if missing {
 		return true, nil
 	}
 
-	return false, fmt.Errorf("inspect compose file %s: %w", ComposePath(cfg), err)
+	if cfg.Setup.IncludeNATS {
+		if missing, err := scaffoldFileMissing(NATSConfigPath(cfg)); err != nil {
+			return false, fmt.Errorf("inspect nats config file %s: %w", NATSConfigPath(cfg), err)
+		} else if missing {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func ScaffoldManagedStack(cfg Config, force bool) (ScaffoldResult, error) {
 	result := ScaffoldResult{
-		StackDir:    cfg.Stack.Dir,
-		ComposePath: ComposePath(cfg),
+		StackDir:       cfg.Stack.Dir,
+		ComposePath:    ComposePath(cfg),
+		NATSConfigPath: NATSConfigPath(cfg),
 	}
 
 	if !cfg.Stack.Managed {
@@ -71,27 +77,30 @@ func ScaffoldManagedStack(cfg Config, force bool) (ScaffoldResult, error) {
 		return result, fmt.Errorf("inspect managed stack directory %s: %w", cfg.Stack.Dir, err)
 	}
 
-	if info, err := os.Stat(result.ComposePath); err == nil {
-		if info.IsDir() {
-			return result, fmt.Errorf("managed compose path %s is a directory", result.ComposePath)
-		}
-		if !force {
-			result.AlreadyPresent = true
-			return result, nil
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return result, fmt.Errorf("inspect managed compose file %s: %w", result.ComposePath, err)
-	}
-
 	composeData, err := renderManagedCompose(cfg)
 	if err != nil {
 		return result, err
 	}
 
-	if err := os.WriteFile(result.ComposePath, composeData, 0o600); err != nil {
+	wroteCompose, err := writeScaffoldFile(result.ComposePath, composeData, force)
+	if err != nil {
 		return result, fmt.Errorf("write managed compose file %s: %w", result.ComposePath, err)
 	}
-	result.WroteCompose = true
+	result.WroteCompose = wroteCompose
+
+	if cfg.Setup.IncludeNATS {
+		natsConfigData, err := renderManagedNATSConfig(cfg)
+		if err != nil {
+			return result, err
+		}
+		wroteNATSConfig, err := writeScaffoldFile(result.NATSConfigPath, natsConfigData, force)
+		if err != nil {
+			return result, fmt.Errorf("write managed nats config file %s: %w", result.NATSConfigPath, err)
+		}
+		result.WroteNATSConfig = wroteNATSConfig
+	}
+
+	result.AlreadyPresent = !result.WroteCompose && !result.WroteNATSConfig
 
 	return result, nil
 }
@@ -110,4 +119,57 @@ func renderManagedCompose(cfg Config) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func renderManagedNATSConfig(cfg Config) ([]byte, error) {
+	cfg.ApplyDerivedFields()
+
+	tmpl, err := template.New("dev-stack-nats").Option("missingkey=error").Parse(string(embedded.DevStackNATSConfig()))
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded nats template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, cfg); err != nil {
+		return nil, fmt.Errorf("render managed nats template: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+func scaffoldFileMissing(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err == nil {
+		if info.IsDir() {
+			return false, fmt.Errorf("%s is a directory", path)
+		}
+		return false, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+
+	return false, err
+}
+
+func writeScaffoldFile(path string, data []byte, force bool) (bool, error) {
+	info, err := os.Stat(path)
+	switch {
+	case err == nil:
+		if info.IsDir() {
+			return false, fmt.Errorf("%s is a directory", path)
+		}
+		if !force {
+			return false, nil
+		}
+	case errors.Is(err, os.ErrNotExist):
+	default:
+		return false, err
+	}
+
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }

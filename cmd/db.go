@@ -44,6 +44,9 @@ func newDBShellCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := ensureServiceEnabled(cfg, "postgres"); err != nil {
+				return err
+			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
 				return err
 			}
@@ -101,6 +104,9 @@ func newDBDumpCmd() *cobra.Command {
 
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
+				return err
+			}
+			if err := ensureServiceEnabled(cfg, "postgres"); err != nil {
 				return err
 			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
@@ -164,6 +170,9 @@ func newDBRestoreCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
+				return err
+			}
+			if err := ensureServiceEnabled(cfg, "postgres"); err != nil {
 				return err
 			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
@@ -244,6 +253,9 @@ func newDBResetCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
+				return err
+			}
+			if err := ensureServiceEnabled(cfg, "postgres"); err != nil {
 				return err
 			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {

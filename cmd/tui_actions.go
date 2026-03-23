@@ -19,14 +19,24 @@ func runTUIAction(action stacktui.ActionID) (stacktui.ActionReport, error) {
 	if err != nil {
 		return stacktui.ActionReport{}, err
 	}
+	if verb, service, ok := stacktuiServiceAction(action); ok {
+		switch verb {
+		case "start":
+			return runTUIStart(cfg, []string{service})
+		case "stop":
+			return runTUIStop(cfg, []string{service})
+		case "restart":
+			return runTUIRestart(cfg, []string{service})
+		}
+	}
 
 	switch action {
 	case stacktui.ActionStart:
-		return runTUIStart(cfg)
+		return runTUIStart(cfg, nil)
 	case stacktui.ActionStop:
-		return runTUIStop(cfg)
+		return runTUIStop(cfg, nil)
 	case stacktui.ActionRestart:
-		return runTUIRestart(cfg)
+		return runTUIRestart(cfg, nil)
 	case stacktui.ActionOpenCockpit:
 		return runTUIOpenTarget("Cockpit", cfg.URLs.Cockpit)
 	case stacktui.ActionOpenPgAdmin:
@@ -45,17 +55,36 @@ func quietRunner() system.Runner {
 	}
 }
 
-func runTUIStart(cfg configpkg.Config) (stacktui.ActionReport, error) {
+func stacktuiServiceAction(action stacktui.ActionID) (string, string, bool) {
+	return stacktui.ServiceActionTarget(action)
+}
+
+func runTUIStart(cfg configpkg.Config, services []string) (stacktui.ActionReport, error) {
 	if err := ensureComposeRuntimeForConfig(cfg); err != nil {
 		return stacktui.ActionReport{}, err
 	}
-	if err := deps.composeUp(context.Background(), quietRunner(), cfg); err != nil {
+	if err := ensureNoOtherRunningStack(context.Background()); err != nil {
 		return stacktui.ActionReport{}, err
 	}
+
+	target := lifecycleTargetLabel(services)
+	switch {
+	case len(services) == 0:
+		err := deps.composeUp(context.Background(), quietRunner(), cfg)
+		if err != nil {
+			return stacktui.ActionReport{}, err
+		}
+	default:
+		err := deps.composeUpServices(context.Background(), quietRunner(), cfg, false, services)
+		if err != nil {
+			return stacktui.ActionReport{}, err
+		}
+	}
+
 	if cfg.Behavior.WaitForServicesStart {
 		waitCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Behavior.StartupTimeoutSec)*time.Second)
 		defer cancel()
-		if err := waitForConfiguredServices(waitCtx, cfg); err != nil {
+		if err := waitForSelectedServices(waitCtx, cfg, services); err != nil {
 			return stacktui.ActionReport{}, err
 		}
 	}
@@ -64,55 +93,94 @@ func runTUIStart(cfg configpkg.Config) (stacktui.ActionReport, error) {
 		fmt.Sprintf("Wait for services: %s", boolLabel(cfg.Behavior.WaitForServicesStart)),
 		fmt.Sprintf("Startup timeout: %ds", cfg.Behavior.StartupTimeoutSec),
 	}
+	if len(services) > 0 {
+		details = append(details, fmt.Sprintf("Service: %s", target))
+	}
 
 	return stacktui.ActionReport{
 		Status:  output.StatusOK,
-		Message: "stack started",
+		Message: fmt.Sprintf("%s started", target),
 		Details: details,
 		Refresh: true,
 	}, nil
 }
 
-func runTUIStop(cfg configpkg.Config) (stacktui.ActionReport, error) {
+func runTUIStop(cfg configpkg.Config, services []string) (stacktui.ActionReport, error) {
 	if err := ensureComposeRuntimeForConfig(cfg); err != nil {
 		return stacktui.ActionReport{}, err
 	}
-	if err := deps.composeDown(context.Background(), quietRunner(), cfg, false); err != nil {
-		return stacktui.ActionReport{}, err
-	}
 
-	return stacktui.ActionReport{
-		Status:  output.StatusOK,
-		Message: "stack stopped",
-		Details: []string{"Volumes were left intact."},
-		Refresh: true,
-	}, nil
-}
-
-func runTUIRestart(cfg configpkg.Config) (stacktui.ActionReport, error) {
-	if err := ensureComposeRuntimeForConfig(cfg); err != nil {
-		return stacktui.ActionReport{}, err
-	}
-	if err := deps.composeDown(context.Background(), quietRunner(), cfg, false); err != nil {
-		return stacktui.ActionReport{}, err
-	}
-	if err := deps.composeUp(context.Background(), quietRunner(), cfg); err != nil {
-		return stacktui.ActionReport{}, err
-	}
-	if cfg.Behavior.WaitForServicesStart {
-		waitCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Behavior.StartupTimeoutSec)*time.Second)
-		defer cancel()
-		if err := waitForConfiguredServices(waitCtx, cfg); err != nil {
+	target := lifecycleTargetLabel(services)
+	switch {
+	case len(services) == 0:
+		err := deps.composeDown(context.Background(), quietRunner(), cfg, false)
+		if err != nil {
+			return stacktui.ActionReport{}, err
+		}
+	default:
+		err := deps.composeStopServices(context.Background(), quietRunner(), cfg, services)
+		if err != nil {
 			return stacktui.ActionReport{}, err
 		}
 	}
 
+	details := []string{"Volumes were left intact."}
+	if len(services) > 0 {
+		details = append(details, fmt.Sprintf("Service: %s", target))
+	}
+
 	return stacktui.ActionReport{
 		Status:  output.StatusOK,
-		Message: "stack restarted",
-		Details: []string{
-			fmt.Sprintf("Wait for services: %s", boolLabel(cfg.Behavior.WaitForServicesStart)),
-		},
+		Message: fmt.Sprintf("%s stopped", target),
+		Details: details,
+		Refresh: true,
+	}, nil
+}
+
+func runTUIRestart(cfg configpkg.Config, services []string) (stacktui.ActionReport, error) {
+	if err := ensureComposeRuntimeForConfig(cfg); err != nil {
+		return stacktui.ActionReport{}, err
+	}
+	if err := ensureNoOtherRunningStack(context.Background()); err != nil {
+		return stacktui.ActionReport{}, err
+	}
+
+	target := lifecycleTargetLabel(services)
+	switch {
+	case len(services) == 0:
+		if err := deps.composeDown(context.Background(), quietRunner(), cfg, false); err != nil {
+			return stacktui.ActionReport{}, err
+		}
+		err := deps.composeUp(context.Background(), quietRunner(), cfg)
+		if err != nil {
+			return stacktui.ActionReport{}, err
+		}
+	default:
+		err := deps.composeUpServices(context.Background(), quietRunner(), cfg, true, services)
+		if err != nil {
+			return stacktui.ActionReport{}, err
+		}
+	}
+
+	if cfg.Behavior.WaitForServicesStart {
+		waitCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Behavior.StartupTimeoutSec)*time.Second)
+		defer cancel()
+		if err := waitForSelectedServices(waitCtx, cfg, services); err != nil {
+			return stacktui.ActionReport{}, err
+		}
+	}
+
+	details := []string{
+		fmt.Sprintf("Wait for services: %s", boolLabel(cfg.Behavior.WaitForServicesStart)),
+	}
+	if len(services) > 0 {
+		details = append(details, fmt.Sprintf("Service: %s", target))
+	}
+
+	return stacktui.ActionReport{
+		Status:  output.StatusOK,
+		Message: fmt.Sprintf("%s restarted", target),
+		Details: details,
 		Refresh: true,
 	}, nil
 }

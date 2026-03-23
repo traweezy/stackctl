@@ -61,6 +61,7 @@ const (
 	copyTargetHostPort copyTargetKind = "host-port"
 	copyTargetUsername copyTargetKind = "username"
 	copyTargetPassword copyTargetKind = "password"
+	copyTargetToken    copyTargetKind = "token"
 	copyTargetDatabase copyTargetKind = "database"
 	copyTargetEmail    copyTargetKind = "email"
 )
@@ -437,6 +438,9 @@ func serviceCopyTargets(service Service, showSecrets bool) []copyTarget {
 	if service.Password != "" {
 		add(copyTargetPassword, service.DisplayName+" password", service.Password, maskSecret(service.Password, showSecrets))
 	}
+	if service.Token != "" {
+		add(copyTargetToken, service.DisplayName+" token", service.Token, maskSecret(service.Token, showSecrets))
+	}
 	if service.Database != "" {
 		add(copyTargetDatabase, service.DisplayName+" database", service.Database, service.Database)
 	}
@@ -602,7 +606,8 @@ func (m Model) commandPaletteActions() []paletteAction {
 	actions = append(actions, m.serviceJumpActions()...)
 
 	if m.runner != nil {
-		for _, action := range availableActions(m.snapshot) {
+		selected, hasSelected := m.selectedLifecycleService()
+		for _, action := range availableActions(m.snapshot, selected, hasSelected) {
 			actions = append(actions, paletteAction{
 				Kind:     paletteActionSidebar,
 				Title:    action.Label,

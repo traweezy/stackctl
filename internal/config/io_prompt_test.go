@@ -147,6 +147,45 @@ system:
 	}
 }
 
+func TestLoadAppliesLegacyServiceEnableDefaultsWhenMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := `stack:
+  name: dev-stack
+  dir: /tmp/dev-stack
+  compose_file: compose.yaml
+  managed: false
+services:
+  postgres_container: local-postgres
+  redis_container: local-redis
+connection:
+  host: localhost
+ports:
+  postgres: 5432
+  redis: 6379
+behavior:
+  wait_for_services_on_start: true
+  startup_timeout_seconds: 30
+setup:
+  scaffold_default_stack: false
+system:
+  package_manager: apt
+`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if !cfg.Setup.IncludePostgres || !cfg.Setup.IncludeRedis || !cfg.Setup.IncludeNATS || !cfg.Setup.IncludePgAdmin || !cfg.Setup.IncludeCockpit {
+		t.Fatalf("expected legacy config to inherit service defaults, got %+v", cfg.Setup)
+	}
+	if !cfg.Setup.InstallCockpit {
+		t.Fatalf("expected legacy config to default install_cockpit, got %+v", cfg.Setup)
+	}
+}
+
 func TestLoadMissingConfigReturnsErrNotFound(t *testing.T) {
 	_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
 	if err != ErrNotFound {
@@ -197,6 +236,58 @@ func TestConfigPathsRespectUserConfigDir(t *testing.T) {
 	}
 	if filePath != filepath.Join(configRoot, "stackctl", "config.yaml") {
 		t.Fatalf("unexpected config file path: %s", filePath)
+	}
+}
+
+func TestNamedStackConfigPathUsesStacksSubdir(t *testing.T) {
+	configRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+
+	filePath, err := ConfigFilePathForStack("staging")
+	if err != nil {
+		t.Fatalf("ConfigFilePathForStack returned error: %v", err)
+	}
+	if filePath != filepath.Join(configRoot, "stackctl", "stacks", "staging.yaml") {
+		t.Fatalf("unexpected named stack config path: %s", filePath)
+	}
+}
+
+func TestConfigFilePathUsesSelectedStackEnv(t *testing.T) {
+	configRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv(StackNameEnvVar, "staging")
+
+	filePath, err := ConfigFilePath()
+	if err != nil {
+		t.Fatalf("ConfigFilePath returned error: %v", err)
+	}
+	if filePath != filepath.Join(configRoot, "stackctl", "stacks", "staging.yaml") {
+		t.Fatalf("unexpected env-selected config path: %s", filePath)
+	}
+}
+
+func TestKnownConfigPathsIncludesDefaultAndNamedStacks(t *testing.T) {
+	configRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+
+	defaultPath := filepath.Join(configRoot, "stackctl", "config.yaml")
+	namedPath := filepath.Join(configRoot, "stackctl", "stacks", "staging.yaml")
+	if err := os.MkdirAll(filepath.Dir(namedPath), 0o755); err != nil {
+		t.Fatalf("mkdir stack config dir: %v", err)
+	}
+	if err := os.WriteFile(defaultPath, []byte("stack:\n  name: dev-stack\n"), 0o644); err != nil {
+		t.Fatalf("write default config: %v", err)
+	}
+	if err := os.WriteFile(namedPath, []byte("stack:\n  name: staging\n"), 0o644); err != nil {
+		t.Fatalf("write named config: %v", err)
+	}
+
+	paths, err := KnownConfigPaths()
+	if err != nil {
+		t.Fatalf("KnownConfigPaths returned error: %v", err)
+	}
+	if len(paths) != 2 || paths[0] != defaultPath || paths[1] != namedPath {
+		t.Fatalf("unexpected known config paths: %+v", paths)
 	}
 }
 
@@ -266,7 +357,7 @@ func TestRunWizardAcceptsDefaults(t *testing.T) {
 
 	cfg := Default()
 
-	input := strings.Repeat("\n", 20)
+	input := strings.Repeat("\n", 48)
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
 	if err != nil {
 		t.Fatalf("RunWizard returned error: %v", err)
@@ -293,6 +384,50 @@ func TestRunWizardAcceptsDefaults(t *testing.T) {
 	}
 }
 
+func TestRunWizardGroupsPromptsByService(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	var out strings.Builder
+
+	_, err := RunWizard(strings.NewReader(strings.Repeat("\n", 48)), &out, cfg)
+	if err != nil {
+		t.Fatalf("RunWizard returned error: %v", err)
+	}
+
+	output := out.String()
+	for _, fragment := range []string{
+		"[Postgres]",
+		"[Redis]",
+		"[NATS]",
+		"[pgAdmin]",
+		"[Cockpit]",
+		"[Behavior]",
+		"[System]",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("wizard output missing %q:\n%s", fragment, output)
+		}
+	}
+
+	assertBefore := func(first, second string) {
+		t.Helper()
+
+		firstIndex := strings.Index(output, first)
+		secondIndex := strings.Index(output, second)
+		if firstIndex < 0 || secondIndex < 0 || firstIndex >= secondIndex {
+			t.Fatalf("expected %q before %q in wizard output:\n%s", first, second, output)
+		}
+	}
+
+	assertBefore("Include Postgres in the stack", "Postgres container name")
+	assertBefore("Postgres password", "Include Redis in the stack")
+	assertBefore("Redis password (leave blank to disable auth)", "Include NATS in the stack")
+	assertBefore("NATS auth token", "Include pgAdmin in the stack")
+	assertBefore("pgAdmin password", "Include Cockpit helpers")
+	assertBefore("Install Cockpit during setup", "[Behavior]")
+}
+
 func TestRunWizardCanSwitchToExternalStack(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
@@ -302,7 +437,7 @@ func TestRunWizardCanSwitchToExternalStack(t *testing.T) {
 	}
 
 	cfg := Default()
-	input := "dev-stack\nn\n" + externalDir + "\ncompose.custom.yaml\n" + strings.Repeat("\n", 27)
+	input := "dev-stack\nn\n" + externalDir + "\ncompose.custom.yaml\n" + strings.Repeat("\n", 48)
 
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
 	if err != nil {
@@ -325,14 +460,45 @@ func TestRunWizardCanCustomizeServiceCredentials(t *testing.T) {
 
 	cfg := Default()
 	input := strings.Join([]string{
-		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"", // stack name
+		"", // managed stack
+		"", // include postgres
+		"", // postgres container
+		"", // postgres image
+		"", // postgres volume
+		"", // postgres maintenance db
+		"", // postgres port
 		"stackdb",
 		"stackuser",
 		"stackpass",
+		"", // include redis
+		"", // redis container
+		"", // redis image
+		"", // redis volume
+		"", // redis appendonly
+		"", // redis save policy
+		"", // redis maxmemory policy
+		"", // redis port
 		"redispass",
+		"", // include nats
+		"", // nats container
+		"", // nats image
+		"", // nats port
+		"natssecret",
+		"", // include pgadmin
+		"", // pgadmin container
+		"", // pgadmin image
+		"", // pgadmin volume
+		"", // pgadmin server mode
+		"", // pgadmin port
 		"pgadmin@example.com",
 		"pgsecret",
-		"", "", "", "",
+		"", // include cockpit
+		"", // cockpit port
+		"", // install cockpit
+		"", // wait for services
+		"", // startup timeout
+		"", // package manager
 	}, "\n") + "\n"
 
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
@@ -351,6 +517,9 @@ func TestRunWizardCanCustomizeServiceCredentials(t *testing.T) {
 	if got.Connection.RedisPassword != "redispass" {
 		t.Fatalf("unexpected redis password: %q", got.Connection.RedisPassword)
 	}
+	if got.Connection.NATSToken != "natssecret" {
+		t.Fatalf("unexpected nats token: %q", got.Connection.NATSToken)
+	}
 	if got.Connection.PgAdminEmail != "pgadmin@example.com" {
 		t.Fatalf("unexpected pgadmin email: %q", got.Connection.PgAdminEmail)
 	}
@@ -364,23 +533,45 @@ func TestRunWizardCanCustomizeServiceRuntimeSettings(t *testing.T) {
 
 	cfg := Default()
 	input := strings.Join([]string{
-		"",
-		"",
-		"",
+		"", // stack name
+		"", // managed stack
+		"", // include postgres
+		"", // postgres container
 		"docker.io/library/postgres:17",
 		"stack_postgres_data",
 		"template1",
-		"",
+		"", // postgres port
+		"", // postgres database
+		"", // postgres username
+		"", // postgres password
+		"", // include redis
+		"", // redis container
 		"docker.io/library/redis:7.4",
 		"stack_redis_data",
 		"y",
 		"900 1 300 10",
 		"allkeys-lru",
-		"",
-		"",
+		"", // redis port
+		"", // redis password
+		"", // include nats
+		"", // nats container
+		"", // nats image
+		"", // nats port
+		"", // nats token
+		"", // include pgadmin
+		"", // pgadmin container
 		"docker.io/dpage/pgadmin4:9",
 		"stack_pgadmin_data",
 		"y",
+		"", // pgadmin port
+		"", // pgadmin email
+		"", // pgadmin password
+		"", // include cockpit
+		"", // cockpit port
+		"", // install cockpit
+		"", // wait for services
+		"", // startup timeout
+		"", // package manager
 	}, "\n") + "\n"
 
 	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
@@ -419,6 +610,29 @@ func TestRunWizardCanCustomizeServiceRuntimeSettings(t *testing.T) {
 	}
 	if !got.Services.PgAdmin.ServerMode {
 		t.Fatal("expected pgadmin server mode to be enabled")
+	}
+}
+
+func TestRunWizardRejectsDisablingEveryStackService(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	var out strings.Builder
+	input := strings.Join([]string{
+		"",
+		"",
+		"n",
+		"n",
+		"n",
+		"n",
+	}, "\n") + "\n"
+
+	_, err := RunWizard(strings.NewReader(input), &out, cfg)
+	if err == nil || !strings.Contains(err.Error(), "at least one stack service must be enabled") {
+		t.Fatalf("unexpected wizard error: %v", err)
+	}
+	if strings.Contains(out.String(), "Include Cockpit helpers") {
+		t.Fatalf("wizard should stop before cockpit when every stack service is disabled:\n%s", out.String())
 	}
 }
 
@@ -554,24 +768,43 @@ func TestRunWizardPropagatesPromptReadErrors(t *testing.T) {
 	}{
 		{name: "stack name", completedPrompts: 0},
 		{name: "manage stack", completedPrompts: 1},
-		{name: "postgres container", completedPrompts: 2},
-		{name: "redis container", completedPrompts: 3},
-		{name: "pgadmin container", completedPrompts: 4},
-		{name: "postgres port", completedPrompts: 5},
-		{name: "redis port", completedPrompts: 6},
-		{name: "pgadmin port", completedPrompts: 7},
-		{name: "cockpit port", completedPrompts: 8},
-		{name: "postgres database", completedPrompts: 9},
-		{name: "postgres username", completedPrompts: 10},
-		{name: "postgres password", completedPrompts: 11},
-		{name: "redis password", completedPrompts: 12},
-		{name: "pgadmin email", completedPrompts: 13},
-		{name: "pgadmin password", completedPrompts: 14},
-		{name: "wait for services", completedPrompts: 15},
-		{name: "timeout", completedPrompts: 16},
-		{name: "install cockpit", completedPrompts: 17},
-		{name: "include pgadmin", completedPrompts: 18},
-		{name: "package manager", completedPrompts: 19},
+		{name: "include postgres", completedPrompts: 2},
+		{name: "postgres container", completedPrompts: 3},
+		{name: "postgres image", completedPrompts: 4},
+		{name: "postgres volume", completedPrompts: 5},
+		{name: "postgres maintenance db", completedPrompts: 6},
+		{name: "postgres port", completedPrompts: 7},
+		{name: "postgres database", completedPrompts: 8},
+		{name: "postgres username", completedPrompts: 9},
+		{name: "postgres password", completedPrompts: 10},
+		{name: "include redis", completedPrompts: 11},
+		{name: "redis container", completedPrompts: 12},
+		{name: "redis image", completedPrompts: 13},
+		{name: "redis volume", completedPrompts: 14},
+		{name: "redis appendonly", completedPrompts: 15},
+		{name: "redis save policy", completedPrompts: 16},
+		{name: "redis maxmemory policy", completedPrompts: 17},
+		{name: "redis port", completedPrompts: 18},
+		{name: "redis password", completedPrompts: 19},
+		{name: "include nats", completedPrompts: 20},
+		{name: "nats container", completedPrompts: 21},
+		{name: "nats image", completedPrompts: 22},
+		{name: "nats port", completedPrompts: 23},
+		{name: "nats token", completedPrompts: 24},
+		{name: "include pgadmin", completedPrompts: 25},
+		{name: "pgadmin container", completedPrompts: 26},
+		{name: "pgadmin image", completedPrompts: 27},
+		{name: "pgadmin volume", completedPrompts: 28},
+		{name: "pgadmin server mode", completedPrompts: 29},
+		{name: "pgadmin port", completedPrompts: 30},
+		{name: "pgadmin email", completedPrompts: 31},
+		{name: "pgadmin password", completedPrompts: 32},
+		{name: "include cockpit", completedPrompts: 33},
+		{name: "cockpit port", completedPrompts: 34},
+		{name: "install cockpit", completedPrompts: 35},
+		{name: "wait for services", completedPrompts: 36},
+		{name: "timeout", completedPrompts: 37},
+		{name: "package manager", completedPrompts: 38},
 	}
 
 	for _, tc := range cases {

@@ -78,18 +78,21 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	cfg.Services.Redis.SavePolicy = "900 1 300 10"
 	cfg.Services.Redis.MaxMemoryPolicy = "allkeys-lru"
 	cfg.Connection.RedisPassword = "redispass"
+	cfg.Services.NATS.Image = "docker.io/library/nats:2.12.5"
+	cfg.Connection.NATSToken = "natssecret"
 	cfg.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:9"
 	cfg.Services.PgAdmin.DataVolume = "stack_pgadmin_data"
 	cfg.Services.PgAdmin.ServerMode = true
 	cfg.Connection.PgAdminEmail = "pgadmin@example.com"
 	cfg.Connection.PgAdminPassword = "pgsecret"
 	cfg.Ports.Postgres = 15432
+	cfg.Ports.NATS = 14222
 
 	result, err := ScaffoldManagedStack(cfg, false)
 	if err != nil {
 		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
 	}
-	if !result.CreatedDir || !result.WroteCompose {
+	if !result.CreatedDir || !result.WroteCompose || !result.WroteNATSConfig {
 		t.Fatalf("unexpected scaffold result: %+v", result)
 	}
 
@@ -133,6 +136,15 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	if !strings.Contains(string(data), "\"900 1 300 10\"") || !strings.Contains(string(data), "\"allkeys-lru\"") {
 		t.Fatalf("expected rendered redis tuning, got: %s", string(data))
 	}
+	if !strings.Contains(string(data), "image: \"docker.io/library/nats:2.12.5\"") {
+		t.Fatalf("expected rendered nats image, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "\"14222:4222\"") {
+		t.Fatalf("expected rendered nats port mapping, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "./nats.conf:/etc/nats/nats.conf:ro") {
+		t.Fatalf("expected rendered nats config mount, got: %s", string(data))
+	}
 	if !strings.Contains(string(data), "image: \"docker.io/dpage/pgadmin4:9\"") {
 		t.Fatalf("expected rendered pgadmin image, got: %s", string(data))
 	}
@@ -147,6 +159,14 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "PGADMIN_CONFIG_SERVER_MODE: \"True\"") {
 		t.Fatalf("expected rendered pgadmin server mode, got: %s", string(data))
+	}
+
+	natsConfigData, err := os.ReadFile(result.NATSConfigPath)
+	if err != nil {
+		t.Fatalf("read scaffolded nats config: %v", err)
+	}
+	if !strings.Contains(string(natsConfigData), "token: \"natssecret\"") {
+		t.Fatalf("expected rendered nats token, got: %s", string(natsConfigData))
 	}
 }
 
@@ -170,6 +190,55 @@ func TestScaffoldManagedStackOmitsPgAdminWhenDisabled(t *testing.T) {
 	}
 	if strings.Contains(string(data), "pgadmin_data") {
 		t.Fatalf("expected pgadmin volume to be omitted, got: %s", string(data))
+	}
+}
+
+func TestScaffoldManagedStackOmitsNATSWhenDisabled(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	cfg.Setup.IncludeNATS = false
+
+	result, err := ScaffoldManagedStack(cfg, false)
+	if err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(result.ComposePath)
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	if strings.Contains(string(data), "nats:") {
+		t.Fatalf("expected nats service to be omitted, got: %s", string(data))
+	}
+	if _, err := os.Stat(result.NATSConfigPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected nats config file to be absent, got err=%v", err)
+	}
+}
+
+func TestScaffoldManagedStackOmitsPostgresWhenDisabled(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	cfg.Setup.IncludePostgres = false
+
+	result, err := ScaffoldManagedStack(cfg, false)
+	if err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(result.ComposePath)
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	if strings.Contains(string(data), "postgres:") {
+		t.Fatalf("expected postgres service to be omitted, got: %s", string(data))
+	}
+	if strings.Contains(string(data), "postgres_data") {
+		t.Fatalf("expected postgres volume to be omitted, got: %s", string(data))
+	}
+	if strings.Contains(string(data), "depends_on:") {
+		t.Fatalf("expected pgadmin to drop postgres dependency when postgres is disabled, got: %s", string(data))
 	}
 }
 
@@ -208,7 +277,7 @@ func TestScaffoldManagedStackTreatsExistingComposeAsAlreadyPresent(t *testing.T)
 	if err != nil {
 		t.Fatalf("repeat scaffold failed: %v", err)
 	}
-	if !result.AlreadyPresent || result.WroteCompose {
+	if !result.AlreadyPresent || result.WroteCompose || result.WroteNATSConfig {
 		t.Fatalf("unexpected scaffold result: %+v", result)
 	}
 }
@@ -281,6 +350,39 @@ func TestScaffoldManagedStackRejectsDirectoryAtComposePath(t *testing.T) {
 	}
 	if _, err := ScaffoldManagedStack(cfg, false); err == nil || !strings.Contains(err.Error(), "is a directory") {
 		t.Fatalf("unexpected compose path error: %v", err)
+	}
+}
+
+func TestValidateRequiresAtLeastOneEnabledStackService(t *testing.T) {
+	root := t.TempDir()
+	stackDir := filepath.Join(root, "stack")
+	if err := os.MkdirAll(stackDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	composePath := filepath.Join(stackDir, "compose.yaml")
+	if err := os.WriteFile(composePath, []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatalf("write compose file failed: %v", err)
+	}
+
+	cfg := Default()
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
+	cfg.Stack.Dir = stackDir
+	cfg.Setup.IncludePostgres = false
+	cfg.Setup.IncludeRedis = false
+	cfg.Setup.IncludeNATS = false
+	cfg.Setup.IncludePgAdmin = false
+
+	issues := Validate(cfg)
+	found := false
+	for _, issue := range issues {
+		if issue.Field == "setup" && strings.Contains(issue.Message, "at least one stack service") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected setup validation issue, got %+v", issues)
 	}
 }
 

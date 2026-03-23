@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -35,9 +36,11 @@ type StackConfig struct {
 type ServicesConfig struct {
 	PostgresContainer string                `yaml:"postgres_container"`
 	RedisContainer    string                `yaml:"redis_container"`
+	NATSContainer     string                `yaml:"nats_container"`
 	PgAdminContainer  string                `yaml:"pgadmin_container"`
 	Postgres          PostgresServiceConfig `yaml:"postgres"`
 	Redis             RedisServiceConfig    `yaml:"redis"`
+	NATS              NATSServiceConfig     `yaml:"nats"`
 	PgAdmin           PgAdminServiceConfig  `yaml:"pgadmin"`
 }
 
@@ -55,6 +58,10 @@ type RedisServiceConfig struct {
 	MaxMemoryPolicy string `yaml:"maxmemory_policy"`
 }
 
+type NATSServiceConfig struct {
+	Image string `yaml:"image"`
+}
+
 type PgAdminServiceConfig struct {
 	Image      string `yaml:"image"`
 	DataVolume string `yaml:"data_volume"`
@@ -67,6 +74,7 @@ type ConnectionConfig struct {
 	PostgresUsername string `yaml:"postgres_username"`
 	PostgresPassword string `yaml:"postgres_password"`
 	RedisPassword    string `yaml:"redis_password"`
+	NATSToken        string `yaml:"nats_token"`
 	PgAdminEmail     string `yaml:"pgadmin_email"`
 	PgAdminPassword  string `yaml:"pgadmin_password"`
 }
@@ -74,6 +82,7 @@ type ConnectionConfig struct {
 type PortsConfig struct {
 	Postgres int `yaml:"postgres"`
 	Redis    int `yaml:"redis"`
+	NATS     int `yaml:"nats"`
 	PgAdmin  int `yaml:"pgadmin"`
 	Cockpit  int `yaml:"cockpit"`
 }
@@ -89,7 +98,11 @@ type BehaviorConfig struct {
 }
 
 type SetupConfig struct {
+	IncludePostgres      bool `yaml:"include_postgres"`
+	IncludeRedis         bool `yaml:"include_redis"`
+	IncludeCockpit       bool `yaml:"include_cockpit"`
 	InstallCockpit       bool `yaml:"install_cockpit"`
+	IncludeNATS          bool `yaml:"include_nats"`
 	IncludePgAdmin       bool `yaml:"include_pgadmin"`
 	ScaffoldDefaultStack bool `yaml:"scaffold_default_stack"`
 }
@@ -121,6 +134,7 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config %q: %w", resolvedPath, err)
 	}
+	applyLegacySetupDefaults(data, &cfg)
 
 	cfg.ApplyDerivedFields()
 
@@ -163,6 +177,15 @@ func Marshal(cfg Config) ([]byte, error) {
 }
 
 func (c *Config) ApplyDerivedFields() {
+	c.Stack.Name = normalizeStackName(c.Stack.Name)
+	if c.Stack.Managed {
+		if managedDir, err := ManagedStackDir(c.Stack.Name); err == nil {
+			c.Stack.Dir = managedDir
+		}
+		if strings.TrimSpace(c.Stack.ComposeFile) == "" {
+			c.Stack.ComposeFile = DefaultComposeFileName
+		}
+	}
 	if c.Connection.Host == "" {
 		c.Connection.Host = "localhost"
 	}
@@ -175,6 +198,9 @@ func (c *Config) ApplyDerivedFields() {
 	if c.Connection.PostgresPassword == "" {
 		c.Connection.PostgresPassword = "app"
 	}
+	if c.Connection.NATSToken == "" {
+		c.Connection.NATSToken = "stackctl"
+	}
 	if c.Connection.PgAdminEmail == "" {
 		c.Connection.PgAdminEmail = "admin@example.com"
 	}
@@ -185,8 +211,11 @@ func (c *Config) ApplyDerivedFields() {
 	if c.Services.Postgres.Image == "" {
 		c.Services.Postgres.Image = "docker.io/library/postgres:16"
 	}
+	if c.Services.PostgresContainer == "" {
+		c.Services.PostgresContainer = defaultPostgresContainerName(c.Stack.Name)
+	}
 	if c.Services.Postgres.DataVolume == "" {
-		c.Services.Postgres.DataVolume = "postgres_data"
+		c.Services.Postgres.DataVolume = defaultPostgresVolumeName(c.Stack.Name)
 	}
 	if c.Services.Postgres.MaintenanceDatabase == "" {
 		c.Services.Postgres.MaintenanceDatabase = "postgres"
@@ -195,8 +224,11 @@ func (c *Config) ApplyDerivedFields() {
 	if c.Services.Redis.Image == "" {
 		c.Services.Redis.Image = "docker.io/library/redis:7"
 	}
+	if c.Services.RedisContainer == "" {
+		c.Services.RedisContainer = defaultRedisContainerName(c.Stack.Name)
+	}
 	if c.Services.Redis.DataVolume == "" {
-		c.Services.Redis.DataVolume = "redis_data"
+		c.Services.Redis.DataVolume = defaultRedisVolumeName(c.Stack.Name)
 	}
 	if c.Services.Redis.SavePolicy == "" {
 		c.Services.Redis.SavePolicy = "3600 1 300 100 60 10000"
@@ -204,12 +236,21 @@ func (c *Config) ApplyDerivedFields() {
 	if c.Services.Redis.MaxMemoryPolicy == "" {
 		c.Services.Redis.MaxMemoryPolicy = "noeviction"
 	}
+	if c.Services.NATS.Image == "" {
+		c.Services.NATS.Image = "docker.io/library/nats:2.12.5"
+	}
+	if c.Services.NATSContainer == "" {
+		c.Services.NATSContainer = defaultNATSContainerName(c.Stack.Name)
+	}
 
 	if c.Services.PgAdmin.Image == "" {
 		c.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:latest"
 	}
+	if c.Services.PgAdminContainer == "" {
+		c.Services.PgAdminContainer = defaultPgAdminContainerName(c.Stack.Name)
+	}
 	if c.Services.PgAdmin.DataVolume == "" {
-		c.Services.PgAdmin.DataVolume = "pgadmin_data"
+		c.Services.PgAdmin.DataVolume = defaultPgAdminVolumeName(c.Stack.Name)
 	}
 
 	if c.Ports.Cockpit > 0 {
@@ -221,6 +262,103 @@ func (c *Config) ApplyDerivedFields() {
 	if c.TUI.AutoRefreshIntervalSec <= 0 {
 		c.TUI.AutoRefreshIntervalSec = DefaultTUIAutoRefreshIntervalSeconds
 	}
+}
+
+func (c Config) PostgresEnabled() bool {
+	return c.Setup.IncludePostgres
+}
+
+func (c Config) RedisEnabled() bool {
+	return c.Setup.IncludeRedis
+}
+
+func (c Config) NATSEnabled() bool {
+	return c.Setup.IncludeNATS
+}
+
+func (c Config) PgAdminEnabled() bool {
+	return c.Setup.IncludePgAdmin
+}
+
+func (c Config) CockpitEnabled() bool {
+	return c.Setup.IncludeCockpit
+}
+
+func (c Config) EnabledStackServiceCount() int {
+	count := 0
+	if c.PostgresEnabled() {
+		count++
+	}
+	if c.RedisEnabled() {
+		count++
+	}
+	if c.NATSEnabled() {
+		count++
+	}
+	if c.PgAdminEnabled() {
+		count++
+	}
+	return count
+}
+
+func applyLegacySetupDefaults(data []byte, cfg *Config) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return
+	}
+
+	if !yamlPathPresent(&root, "setup", "include_postgres") {
+		cfg.Setup.IncludePostgres = true
+	}
+	if !yamlPathPresent(&root, "setup", "include_redis") {
+		cfg.Setup.IncludeRedis = true
+	}
+	if !yamlPathPresent(&root, "setup", "include_cockpit") {
+		cfg.Setup.IncludeCockpit = true
+	}
+	if !yamlPathPresent(&root, "setup", "include_nats") {
+		cfg.Setup.IncludeNATS = true
+	}
+	if !yamlPathPresent(&root, "setup", "include_pgadmin") {
+		cfg.Setup.IncludePgAdmin = true
+	}
+	if !yamlPathPresent(&root, "setup", "install_cockpit") {
+		cfg.Setup.InstallCockpit = true
+	}
+	if !yamlPathPresent(&root, "setup", "scaffold_default_stack") {
+		cfg.Setup.ScaffoldDefaultStack = true
+	}
+}
+
+func yamlPathPresent(node *yaml.Node, keys ...string) bool {
+	if node == nil || len(keys) == 0 {
+		return false
+	}
+
+	current := node
+	if current.Kind == yaml.DocumentNode && len(current.Content) > 0 {
+		current = current.Content[0]
+	}
+
+	for _, key := range keys {
+		if current == nil || current.Kind != yaml.MappingNode {
+			return false
+		}
+
+		next := (*yaml.Node)(nil)
+		for idx := 0; idx+1 < len(current.Content); idx += 2 {
+			if current.Content[idx].Value == key {
+				next = current.Content[idx+1]
+				break
+			}
+		}
+		if next == nil {
+			return false
+		}
+		current = next
+	}
+
+	return true
 }
 
 func resolvePath(path string) (string, error) {

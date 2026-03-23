@@ -27,25 +27,52 @@ func TestConfigInitInteractivePTYCustomizesConfig(t *testing.T) {
 	env := cliTestEnv(t, configRoot, dataRoot)
 
 	input := strings.Join([]string{
-		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"", // stack name
+		"", // managed stack
+		"", // include postgres
+		"", // postgres container
+		"", // postgres image
+		"", // postgres volume
+		"", // postgres maintenance db
 		"15432",
-		"16379",
-		"18081",
-		"19090",
 		"stackdb",
 		"stackuser",
 		"stackpass",
+		"", // include redis
+		"", // redis container
+		"", // redis image
+		"", // redis volume
+		"", // redis appendonly
+		"", // redis save policy
+		"", // redis maxmemory policy
+		"16379",
 		"redispass",
+		"", // include nats
+		"", // nats container
+		"", // nats image
+		"14222",
+		"natssecret",
+		"", // include pgadmin
+		"", // pgadmin container
+		"", // pgadmin image
+		"", // pgadmin volume
+		"", // pgadmin server mode
+		"18081",
 		"pgadmin@example.com",
 		"pgsecret",
-		"", "", "", "",
+		"", // include cockpit
+		"19090",
+		"", // install cockpit
+		"", // wait for services
+		"", // startup timeout
+		"", // package manager
 	}, "\n") + "\n"
 
 	output, err := runStackctlPTY(t, binaryPath, env, input, "config", "init")
 	if err != nil {
 		t.Fatalf("config init returned error: %v\n%s", err, output)
 	}
-	if !strings.Contains(output, "Postgres database name") || !strings.Contains(output, "pgAdmin password") {
+	if !strings.Contains(output, "Include Postgres in the stack") || !strings.Contains(output, "pgAdmin password") {
 		t.Fatalf("expected wizard prompts in tty output, got:\n%s", output)
 	}
 
@@ -59,6 +86,9 @@ func TestConfigInitInteractivePTYCustomizesConfig(t *testing.T) {
 	}
 	if cfg.Connection.RedisPassword != "redispass" {
 		t.Fatalf("unexpected redis password: %+v", cfg.Connection)
+	}
+	if cfg.Connection.NATSToken != "natssecret" || cfg.Ports.NATS != 14222 {
+		t.Fatalf("unexpected nats config: %+v / %+v", cfg.Connection, cfg.Ports)
 	}
 	if cfg.Connection.PgAdminEmail != "pgadmin@example.com" || cfg.Connection.PgAdminPassword != "pgsecret" {
 		t.Fatalf("unexpected pgadmin config: %+v", cfg.Connection)
@@ -82,6 +112,14 @@ func TestConfigInitInteractivePTYCustomizesConfig(t *testing.T) {
 			t.Fatalf("compose file missing %q:\n%s", fragment, composeText)
 		}
 	}
+
+	natsConfig, err := os.ReadFile(filepath.Join(dataRoot, "stackctl", "stacks", "dev-stack", "nats.conf"))
+	if err != nil {
+		t.Fatalf("read scaffolded nats config: %v", err)
+	}
+	if !strings.Contains(string(natsConfig), "token: \"natssecret\"") {
+		t.Fatalf("nats config missing token:\n%s", string(natsConfig))
+	}
 }
 
 func TestConfigEditInteractivePTYUpdatesExistingConfig(t *testing.T) {
@@ -104,18 +142,45 @@ func TestConfigEditInteractivePTYUpdatesExistingConfig(t *testing.T) {
 	}
 
 	input := strings.Join([]string{
-		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+		"", // stack name
+		"", // managed stack
+		"", // include postgres
+		"", // postgres container
+		"", // postgres image
+		"", // postgres volume
+		"", // postgres maintenance db
 		"25432",
-		"26379",
-		"28081",
-		"29090",
 		"editeddb",
 		"editeduser",
 		"editedpass",
+		"", // include redis
+		"", // redis container
+		"", // redis image
+		"", // redis volume
+		"", // redis appendonly
+		"", // redis save policy
+		"", // redis maxmemory policy
+		"26379",
 		"",
+		"", // include nats
+		"", // nats container
+		"", // nats image
+		"24222",
+		"editedtoken",
+		"", // include pgadmin
+		"", // pgadmin container
+		"", // pgadmin image
+		"", // pgadmin volume
+		"", // pgadmin server mode
+		"28081",
 		"ops@example.com",
 		"opspass",
-		"", "", "", "",
+		"", // include cockpit
+		"29090",
+		"", // install cockpit
+		"", // wait for services
+		"", // startup timeout
+		"", // package manager
 	}, "\n") + "\n"
 
 	output, err := runStackctlPTY(t, binaryPath, env, input, "config", "edit")
@@ -130,11 +195,14 @@ func TestConfigEditInteractivePTYUpdatesExistingConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load updated config: %v", err)
 	}
-	if updated.Ports.Postgres != 25432 || updated.Ports.Redis != 26379 || updated.Ports.PgAdmin != 28081 || updated.Ports.Cockpit != 29090 {
+	if updated.Ports.Postgres != 25432 || updated.Ports.Redis != 26379 || updated.Ports.NATS != 24222 || updated.Ports.PgAdmin != 28081 || updated.Ports.Cockpit != 29090 {
 		t.Fatalf("unexpected updated ports: %+v", updated.Ports)
 	}
 	if updated.Connection.PostgresDatabase != "editeddb" || updated.Connection.PostgresUsername != "editeduser" || updated.Connection.PostgresPassword != "editedpass" {
 		t.Fatalf("unexpected updated postgres config: %+v", updated.Connection)
+	}
+	if updated.Connection.NATSToken != "editedtoken" {
+		t.Fatalf("unexpected updated nats config: %+v", updated.Connection)
 	}
 	if updated.Connection.PgAdminEmail != "ops@example.com" || updated.Connection.PgAdminPassword != "opspass" {
 		t.Fatalf("unexpected updated pgadmin config: %+v", updated.Connection)
@@ -147,6 +215,7 @@ func TestConfigEditInteractivePTYUpdatesExistingConfig(t *testing.T) {
 	for _, fragment := range []string{
 		"postgres://editeduser:editedpass@localhost:25432/editeddb",
 		"redis://localhost:26379",
+		"nats://editedtoken@localhost:24222",
 		"http://localhost:28081",
 		"https://localhost:29090",
 	} {

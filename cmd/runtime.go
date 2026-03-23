@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -92,45 +91,32 @@ func ensureComposeRuntimeForConfig(cfg configpkg.Config) error {
 }
 
 func serviceContainer(cfg configpkg.Config, service string) (string, error) {
-	name, err := canonicalServiceName(service)
-	if err != nil {
-		return "", err
+	definition, ok := serviceDefinitionByAlias(service)
+	if !ok || definition.Kind != serviceKindStack {
+		return "", fmt.Errorf("invalid service %q; valid values: %s", service, validStackServiceNames())
 	}
-
-	switch name {
-	case "postgres":
-		return cfg.Services.PostgresContainer, nil
-	case "redis":
-		return cfg.Services.RedisContainer, nil
-	case "pgadmin":
-		return cfg.Services.PgAdminContainer, nil
-	default:
-		return "", fmt.Errorf("invalid service %q; valid values: postgres, redis, pgadmin", service)
+	if definition.ContainerName == nil {
+		return "", fmt.Errorf("service %q does not define a container name", definition.Key)
 	}
+	return definition.ContainerName(cfg), nil
 }
 
 func canonicalServiceName(service string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(service)) {
-	case "postgres", "pg":
-		return "postgres", nil
-	case "redis", "rd":
-		return "redis", nil
-	case "pgadmin":
-		return "pgadmin", nil
-	default:
-		return "", fmt.Errorf("invalid service %q; valid values: postgres, redis, pgadmin", service)
+	definition, ok := serviceDefinitionByAlias(service)
+	if !ok || definition.Kind != serviceKindStack {
+		return "", fmt.Errorf("invalid service %q; valid values: %s", service, validStackServiceNames())
 	}
+	return definition.Key, nil
 }
 
 func stackContainerNames(cfg configpkg.Config) []string {
-	names := []string{
-		cfg.Services.PostgresContainer,
-		cfg.Services.RedisContainer,
+	names := make([]string, 0, len(serviceDefinitions()))
+	for _, definition := range enabledStackServiceDefinitions(cfg) {
+		if definition.ContainerName == nil {
+			continue
+		}
+		names = append(names, definition.ContainerName(cfg))
 	}
-	if cfg.Setup.IncludePgAdmin {
-		names = append(names, cfg.Services.PgAdminContainer)
-	}
-
 	return names
 }
 
@@ -214,14 +200,12 @@ func printConnectionInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 }
 
 func healthChecks(ctx context.Context, cfg configpkg.Config) ([]outputLine, error) {
-	lines := []outputLine{
-		checkPort(cfg.Ports.Postgres, "postgres port listening"),
-		checkPort(cfg.Ports.Redis, "redis port listening"),
+	lines := make([]outputLine, 0, len(serviceDefinitions())*2)
+	for _, definition := range enabledServiceDefinitions(cfg) {
+		if definition.PrimaryPort != nil && definition.PrimaryPortLabel != "" {
+			lines = append(lines, checkPort(definition.PrimaryPort(cfg), definition.PrimaryPortLabel))
+		}
 	}
-	if cfg.Setup.IncludePgAdmin {
-		lines = append(lines, checkPort(cfg.Ports.PgAdmin, "pgadmin port listening"))
-	}
-	lines = append(lines, checkPort(cfg.Ports.Cockpit, "cockpit port listening"))
 
 	containers, err := loadStackContainers(ctx, cfg)
 	if err != nil {
@@ -267,7 +251,15 @@ func checkPort(port int, label string) outputLine {
 		return outputLine{Status: output.StatusOK, Message: label}
 	}
 
-	return outputLine{Status: output.StatusWarn, Message: label}
+	return outputLine{Status: output.StatusWarn, Message: missingPortLabel(label)}
+}
+
+func missingPortLabel(label string) string {
+	if strings.HasSuffix(label, " listening") {
+		return strings.TrimSuffix(label, " listening") + " not listening"
+	}
+
+	return label
 }
 
 type configuredService struct {
@@ -290,6 +282,7 @@ type runtimeService struct {
 	Database        string `json:"database,omitempty"`
 	MaintenanceDB   string `json:"maintenance_database,omitempty"`
 	Email           string `json:"email,omitempty"`
+	Token           string `json:"-"`
 	Username        string `json:"username,omitempty"`
 	Password        string `json:"-"`
 	AppendOnly      *bool  `json:"appendonly,omitempty"`
@@ -306,15 +299,15 @@ type connectionEntry struct {
 }
 
 func configuredStackServices(cfg configpkg.Config) []configuredService {
-	services := []configuredService{
-		{Name: "postgres", ContainerName: cfg.Services.PostgresContainer, Port: cfg.Ports.Postgres},
-		{Name: "redis", ContainerName: cfg.Services.RedisContainer, Port: cfg.Ports.Redis},
-	}
-	if cfg.Setup.IncludePgAdmin {
+	services := make([]configuredService, 0, len(serviceDefinitions()))
+	for _, definition := range enabledStackServiceDefinitions(cfg) {
+		if definition.ContainerName == nil || definition.PrimaryPort == nil {
+			continue
+		}
 		services = append(services, configuredService{
-			Name:          "pgadmin",
-			ContainerName: cfg.Services.PgAdminContainer,
-			Port:          cfg.Ports.PgAdmin,
+			Name:          definition.Key,
+			ContainerName: definition.ContainerName(cfg),
+			Port:          definition.PrimaryPort(cfg),
 		})
 	}
 
@@ -334,72 +327,10 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 		}
 	}
 
-	services := []runtimeService{
-		{
-			Name:          "postgres",
-			Icon:          "🗄️",
-			DisplayName:   "Postgres",
-			Status:        containerStatus(containerByName, cfg.Services.PostgresContainer),
-			ContainerName: cfg.Services.PostgresContainer,
-			Image:         cfg.Services.Postgres.Image,
-			DataVolume:    cfg.Services.Postgres.DataVolume,
-			Host:          cfg.Connection.Host,
-			ExternalPort:  cfg.Ports.Postgres,
-			InternalPort:  containerInternalPort(containerByName, cfg.Services.PostgresContainer, cfg.Ports.Postgres),
-			Database:      cfg.Connection.PostgresDatabase,
-			MaintenanceDB: cfg.Services.Postgres.MaintenanceDatabase,
-			Username:      cfg.Connection.PostgresUsername,
-			Password:      cfg.Connection.PostgresPassword,
-			DSN:           postgresDSN(cfg),
-		},
-		{
-			Name:            "redis",
-			Icon:            "⚡",
-			DisplayName:     "Redis",
-			Status:          containerStatus(containerByName, cfg.Services.RedisContainer),
-			ContainerName:   cfg.Services.RedisContainer,
-			Image:           cfg.Services.Redis.Image,
-			DataVolume:      cfg.Services.Redis.DataVolume,
-			Host:            cfg.Connection.Host,
-			ExternalPort:    cfg.Ports.Redis,
-			InternalPort:    containerInternalPort(containerByName, cfg.Services.RedisContainer, cfg.Ports.Redis),
-			Password:        cfg.Connection.RedisPassword,
-			AppendOnly:      boolPointer(cfg.Services.Redis.AppendOnly),
-			SavePolicy:      cfg.Services.Redis.SavePolicy,
-			MaxMemoryPolicy: cfg.Services.Redis.MaxMemoryPolicy,
-			DSN:             redisDSN(cfg),
-		},
+	services := make([]runtimeService, 0, len(serviceDefinitions()))
+	for _, definition := range runtimeServiceDefinitions(cfg) {
+		services = append(services, runtimeServiceForDefinition(ctx, cfg, definition, containerByName))
 	}
-
-	if cfg.Setup.IncludePgAdmin {
-		services = append(services, runtimeService{
-			Name:          "pgadmin",
-			Icon:          "🌐",
-			DisplayName:   "pgAdmin",
-			Status:        containerStatus(containerByName, cfg.Services.PgAdminContainer),
-			ContainerName: cfg.Services.PgAdminContainer,
-			Image:         cfg.Services.PgAdmin.Image,
-			DataVolume:    cfg.Services.PgAdmin.DataVolume,
-			Host:          cfg.Connection.Host,
-			ExternalPort:  cfg.Ports.PgAdmin,
-			InternalPort:  containerInternalPort(containerByName, cfg.Services.PgAdminContainer, cfg.Ports.PgAdmin),
-			Email:         cfg.Connection.PgAdminEmail,
-			Password:      cfg.Connection.PgAdminPassword,
-			ServerMode:    pgAdminModeLabel(cfg.Services.PgAdmin.ServerMode),
-			URL:           cfg.URLs.PgAdmin,
-		})
-	}
-
-	cockpit := deps.cockpitStatus(ctx)
-	services = append(services, runtimeService{
-		Name:         "cockpit",
-		Icon:         "🖥️",
-		DisplayName:  "Cockpit",
-		Status:       cockpitStateLabel(cockpit),
-		Host:         cfg.Connection.Host,
-		ExternalPort: cfg.Ports.Cockpit,
-		URL:          cfg.URLs.Cockpit,
-	})
 
 	return services, nil
 }
@@ -469,6 +400,11 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 		}
 		if service.Email != "" {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Email: %s\n", service.Email); err != nil {
+				return err
+			}
+		}
+		if service.Token != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Token: %s\n", service.Token); err != nil {
 				return err
 			}
 		}
@@ -543,57 +479,43 @@ func printConnectionEntries(cmd *cobra.Command, entries []connectionEntry) error
 }
 
 func connectionEntries(cfg configpkg.Config) []connectionEntry {
-	entries := []connectionEntry{
-		{Name: "Postgres", Value: postgresDSN(cfg)},
-		{Name: "Redis", Value: redisDSN(cfg)},
+	entries := make([]connectionEntry, 0, len(serviceDefinitions()))
+	for _, definition := range enabledServiceDefinitions(cfg) {
+		if definition.ConnectionEntries == nil {
+			continue
+		}
+		entries = append(entries, definition.ConnectionEntries(cfg)...)
 	}
-	if cfg.Setup.IncludePgAdmin && cfg.URLs.PgAdmin != "" {
-		entries = append(entries, connectionEntry{Name: "pgAdmin", Value: cfg.URLs.PgAdmin})
+	return entries
+}
+
+func selectedConnectionEntries(cfg configpkg.Config, services []string) []connectionEntry {
+	if len(services) == 0 {
+		return connectionEntries(cfg)
 	}
-	if cfg.URLs.Cockpit != "" {
-		entries = append(entries, connectionEntry{Name: "Cockpit", Value: cfg.URLs.Cockpit})
+
+	entries := make([]connectionEntry, 0, len(services))
+	for _, service := range services {
+		definition, ok := serviceDefinitionByKey(service)
+		if !ok || definition.ConnectionEntries == nil {
+			continue
+		}
+		entries = append(entries, definition.ConnectionEntries(cfg)...)
 	}
 
 	return entries
 }
 
 func serviceCopyTarget(cfg configpkg.Config, target string) (string, string, error) {
-	switch normalizedCopyTarget(target) {
-	case "postgres", "postgresdsn":
-		return "postgres DSN", postgresDSN(cfg), nil
-	case "redis", "redisdsn":
-		return "redis DSN", redisDSN(cfg), nil
-	case "pgadmin", "pgadminurl":
-		if !cfg.Setup.IncludePgAdmin || cfg.URLs.PgAdmin == "" {
-			return "", "", errors.New("pgadmin is not enabled in this stack")
-		}
-		return "pgAdmin URL", cfg.URLs.PgAdmin, nil
-	case "cockpit", "cockpiturl":
-		return "Cockpit URL", cfg.URLs.Cockpit, nil
-	case "postgresuser", "postgresusername":
-		return "Postgres username", cfg.Connection.PostgresUsername, nil
-	case "postgrespassword":
-		return "Postgres password", cfg.Connection.PostgresPassword, nil
-	case "postgresdatabase", "postgresdb":
-		return "Postgres database", cfg.Connection.PostgresDatabase, nil
-	case "redispassword":
-		return "Redis password", cfg.Connection.RedisPassword, nil
-	case "pgadminemail":
-		if !cfg.Setup.IncludePgAdmin {
-			return "", "", errors.New("pgadmin is not enabled in this stack")
-		}
-		return "pgAdmin email", cfg.Connection.PgAdminEmail, nil
-	case "pgadminpassword":
-		if !cfg.Setup.IncludePgAdmin {
-			return "", "", errors.New("pgadmin is not enabled in this stack")
-		}
-		return "pgAdmin password", cfg.Connection.PgAdminPassword, nil
-	default:
-		return "", "", fmt.Errorf(
-			"invalid copy target %q; valid values: postgres, redis, pgadmin, cockpit, postgres-user, postgres-password, postgres-database, redis-password, pgadmin-email, pgadmin-password",
-			target,
-		)
+	spec, ok := copyTargetSpec(cfg, target)
+	if !ok {
+		return "", "", fmt.Errorf("invalid copy target %q; valid values: %s", target, validCopyTargetNames())
 	}
+	value, err := spec.Resolve(cfg)
+	if err != nil {
+		return "", "", err
+	}
+	return spec.Label, value, nil
 }
 
 func normalizedCopyTarget(target string) string {
@@ -631,6 +553,18 @@ func redisDSN(cfg configpkg.Config) string {
 	}
 	if cfg.Connection.RedisPassword != "" {
 		target.User = url.UserPassword("", cfg.Connection.RedisPassword)
+	}
+
+	return target.String()
+}
+
+func natsDSN(cfg configpkg.Config) string {
+	target := &url.URL{
+		Scheme: "nats",
+		Host:   fmt.Sprintf("%s:%d", cfg.Connection.Host, cfg.Ports.NATS),
+	}
+	if cfg.Connection.NATSToken != "" {
+		target.User = url.User(cfg.Connection.NATSToken)
 	}
 
 	return target.String()
@@ -703,22 +637,4 @@ func shortID(value string) string {
 	}
 
 	return value[:12]
-}
-
-func waitForConfiguredServices(ctx context.Context, cfg configpkg.Config) error {
-	services := []struct {
-		name string
-		port int
-	}{
-		{name: "postgres", port: cfg.Ports.Postgres},
-		{name: "redis", port: cfg.Ports.Redis},
-	}
-
-	for _, service := range services {
-		if err := deps.waitForPort(ctx, service.port, 500*time.Millisecond); err != nil {
-			return fmt.Errorf("%s port %d did not become ready: %w", service.name, service.port, err)
-		}
-	}
-
-	return nil
 }

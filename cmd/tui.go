@@ -181,6 +181,7 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config, source stacktui.C
 				Database:        service.Database,
 				MaintenanceDB:   service.MaintenanceDB,
 				Email:           service.Email,
+				Token:           service.Token,
 				Username:        service.Username,
 				Password:        service.Password,
 				AppendOnly:      service.AppendOnly,
@@ -325,6 +326,9 @@ func buildTUILogWatchCommand(request stacktui.LogWatchRequest) (tea.ExecCommand,
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureServiceEnabled(cfg, service); err != nil {
+		return nil, err
+	}
 
 	return &tuiLogWatchCommand{
 		cfg:     cfg,
@@ -357,6 +361,9 @@ func buildTUIServiceShellCommand(request stacktui.ServiceShellRequest) (tea.Exec
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureServiceEnabled(cfg, service); err != nil {
+		return nil, err
+	}
 
 	return &tuiServiceShellCommand{
 		cfg:     cfg,
@@ -370,6 +377,9 @@ func buildTUIDBShellCommand(request stacktui.DBShellRequest) (tea.ExecCommand, e
 		return nil, err
 	}
 	if err := ensureComposeRuntimeForConfig(cfg); err != nil {
+		return nil, err
+	}
+	if err := ensureServiceEnabled(cfg, "postgres"); err != nil {
 		return nil, err
 	}
 	if service := strings.TrimSpace(request.Service); service != "" {

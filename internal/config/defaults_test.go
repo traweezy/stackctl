@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestDefaultConfigHasDerivedURLs(t *testing.T) {
 	cfg := Default()
@@ -15,10 +18,56 @@ func TestDefaultConfigHasDerivedURLs(t *testing.T) {
 	if cfg.Connection.RedisPassword != "" {
 		t.Fatalf("expected redis password to default to empty, got %q", cfg.Connection.RedisPassword)
 	}
+	if !cfg.Setup.IncludePostgres {
+		t.Fatal("expected postgres to be enabled by default")
+	}
+	if !cfg.Setup.IncludeRedis {
+		t.Fatal("expected redis to be enabled by default")
+	}
+	if !cfg.Setup.IncludeCockpit {
+		t.Fatal("expected cockpit to be enabled by default")
+	}
+	if cfg.Connection.NATSToken != "stackctl" {
+		t.Fatalf("unexpected nats token: %s", cfg.Connection.NATSToken)
+	}
+	if cfg.Ports.NATS != 4222 {
+		t.Fatalf("unexpected nats port: %d", cfg.Ports.NATS)
+	}
+	if !cfg.Setup.IncludeNATS {
+		t.Fatal("expected nats to be enabled by default")
+	}
 	if cfg.Connection.PgAdminEmail != "admin@example.com" {
 		t.Fatalf("unexpected pgadmin email: %s", cfg.Connection.PgAdminEmail)
 	}
 	if cfg.Connection.PgAdminPassword != "admin" {
 		t.Fatalf("unexpected pgadmin password: %s", cfg.Connection.PgAdminPassword)
+	}
+}
+
+func TestDefaultForNamedStackUsesStackSpecificManagedDefaults(t *testing.T) {
+	configRoot := t.TempDir()
+	dataRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	cfg := DefaultForStack("staging")
+
+	if cfg.Stack.Name != "staging" {
+		t.Fatalf("unexpected stack name: %s", cfg.Stack.Name)
+	}
+	if cfg.Stack.Dir != filepath.Join(dataRoot, "stackctl", "stacks", "staging") {
+		t.Fatalf("unexpected stack dir: %s", cfg.Stack.Dir)
+	}
+	if cfg.Services.PostgresContainer != "stackctl-staging-postgres" {
+		t.Fatalf("unexpected postgres container: %s", cfg.Services.PostgresContainer)
+	}
+	if cfg.Services.RedisContainer != "stackctl-staging-redis" {
+		t.Fatalf("unexpected redis container: %s", cfg.Services.RedisContainer)
+	}
+	if cfg.Services.NATSContainer != "stackctl-staging-nats" {
+		t.Fatalf("unexpected nats container: %s", cfg.Services.NATSContainer)
+	}
+	if cfg.Services.PgAdminContainer != "stackctl-staging-pgadmin" {
+		t.Fatalf("unexpected pgadmin container: %s", cfg.Services.PgAdminContainer)
 	}
 }

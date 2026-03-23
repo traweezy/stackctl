@@ -1,0 +1,18 @@
+# A named stack should use its own config path and managed stack directory.
+exec stackctl --stack staging config init --non-interactive
+stdout 'Saved config to '
+stdout '/.config/stackctl/stacks/staging.yaml'
+exists .config/stackctl/stacks/staging.yaml
+exists .local/share/stackctl/stacks/staging/compose.yaml
+exists .local/share/stackctl/stacks/staging/nats.conf
+
+exec stackctl --stack staging config path
+stdout '/.config/stackctl/stacks/staging.yaml'
+
+exec stackctl --stack staging config view
+stdout 'name: staging'
+stdout $WORK/.local/share/stackctl/stacks/staging
+stdout 'postgres_container: stackctl-staging-postgres'
+stdout 'redis_container: stackctl-staging-redis'
+stdout 'nats_container: stackctl-staging-nats'
+stdout 'pgadmin_container: stackctl-staging-pgadmin'

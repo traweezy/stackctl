@@ -63,6 +63,7 @@ type Service struct {
 	Database        string
 	MaintenanceDB   string
 	Email           string
+	Token           string
 	Username        string
 	Password        string
 	AppendOnly      *bool
@@ -211,8 +212,8 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("shift+tab/h", "previous section"),
 		),
 		Action: key.NewBinding(
-			key.WithKeys("1", "2", "3", "4", "5", "6"),
-			key.WithHelp("1-6", "action"),
+			key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"),
+			key.WithHelp("1-9", "action"),
 		),
 		OpenPalette: key.NewBinding(
 			key.WithKeys(":", "ctrl+k"),
@@ -596,7 +597,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !ok {
 				return m, nil
 			}
-			actions := availableActions(m.snapshot)
+			selected, hasSelected := m.selectedLifecycleService()
+			actions := availableActions(m.snapshot, selected, hasSelected)
 			if index >= len(actions) {
 				return m, nil
 			}
@@ -999,6 +1001,19 @@ func (m Model) selectedLogWatchService() (Service, bool) {
 	}
 }
 
+func (m Model) selectedLifecycleService() (Service, bool) {
+	switch m.active {
+	case servicesSection:
+		service, ok := selectedService(m.snapshot, m.selectedService)
+		return service, ok && isStackService(service)
+	case healthSection:
+		service, ok := selectedService(m.snapshot, m.selectedHealth)
+		return service, ok && isStackService(service)
+	default:
+		return Service{}, false
+	}
+}
+
 func (m Model) showWatchLogsHelp() bool {
 	service, ok := m.selectedLogWatchService()
 	return ok && isStackService(service)
@@ -1373,20 +1388,21 @@ func renderHeader(m Model) string {
 		autoRefreshLabel = m.refreshInterval().String()
 	}
 
-	meta := fmt.Sprintf(
-		"%s  •  mode: %s  •  layout: %s  •  auto-refresh: %s  •  secrets: %s  •  updated: %s",
+	metaPrimary := fmt.Sprintf(
+		"%s  •  section: %s  •  mode: %s  •  layout: %s  •  auto-refresh: %s",
 		headerStatusStyle(m).Render(statusLabel),
+		m.active.Title(),
 		mode,
 		m.layout.String(),
 		autoRefreshLabel,
-		onOffLabel(m.showSecrets),
-		loadedAt,
 	)
+	metaSecondary := fmt.Sprintf("secrets: %s  •  updated: %s", onOffLabel(m.showSecrets), loadedAt)
 
 	header := lipgloss.JoinVertical(
 		lipgloss.Left,
 		titleStyle().Render("stackctl tui")+" "+subtitleStyle().Render(stackName),
-		headerMetaStyle().Render(meta),
+		headerMetaStyle().Render(metaPrimary),
+		headerMetaStyle().Render(metaSecondary),
 	)
 	header = headerShellStyle().Render(header)
 
@@ -1546,6 +1562,9 @@ func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, ho
 	if service.Email != "" {
 		accessGroup = append(accessGroup, fmt.Sprintf("Email: %s", service.Email))
 	}
+	if layout == expandedLayout && service.Token != "" {
+		accessGroup = append(accessGroup, fmt.Sprintf("Token: %s", maskSecret(service.Token, showSecrets)))
+	}
 	if service.Username != "" {
 		accessGroup = append(accessGroup, fmt.Sprintf("Username: %s", service.Username))
 	}
@@ -1567,15 +1586,11 @@ func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, ho
 		settingGroup = append(settingGroup, fmt.Sprintf("Server mode: %s", service.ServerMode))
 	}
 
-	for _, group := range [][]string{runtimeGroup, metaGroup, endpointGroup, accessGroup, settingGroup} {
-		if len(group) == 0 {
-			continue
-		}
-		if len(lines) > 0 {
-			lines = append(lines, "")
-		}
-		lines = append(lines, group...)
-	}
+	lines = append(lines, runtimeGroup...)
+	lines = appendDetailGroup(lines, "Container", metaGroup)
+	lines = appendDetailGroup(lines, "Endpoints", endpointGroup)
+	lines = appendDetailGroup(lines, "Access", accessGroup)
+	lines = appendDetailGroup(lines, "Settings", settingGroup)
 
 	return lines
 }
@@ -1776,15 +1791,19 @@ func renderHealthBlock(service Service) []string {
 		reachabilityGroup = append(reachabilityGroup, fmt.Sprintf("URL: %s", service.URL))
 	}
 
-	for _, group := range [][]string{runtimeGroup, reachabilityGroup} {
-		if len(group) == 0 {
-			continue
-		}
-		if len(lines) > 0 {
-			lines = append(lines, "")
-		}
-		lines = append(lines, group...)
+	lines = append(lines, runtimeGroup...)
+	lines = appendDetailGroup(lines, "Reachability", reachabilityGroup)
+
+	return lines
+}
+
+func appendDetailGroup(lines []string, title string, group []string) []string {
+	if len(group) == 0 {
+		return lines
 	}
+
+	lines = append(lines, subsectionTitleStyle().Render(title))
+	lines = append(lines, group...)
 
 	return lines
 }

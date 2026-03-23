@@ -22,6 +22,12 @@ const (
 	ActionDoctor      ActionID = "doctor"
 )
 
+const (
+	actionStartServicePrefix   = "start-service:"
+	actionStopServicePrefix    = "stop-service:"
+	actionRestartServicePrefix = "restart-service:"
+)
+
 type ActionRunner func(ActionID) (ActionReport, error)
 
 type ActionReport struct {
@@ -99,14 +105,14 @@ func actionIndex(keyText string) (int, bool) {
 	}
 
 	switch keyText[0] {
-	case '1', '2', '3', '4', '5', '6':
+	case '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		return int(keyText[0] - '1'), true
 	default:
 		return 0, false
 	}
 }
 
-func availableActions(snapshot Snapshot) []ActionSpec {
+func availableActions(snapshot Snapshot, selected Service, hasSelected bool) []ActionSpec {
 	running, total := runningStackServiceCount(snapshot.Services)
 
 	addLifecycleActions := func(actions []ActionSpec) []ActionSpec {
@@ -122,7 +128,10 @@ func availableActions(snapshot Snapshot) []ActionSpec {
 		return actions
 	}
 
-	actions := make([]ActionSpec, 0, 5)
+	actions := make([]ActionSpec, 0, 8)
+	if hasSelected && isStackService(selected) {
+		actions = append(actions, selectedServiceActions(selected)...)
+	}
 	actions = addLifecycleActions(actions)
 	actions = append(actions, actionDoctorSpec())
 	if includeOpenCockpit(snapshot.Services) {
@@ -135,12 +144,35 @@ func availableActions(snapshot Snapshot) []ActionSpec {
 	return actions
 }
 
+func selectedServiceActions(service Service) []ActionSpec {
+	switch strings.ToLower(displayServiceStatus(service)) {
+	case "running":
+		return []ActionSpec{
+			actionRestartServiceSpec(service),
+			actionStopServiceSpec(service),
+		}
+	default:
+		return []ActionSpec{actionStartServiceSpec(service)}
+	}
+}
+
 func actionStartSpec() ActionSpec {
 	return ActionSpec{
 		ID:             ActionStart,
 		Label:          "Start",
 		Group:          "Stack",
 		PendingMessage: "starting stack...",
+		PendingStatus:  output.StatusStart,
+		DefaultStatus:  output.StatusOK,
+	}
+}
+
+func actionStartServiceSpec(service Service) ActionSpec {
+	return ActionSpec{
+		ID:             ActionID(actionStartServicePrefix + service.Name),
+		Label:          "Start " + service.DisplayName,
+		Group:          "Service",
+		PendingMessage: "starting " + strings.ToLower(service.DisplayName) + "...",
 		PendingStatus:  output.StatusStart,
 		DefaultStatus:  output.StatusOK,
 	}
@@ -158,6 +190,18 @@ func actionStopSpec() ActionSpec {
 	}
 }
 
+func actionStopServiceSpec(service Service) ActionSpec {
+	return ActionSpec{
+		ID:             ActionID(actionStopServicePrefix + service.Name),
+		Label:          "Stop " + service.DisplayName,
+		Group:          "Service",
+		ConfirmMessage: "Stop " + service.DisplayName + " now? Running work on that service will be interrupted.",
+		PendingMessage: "stopping " + strings.ToLower(service.DisplayName) + "...",
+		PendingStatus:  output.StatusStop,
+		DefaultStatus:  output.StatusOK,
+	}
+}
+
 func actionRestartSpec() ActionSpec {
 	return ActionSpec{
 		ID:             ActionRestart,
@@ -165,6 +209,18 @@ func actionRestartSpec() ActionSpec {
 		Group:          "Stack",
 		ConfirmMessage: "Restart the local stack now? Running services will be interrupted.",
 		PendingMessage: "restarting stack...",
+		PendingStatus:  output.StatusRestart,
+		DefaultStatus:  output.StatusOK,
+	}
+}
+
+func actionRestartServiceSpec(service Service) ActionSpec {
+	return ActionSpec{
+		ID:             ActionID(actionRestartServicePrefix + service.Name),
+		Label:          "Restart " + service.DisplayName,
+		Group:          "Service",
+		ConfirmMessage: "Restart " + service.DisplayName + " now? Running work on that service will be interrupted.",
+		PendingMessage: "restarting " + strings.ToLower(service.DisplayName) + "...",
 		PendingStatus:  output.StatusRestart,
 		DefaultStatus:  output.StatusOK,
 	}
@@ -208,8 +264,28 @@ func lifecycleAction(action ActionID) bool {
 	case ActionStart, ActionStop, ActionRestart:
 		return true
 	default:
-		return false
+		return strings.HasPrefix(string(action), actionStartServicePrefix) ||
+			strings.HasPrefix(string(action), actionStopServicePrefix) ||
+			strings.HasPrefix(string(action), actionRestartServicePrefix)
 	}
+}
+
+func serviceActionTarget(action ActionID) (string, string, bool) {
+	value := string(action)
+	switch {
+	case strings.HasPrefix(value, actionStartServicePrefix):
+		return "start", strings.TrimPrefix(value, actionStartServicePrefix), true
+	case strings.HasPrefix(value, actionStopServicePrefix):
+		return "stop", strings.TrimPrefix(value, actionStopServicePrefix), true
+	case strings.HasPrefix(value, actionRestartServicePrefix):
+		return "restart", strings.TrimPrefix(value, actionRestartServicePrefix), true
+	default:
+		return "", "", false
+	}
+}
+
+func ServiceActionTarget(action ActionID) (string, string, bool) {
+	return serviceActionTarget(action)
 }
 
 func includeOpenCockpit(services []Service) bool {
@@ -242,7 +318,8 @@ func renderActionRail(m Model) string {
 		return ""
 	}
 
-	actions := availableActions(m.snapshot)
+	selected, hasSelected := m.selectedLifecycleService()
+	actions := availableActions(m.snapshot, selected, hasSelected)
 	if len(actions) == 0 {
 		return ""
 	}
