@@ -334,12 +334,17 @@ Keys:
 - `ctrl+s`, `A` to save the current config draft and, when it is safe, refresh managed compose and restart running managed services automatically
 - `x` to reset the current config draft
 - `u` to apply derived defaults to the current config draft
-- `p` to preview the config diff
-- `g` to save the current draft and scaffold the managed stack when managed scaffolding is enabled and relevant
+- `p` in `Config` to preview the config diff, or in `Services` and `Health` to pin or unpin the selected service
+- `g` in `Config` to save the current draft and scaffold the managed stack when managed scaffolding is enabled and relevant, or elsewhere to jump to a service
 - `G` to save the current draft and force-refresh the managed stack scaffold when managed scaffolding is enabled and relevant
 - `y`, `enter` to confirm a stop or restart action
 - `n`, `esc` to cancel a pending confirmation
 - `r` to refresh
+- `:`, `ctrl+k` to open the command palette
+- `/` to open the service search and jump picker
+- `c` to copy a DSN, URL, port, or credential from the selected service
+- `e` to open a shell inside the selected stack service
+- `d` to open `psql` for the selected Postgres service
 - `w` to watch live logs for the selected stack service from `Services` or `Health`
 - `a` to toggle auto-refresh for the current TUI session using the configured interval
 - `m` to toggle expanded vs compact density
@@ -351,8 +356,8 @@ Sections:
 
 - `Overview`: stack paths, mode, stack-managed service counts, and startup behavior
 - `Config`: a grouped stack-and-service editor with stack, service, and TUI settings, a slim status strip, a field detail pane, inline validation, allowed-value hints for finite-choice settings, diff preview, save/reset/defaults actions, a key strip under the detail pane, and managed-stack scaffolding
-- `Services`: a split service list and detail pane with runtime metadata, lifecycle status, host ports, DSNs, URLs, host-tool handling, copy placeholders, and a live-log shortcut
-- `Health`: a split service-by-service health summary with runtime, reachability, doctor detail rendering, and a live-log shortcut for stack services
+- `Services`: a split service list and detail pane with runtime metadata, lifecycle status, host ports, DSNs, URLs, host-tool handling, pinned-service grouping, real copy actions, shell shortcuts, and a live-log shortcut
+- `Health`: a split service-by-service health summary with runtime, reachability, doctor detail rendering, pinned-service grouping, and the same service shortcuts for stack services
 - `History`: the current session’s action log, including cancellations, warnings, and doctor summaries
 
 Notes:
@@ -398,13 +403,25 @@ Notes:
   any warnings or failures in the history panel
 - Cockpit and pgAdmin open as separate sidebar actions so you can launch only
   the UI you want
-- the `Services` detail pane shows copy placeholders for DSNs and URLs that
-  will become real copy actions in a later phase
+- `Services` and `Health` now use a service action strip instead of copy
+  placeholders, so copy, logs, shell, db shell, pin, jump, and the command
+  palette are all visible where you need them
 - live logs are intentionally handed off to the real compose log stream with
   `w` from `Services` and `Health`, so the TUI stays focused on inspection
   instead of embedding a cramped tail viewer
 - returning from a live log watch refreshes the snapshot so service state and
   health data stay current
+- `c` opens a picker of real values from the selected service, including DSNs,
+  URLs, host ports, usernames, passwords, and databases when they exist
+- `:` or `ctrl+k` opens a fuzzy command palette that can rerun recent actions,
+  jump to sections, jump to services, trigger lifecycle actions, and open
+  service-level helpers
+- `g` or `/` opens the service jump picker directly, with pinned services shown
+  first
+- `p` pins the selected service for the current session so it stays at the top
+  of the `Services` and `Health` target lists
+- `e` hands off to an interactive shell inside the selected stack service, and
+  `d` jumps straight into `psql` when Postgres is selected
 - the config field list intentionally shortens long values such as stack paths;
   the full value always stays visible in the detail pane and diff preview
 - long-running actions usually mean image pulls, Podman startup, or service
@@ -412,6 +429,23 @@ Notes:
   another lifecycle operation
 
 Flags: `-h`, `--help` only.
+
+### TUI productivity workflows
+
+- use `:` or `ctrl+k` to open the command palette, then type a few characters to
+  fuzzy-filter sections, service helpers, lifecycle actions, and recent actions
+- use `g` or `/` to jump straight to a service, with pinned services listed
+  first
+- use `c` from `Services` or `Health` to copy the selected service's real
+  values instead of retyping DSNs, URLs, ports, usernames, passwords, or
+  database names
+- use `e` from `Services` or `Health` to open an interactive shell in the
+  selected container
+- use `d` when Postgres is selected to jump straight into `psql`
+- use `p` to pin the current service for the session so the most-used targets
+  stay at the top of the service lists and jump picker
+- use `w` to hand off to the full live log stream when you need more than an
+  inspection snapshot
 
 ### `stackctl setup`
 
@@ -1141,7 +1175,8 @@ commands are in place.
 
 These are appealing, but not ahead of the higher-value local-platform work.
 
-- TUI power-user workflows such as copy actions, a command palette, and quick jumps
+- deeper TUI polish such as resize refinements, richer help surfaces, and
+  accessibility work
 - a self-update flow such as `stackctl update`
 - a plugin model for optional service packs
 - non-Linux support once runtime and install behavior are abstracted well
