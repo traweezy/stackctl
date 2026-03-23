@@ -635,14 +635,59 @@ func TestFooterHelpShowsWatchLogsOnlyWhenAvailable(t *testing.T) {
 	}
 	current.active = servicesSection
 	current.normalizeSelections()
+	current.syncLayout()
 
-	if !strings.Contains(current.help.View(current.helpBindings()), "watch logs") {
+	if !strings.Contains(stripANSITest(current.footerView()), "watch logs") {
 		t.Fatalf("expected footer help to show live-log shortcut for stack services")
 	}
 
 	current.active = overviewSection
-	if strings.Contains(current.help.View(current.helpBindings()), "watch logs") {
+	current.syncLayout()
+	if strings.Contains(stripANSITest(current.footerView()), "watch logs") {
 		t.Fatalf("expected overview footer help to hide live-log shortcut")
+	}
+}
+
+func TestFooterViewWrapsShortHelpAcrossLines(t *testing.T) {
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(LogWatchRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		nil,
+	).WithProductivity(
+		func(string) error { return nil },
+		func(ServiceShellRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		func(DBShellRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 78, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				Name:          "postgres",
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				DSN:           "postgres://app:secret@localhost:5432/app",
+			},
+		},
+	}
+	current.active = servicesSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	footer := stripANSITest(current.footerView())
+	if lipgloss.Height(footer) < 2 {
+		t.Fatalf("expected wrapped footer help at narrow widths:\n%s", footer)
+	}
+	if strings.Contains(footer, "…") {
+		t.Fatalf("expected wrapped footer help instead of truncation:\n%s", footer)
+	}
+	for _, fragment := range []string{"palette", "jump to service", "copy value", "watch logs", "service shell", "db shell", "pin service"} {
+		if !strings.Contains(footer, fragment) {
+			t.Fatalf("expected wrapped footer to contain %q:\n%s", fragment, footer)
+		}
 	}
 }
 

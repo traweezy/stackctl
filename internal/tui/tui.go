@@ -719,9 +719,19 @@ func (m Model) View() tea.View {
 }
 
 func (m Model) footerView() string {
+	contentWidth := maxInt(20, m.width-footerStyle().GetHorizontalFrameSize())
 	helpModel := m.help
-	helpModel.SetWidth(maxInt(20, m.width-footerStyle().GetHorizontalFrameSize()))
-	return footerStyle().Width(m.width).Render(helpModel.View(m.helpBindings()))
+	helpModel.SetWidth(contentWidth)
+
+	content := ""
+	bindings := m.helpBindings()
+	if helpModel.ShowAll {
+		content = helpModel.FullHelpView(bindings.FullHelp())
+	} else {
+		content = renderWrappedShortHelp(helpModel, bindings.ShortHelp(), contentWidth)
+	}
+
+	return footerStyle().Width(m.width).Render(content)
 }
 
 func (m Model) helpBindings() helpBindings {
@@ -839,6 +849,59 @@ func autoRefreshCmd(id int, interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(time.Time) tea.Msg {
 		return autoRefreshMsg{id: id}
 	})
+}
+
+func renderWrappedShortHelp(helpModel help.Model, bindings []key.Binding, width int) string {
+	width = maxInt(20, width)
+	separator := helpModel.Styles.ShortSeparator.Inline(true).Render(helpModel.ShortSeparator)
+	separatorWidth := lipgloss.Width(separator)
+
+	renderItem := func(binding key.Binding) string {
+		return helpModel.Styles.ShortKey.Inline(true).Render(binding.Help().Key) +
+			" " +
+			helpModel.Styles.ShortDesc.Inline(true).Render(binding.Help().Desc)
+	}
+
+	rows := make([]string, 0, 4)
+	current := ""
+	currentWidth := 0
+
+	appendItem := func(item string, itemWidth int) {
+		if currentWidth == 0 {
+			current = item
+			currentWidth = itemWidth
+			return
+		}
+		current += separator + item
+		currentWidth += separatorWidth + itemWidth
+	}
+
+	for _, binding := range bindings {
+		if !binding.Enabled() {
+			continue
+		}
+
+		item := renderItem(binding)
+		itemWidth := lipgloss.Width(item)
+		if itemWidth > width {
+			item = lipgloss.NewStyle().MaxWidth(width).Render(item)
+			itemWidth = minInt(width, lipgloss.Width(item))
+		}
+
+		if currentWidth > 0 && currentWidth+separatorWidth+itemWidth > width {
+			rows = append(rows, current)
+			current = ""
+			currentWidth = 0
+		}
+
+		appendItem(item, itemWidth)
+	}
+
+	if current != "" {
+		rows = append(rows, current)
+	}
+
+	return strings.Join(rows, "\n")
 }
 
 func clearBannerCmd(id int) tea.Cmd {
