@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -438,7 +439,7 @@ func (c *tuiServiceShellCommand) Run() error {
 	if ctx.Err() != nil {
 		return nil
 	}
-	return err
+	return suppressInteractiveExitError(err)
 }
 
 func (c *tuiDBShellCommand) SetStdin(reader io.Reader) {
@@ -473,6 +474,19 @@ func (c *tuiDBShellCommand) Run() error {
 	if ctx.Err() != nil {
 		return nil
 	}
+	return suppressInteractiveExitError(err)
+}
+
+func suppressInteractiveExitError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return nil
+	}
+
 	return err
 }
 

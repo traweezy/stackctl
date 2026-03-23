@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -397,4 +398,61 @@ func TestBuildTUIDBShellCommandUsesConfiguredDatabase(t *testing.T) {
 	if strings.Join(capturedArgs, " ") != strings.Join(expectedArgs, " ") {
 		t.Fatalf("unexpected db shell args: %+v", capturedArgs)
 	}
+}
+
+func TestBuildTUIServiceShellCommandSuppressesInteractiveExitStatus(t *testing.T) {
+	exitErr := interactiveExitError(t)
+
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.composeExec = func(context.Context, system.Runner, configpkg.Config, string, []string, []string, bool) error {
+			return exitErr
+		}
+	})
+
+	command, err := buildTUIServiceShellCommand(stacktui.ServiceShellRequest{Service: "postgres"})
+	if err != nil {
+		t.Fatalf("buildTUIServiceShellCommand returned error: %v", err)
+	}
+	command.SetStdout(io.Discard)
+	command.SetStderr(io.Discard)
+	if err := command.Run(); err != nil {
+		t.Fatalf("expected interactive shell exit status to be suppressed, got %v", err)
+	}
+}
+
+func TestBuildTUIDBShellCommandSuppressesInteractiveExitStatus(t *testing.T) {
+	exitErr := interactiveExitError(t)
+
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.composeExec = func(context.Context, system.Runner, configpkg.Config, string, []string, []string, bool) error {
+			return exitErr
+		}
+	})
+
+	command, err := buildTUIDBShellCommand(stacktui.DBShellRequest{Service: "postgres"})
+	if err != nil {
+		t.Fatalf("buildTUIDBShellCommand returned error: %v", err)
+	}
+	command.SetStdout(io.Discard)
+	command.SetStderr(io.Discard)
+	if err := command.Run(); err != nil {
+		t.Fatalf("expected interactive db shell exit status to be suppressed, got %v", err)
+	}
+}
+
+func interactiveExitError(t *testing.T) error {
+	t.Helper()
+
+	err := exec.Command("sh", "-c", "exit 1").Run()
+	if err == nil {
+		t.Fatal("expected shell exit error")
+	}
+
+	return err
 }
