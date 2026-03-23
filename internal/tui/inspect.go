@@ -55,19 +55,6 @@ func selectableServiceNames(snapshot Snapshot) []string {
 	return names
 }
 
-func selectablePortNames(snapshot Snapshot) []string {
-	names := make([]string, 0, len(snapshot.Services))
-	for _, service := range snapshot.Services {
-		key := serviceKey(service)
-		if key == "" || service.ExternalPort <= 0 {
-			continue
-		}
-		names = append(names, key)
-	}
-
-	return names
-}
-
 func pickSelectedName(selected string, available []string) string {
 	if len(available) == 0 {
 		return ""
@@ -100,20 +87,6 @@ func cycleSelectedName(selected string, available []string, step int) string {
 
 func selectedService(snapshot Snapshot, selected string) (Service, bool) {
 	name := pickSelectedName(selected, selectableServiceNames(snapshot))
-	if name == "" {
-		return Service{}, false
-	}
-	for _, service := range snapshot.Services {
-		if serviceKey(service) == name {
-			return service, true
-		}
-	}
-
-	return Service{}, false
-}
-
-func selectedPortService(snapshot Snapshot, selected string) (Service, bool) {
-	name := pickSelectedName(selected, selectablePortNames(snapshot))
 	if name == "" {
 		return Service{}, false
 	}
@@ -268,73 +241,6 @@ func renderServiceDetailPane(service Service, showSecrets bool, layout layoutMod
 		"",
 	}
 	lines = append(lines, renderServiceBlock(service, showSecrets, layout, !isStackService(service))...)
-	lines = append(lines, "")
-	lines = append(lines, renderLogWatchHint(service))
-
-	return strings.Join(lines, "\n")
-}
-
-func renderPorts(snapshot Snapshot, selected string, width int) string {
-	lines := []string{sectionTitleStyle().Render("Ports"), ""}
-	portNames := selectablePortNames(snapshot)
-	if len(portNames) == 0 {
-		lines = append(lines, mutedStyle().Render("No exposed host ports are configured."))
-		return strings.Join(lines, "\n")
-	}
-
-	service, ok := selectedPortService(snapshot, selected)
-	if !ok {
-		lines = append(lines, mutedStyle().Render("No port detail is available."))
-		return strings.Join(lines, "\n")
-	}
-
-	left := renderPortListPane(snapshot, serviceKey(service))
-	right := renderPortDetailPane(service)
-	lines = append(lines, splitPane(left, right, width, defaultListPaneMinW, defaultListPaneMaxW))
-	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, portsSection)))
-
-	return strings.Join(lines, "\n")
-}
-
-func renderPortListPane(snapshot Snapshot, selected string) string {
-	lines := []string{detailHeading("Exposed ports"), ""}
-	for _, service := range snapshot.Services {
-		if service.ExternalPort <= 0 {
-			continue
-		}
-		label := fmt.Sprintf("%s  %d", service.DisplayName, service.ExternalPort)
-		lines = append(lines, listItem(selected == serviceKey(service), label, statusChip(displayServiceStatus(service), displayServiceStatus(service))))
-	}
-	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render("j/k or [ ] switch port"))
-
-	return strings.Join(lines, "\n")
-}
-
-func renderPortDetailPane(service Service) string {
-	lines := []string{
-		detailHeading("Port detail"),
-		"",
-		renderServiceHeading(displayServiceStatus(service), service.DisplayName),
-		fmt.Sprintf("Host: %s", emptyLabel(service.Host)),
-	}
-	lines = append(lines, servicePortLines(service)...)
-	if reachability := healthReachabilityLabel(service); reachability != "" {
-		lines = append(lines, fmt.Sprintf("Reachability: %s", reachability))
-	}
-	if note := healthNote(service); note != "" {
-		lines = append(lines, mutedStyle().Render(note))
-	}
-	if service.URL != "" {
-		lines = append(lines, fmt.Sprintf("URL: %s", service.URL))
-	}
-	if service.DSN != "" {
-		lines = append(lines, fmt.Sprintf("DSN: %s", maskConnectionValue(service.DSN, false)))
-	}
-	if !isStackService(service) {
-		lines = append(lines, mutedStyle().Render("Lifecycle: external to stack lifecycle"))
-	}
 	lines = append(lines, "")
 	lines = append(lines, renderLogWatchHint(service))
 

@@ -19,8 +19,11 @@ type Config struct {
 	URLs       URLsConfig       `yaml:"urls"`
 	Behavior   BehaviorConfig   `yaml:"behavior"`
 	Setup      SetupConfig      `yaml:"setup"`
+	TUI        TUIConfig        `yaml:"tui"`
 	System     SystemConfig     `yaml:"system"`
 }
+
+const DefaultTUIAutoRefreshIntervalSeconds = 30
 
 type StackConfig struct {
 	Name        string `yaml:"name"`
@@ -89,6 +92,10 @@ type SetupConfig struct {
 	InstallCockpit       bool `yaml:"install_cockpit"`
 	IncludePgAdmin       bool `yaml:"include_pgadmin"`
 	ScaffoldDefaultStack bool `yaml:"scaffold_default_stack"`
+}
+
+type TUIConfig struct {
+	AutoRefreshIntervalSec int `yaml:"auto_refresh_interval_seconds"`
 }
 
 type SystemConfig struct {
@@ -210,6 +217,9 @@ func (c *Config) ApplyDerivedFields() {
 	}
 	if c.Ports.PgAdmin > 0 {
 		c.URLs.PgAdmin = fmt.Sprintf("http://%s:%d", c.Connection.Host, c.Ports.PgAdmin)
+	}
+	if c.TUI.AutoRefreshIntervalSec <= 0 {
+		c.TUI.AutoRefreshIntervalSec = DefaultTUIAutoRefreshIntervalSeconds
 	}
 }
 

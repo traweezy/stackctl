@@ -120,6 +120,9 @@ func Validate(cfg Config) []ValidationIssue {
 	if cfg.Behavior.StartupTimeoutSec <= 0 {
 		issues = append(issues, ValidationIssue{Field: "behavior.startup_timeout_seconds", Message: "must be greater than zero"})
 	}
+	if cfg.TUI.AutoRefreshIntervalSec <= 0 {
+		issues = append(issues, ValidationIssue{Field: "tui.auto_refresh_interval_seconds", Message: "must be greater than zero"})
+	}
 
 	if strings.TrimSpace(cfg.System.PackageManager) == "" {
 		issues = append(issues, ValidationIssue{Field: "system.package_manager", Message: "must not be empty"})

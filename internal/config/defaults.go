@@ -54,6 +54,9 @@ func Default() Config {
 			IncludePgAdmin:       true,
 			ScaffoldDefaultStack: true,
 		},
+		TUI: TUIConfig{
+			AutoRefreshIntervalSec: DefaultTUIAutoRefreshIntervalSeconds,
+		},
 		System: SystemConfig{
 			PackageManager: "apt",
 		},

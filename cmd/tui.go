@@ -25,20 +25,32 @@ func newTUICmd() *cobra.Command {
 		Use:   "tui",
 		Short: "Open the interactive stack dashboard",
 		Long: "Open the interactive stack dashboard.\n\n" +
-			"Use a full-screen operator view for overview, services, ports,\n" +
-			"health, connections, and action history. The dashboard\n" +
-			"supports manual refresh, optional auto-refresh, compact mode,\n" +
-			"masked secrets by default, split inspection panes, and in-TUI\n" +
-			"actions for stack lifecycle tasks. Use tab/shift+tab or h/l to\n" +
+			"Use a full-screen operator view for overview, config, services,\n" +
+			"health, and action history. The services pane includes host\n" +
+			"ports, URLs, DSNs, and live-log handoff in one place. The dashboard\n" +
+			"supports manual refresh, optional auto-refresh with a saved\n" +
+			"TUI interval, compact mode,\n" +
+			"masked secrets by default, split inspection panes, in-TUI\n" +
+			"config editing with diff preview, save/reset/defaults/scaffold\n" +
+			"flows, automatic managed-stack apply on save when it is safe,\n" +
+			"and in-TUI actions for stack lifecycle tasks. Use\n" +
+			"tab/shift+tab or h/l to\n" +
 			"change sections, use j/k or [ and ] to switch the active\n" +
 			"service inside split inspection panes, and press w from the\n" +
-			"service-focused panels to open live logs for the selected\n" +
+			"service and health panels to open live logs for the selected\n" +
 			"compose service in the full terminal viewer.",
 		Example: "  stackctl tui",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			model := stacktui.NewInspectionModel(func() (stacktui.Snapshot, error) {
+			model := stacktui.NewFullModel(func() (stacktui.Snapshot, error) {
 				return loadTUISnapshot()
-			}, buildTUILogWatchCommand, runTUIAction)
+			}, buildTUILogWatchCommand, runTUIAction, &stacktui.ConfigManager{
+				DefaultConfig:             deps.defaultConfig,
+				SaveConfig:                deps.saveConfig,
+				ValidateConfig:            validateTUIConfig,
+				MarshalConfig:             deps.marshalConfig,
+				ManagedStackNeedsScaffold: deps.managedStackNeedsScaffold,
+				ScaffoldManagedStack:      deps.scaffoldManagedStack,
+			})
 
 			program := tea.NewProgram(model)
 			_, err := program.Run()
@@ -66,96 +78,149 @@ func loadTUIConfig() (string, configpkg.Config, error) {
 	return configPath, cfg, nil
 }
 
+func loadTUIEditableConfig() (string, configpkg.Config, stacktui.ConfigSourceState, string, error) {
+	configPath, err := deps.configFilePath()
+	if err != nil {
+		return "", configpkg.Config{}, stacktui.ConfigSourceUnavailable, "", err
+	}
+
+	cfg := deps.defaultConfig()
+	source := stacktui.ConfigSourceMissing
+	problem := "No stackctl config was found. Review the defaults in Config and save to create it."
+
+	loaded, err := deps.loadConfig(configPath)
+	switch {
+	case err == nil:
+		cfg = loaded
+		source = stacktui.ConfigSourceLoaded
+		problem = ""
+	case errors.Is(err, configpkg.ErrNotFound):
+		cfg = deps.defaultConfig()
+	case err != nil:
+		source = stacktui.ConfigSourceUnavailable
+		problem = fmt.Sprintf("Current config could not be loaded: %v", err)
+	}
+
+	cfg.ApplyDerivedFields()
+
+	return configPath, cfg, source, problem, nil
+}
+
 func loadTUISnapshot() (stacktui.Snapshot, error) {
-	configPath, cfg, err := loadTUIConfig()
+	configPath, cfg, source, problem, err := loadTUIEditableConfig()
 	if err != nil {
 		return stacktui.Snapshot{}, err
 	}
 
-	return buildTUISnapshot(configPath, cfg), nil
+	return buildTUISnapshot(configPath, cfg, source, problem), nil
 }
 
-func buildTUISnapshot(configPath string, cfg configpkg.Config) stacktui.Snapshot {
+func buildTUISnapshot(configPath string, cfg configpkg.Config, source stacktui.ConfigSourceState, problem string) stacktui.Snapshot {
 	ctx := context.Background()
-
-	services, err := runtimeServices(ctx, cfg)
-	serviceError := ""
-	if err != nil {
-		serviceError = err.Error()
-	}
-
-	health, err := healthChecks(ctx, cfg)
-	healthError := ""
-	if err != nil {
-		healthError = err.Error()
+	issues := validateTUIConfig(cfg)
+	needsScaffold := false
+	scaffoldProblem := ""
+	if cfg.Stack.Managed && cfg.Setup.ScaffoldDefaultStack {
+		var err error
+		needsScaffold, err = deps.managedStackNeedsScaffold(cfg)
+		if err != nil {
+			scaffoldProblem = err.Error()
+		}
 	}
 
 	snapshot := stacktui.Snapshot{
-		ConfigPath:        configPath,
-		StackName:         cfg.Stack.Name,
-		StackDir:          cfg.Stack.Dir,
-		ComposePath:       deps.composePath(cfg),
-		Managed:           cfg.Stack.Managed,
-		WaitForServices:   cfg.Behavior.WaitForServicesStart,
-		StartupTimeoutSec: cfg.Behavior.StartupTimeoutSec,
-		LoadedAt:          time.Now(),
-		ServiceError:      serviceError,
-		HealthError:       healthError,
-		DoctorChecks:      []stacktui.DoctorCheck{},
-		Services:          make([]stacktui.Service, 0, len(services)),
-		Health:            make([]stacktui.HealthLine, 0, len(health)),
-		Connections:       make([]stacktui.Connection, 0, len(connectionEntries(cfg))),
+		ConfigPath:            configPath,
+		ConfigData:            cfg,
+		ConfigSource:          source,
+		ConfigProblem:         problem,
+		ConfigIssues:          append([]configpkg.ValidationIssue(nil), issues...),
+		ConfigNeedsScaffold:   needsScaffold,
+		ConfigScaffoldProblem: scaffoldProblem,
+		StackName:             cfg.Stack.Name,
+		StackDir:              cfg.Stack.Dir,
+		ComposePath:           deps.composePath(cfg),
+		Managed:               cfg.Stack.Managed,
+		WaitForServices:       cfg.Behavior.WaitForServicesStart,
+		StartupTimeoutSec:     cfg.Behavior.StartupTimeoutSec,
+		LoadedAt:              time.Now(),
+		DoctorChecks:          []stacktui.DoctorCheck{},
+		Connections:           make([]stacktui.Connection, 0, len(connectionEntries(cfg))),
 	}
 
-	for _, service := range services {
-		snapshot.Services = append(snapshot.Services, stacktui.Service{
-			Name:            service.Name,
-			DisplayName:     service.DisplayName,
-			Status:          service.Status,
-			ContainerName:   service.ContainerName,
-			Image:           service.Image,
-			DataVolume:      service.DataVolume,
-			Host:            service.Host,
-			ExternalPort:    service.ExternalPort,
-			InternalPort:    service.InternalPort,
-			PortListening:   service.ExternalPort > 0 && deps.portListening(service.ExternalPort),
-			Database:        service.Database,
-			MaintenanceDB:   service.MaintenanceDB,
-			Email:           service.Email,
-			Username:        service.Username,
-			Password:        service.Password,
-			AppendOnly:      service.AppendOnly,
-			SavePolicy:      service.SavePolicy,
-			MaxMemoryPolicy: service.MaxMemoryPolicy,
-			ServerMode:      service.ServerMode,
-			URL:             service.URL,
-			DSN:             service.DSN,
-		})
-	}
-
-	doctorReport, err := deps.runDoctor(ctx)
-	if err != nil {
-		snapshot.DoctorError = err.Error()
-	} else {
-		snapshot.DoctorSummary = stacktui.DoctorSummary{
-			OK:   doctorReport.OKCount,
-			Warn: doctorReport.WarnCount,
-			Miss: doctorReport.MissCount,
-			Fail: doctorReport.FailCount,
+	runtimeReady := source == stacktui.ConfigSourceLoaded && len(issues) == 0 && !needsScaffold && strings.TrimSpace(scaffoldProblem) == ""
+	if runtimeReady {
+		services, err := runtimeServices(ctx, cfg)
+		if err != nil {
+			snapshot.ServiceError = err.Error()
 		}
-		for _, check := range doctorReport.Checks {
-			snapshot.DoctorChecks = append(snapshot.DoctorChecks, stacktui.DoctorCheck{
-				Status:  check.Status,
-				Message: check.Message,
+		health, err := healthChecks(ctx, cfg)
+		if err != nil {
+			snapshot.HealthError = err.Error()
+		}
+		snapshot.Services = make([]stacktui.Service, 0, len(services))
+		snapshot.Health = make([]stacktui.HealthLine, 0, len(health))
+
+		for _, service := range services {
+			snapshot.Services = append(snapshot.Services, stacktui.Service{
+				Name:            service.Name,
+				DisplayName:     service.DisplayName,
+				Status:          service.Status,
+				ContainerName:   service.ContainerName,
+				Image:           service.Image,
+				DataVolume:      service.DataVolume,
+				Host:            service.Host,
+				ExternalPort:    service.ExternalPort,
+				InternalPort:    service.InternalPort,
+				PortListening:   service.ExternalPort > 0 && deps.portListening(service.ExternalPort),
+				Database:        service.Database,
+				MaintenanceDB:   service.MaintenanceDB,
+				Email:           service.Email,
+				Username:        service.Username,
+				Password:        service.Password,
+				AppendOnly:      service.AppendOnly,
+				SavePolicy:      service.SavePolicy,
+				MaxMemoryPolicy: service.MaxMemoryPolicy,
+				ServerMode:      service.ServerMode,
+				URL:             service.URL,
+				DSN:             service.DSN,
 			})
 		}
-	}
 
-	for _, line := range health {
-		snapshot.Health = append(snapshot.Health, stacktui.HealthLine{
-			Status:  line.Status,
-			Message: line.Message,
-		})
+		for _, line := range health {
+			snapshot.Health = append(snapshot.Health, stacktui.HealthLine{
+				Status:  line.Status,
+				Message: line.Message,
+			})
+		}
+	} else if len(issues) > 0 {
+		message := fmt.Sprintf("Config has %d validation issue(s). Review the Config section.", len(issues))
+		snapshot.ServiceError = message
+		snapshot.HealthError = message
+		snapshot.DoctorError = message
+	} else if source == stacktui.ConfigSourceLoaded && needsScaffold {
+		message := "Managed stack scaffold is pending. Use g in Config to create the compose stack."
+		snapshot.ServiceError = message
+		snapshot.HealthError = message
+		snapshot.DoctorError = message
+	}
+	if runtimeReady {
+		doctorReport, err := deps.runDoctor(ctx)
+		if err != nil {
+			snapshot.DoctorError = err.Error()
+		} else {
+			snapshot.DoctorSummary = stacktui.DoctorSummary{
+				OK:   doctorReport.OKCount,
+				Warn: doctorReport.WarnCount,
+				Miss: doctorReport.MissCount,
+				Fail: doctorReport.FailCount,
+			}
+			for _, check := range doctorReport.Checks {
+				snapshot.DoctorChecks = append(snapshot.DoctorChecks, stacktui.DoctorCheck{
+					Status:  check.Status,
+					Message: check.Message,
+				})
+			}
+		}
 	}
 
 	for _, entry := range connectionEntries(cfg) {
@@ -166,6 +231,52 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config) stacktui.Snapshot
 	}
 
 	return snapshot
+}
+
+func validateTUIConfig(cfg configpkg.Config) []configpkg.ValidationIssue {
+	return filterTUIValidationIssues(cfg, deps.validateConfig(cfg))
+}
+
+func filterTUIValidationIssues(cfg configpkg.Config, issues []configpkg.ValidationIssue) []configpkg.ValidationIssue {
+	if len(issues) == 0 {
+		return nil
+	}
+
+	filtered := make([]configpkg.ValidationIssue, 0, len(issues))
+	for _, issue := range issues {
+		if pendingManagedScaffoldIssue(cfg, issue) {
+			continue
+		}
+		filtered = append(filtered, issue)
+	}
+
+	return filtered
+}
+
+func pendingManagedScaffoldIssue(cfg configpkg.Config, issue configpkg.ValidationIssue) bool {
+	if !cfg.Stack.Managed || !cfg.Setup.ScaffoldDefaultStack {
+		return false
+	}
+
+	normalized := cfg
+	normalized.ApplyDerivedFields()
+
+	expectedDir, err := configpkg.ManagedStackDir(normalized.Stack.Name)
+	if err != nil {
+		return false
+	}
+	if normalized.Stack.Dir != expectedDir || normalized.Stack.ComposeFile != configpkg.DefaultComposeFileName {
+		return false
+	}
+
+	switch issue.Field {
+	case "stack.dir":
+		return issue.Message == fmt.Sprintf("directory does not exist: %s", normalized.Stack.Dir)
+	case "stack.compose_file":
+		return issue.Message == fmt.Sprintf("file does not exist: %s", configpkg.ComposePath(normalized))
+	default:
+		return false
+	}
 }
 
 type tuiLogWatchCommand struct {

@@ -12,34 +12,41 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/output"
 )
 
 const maskedSecret = "****"
 
-var autoRefreshInterval = 30 * time.Second
+var autoRefreshInterval = time.Duration(configpkg.DefaultTUIAutoRefreshIntervalSeconds) * time.Second
 
 const transientBannerDuration = 4 * time.Second
 
 type Loader func() (Snapshot, error)
 
 type Snapshot struct {
-	ConfigPath        string
-	StackName         string
-	StackDir          string
-	ComposePath       string
-	Managed           bool
-	WaitForServices   bool
-	StartupTimeoutSec int
-	LoadedAt          time.Time
-	ServiceError      string
-	HealthError       string
-	DoctorError       string
-	Services          []Service
-	Health            []HealthLine
-	DoctorSummary     DoctorSummary
-	DoctorChecks      []DoctorCheck
-	Connections       []Connection
+	ConfigPath            string
+	ConfigData            configpkg.Config
+	ConfigSource          ConfigSourceState
+	ConfigProblem         string
+	ConfigIssues          []configpkg.ValidationIssue
+	ConfigNeedsScaffold   bool
+	ConfigScaffoldProblem string
+	StackName             string
+	StackDir              string
+	ComposePath           string
+	Managed               bool
+	WaitForServices       bool
+	StartupTimeoutSec     int
+	LoadedAt              time.Time
+	ServiceError          string
+	HealthError           string
+	DoctorError           string
+	Services              []Service
+	Health                []HealthLine
+	DoctorSummary         DoctorSummary
+	DoctorChecks          []DoctorCheck
+	Connections           []Connection
 }
 
 type Service struct {
@@ -86,10 +93,9 @@ type section int
 
 const (
 	overviewSection section = iota
+	configSection
 	servicesSection
-	portsSection
 	healthSection
-	connectionsSection
 	historySection
 )
 
@@ -111,10 +117,9 @@ func (m layoutMode) String() string {
 
 var sections = []section{
 	overviewSection,
+	configSection,
 	servicesSection,
-	portsSection,
 	healthSection,
-	connectionsSection,
 	historySection,
 }
 
@@ -122,14 +127,12 @@ func (s section) Title() string {
 	switch s {
 	case overviewSection:
 		return "Overview"
+	case configSection:
+		return "Config"
 	case servicesSection:
 		return "Services"
-	case portsSection:
-		return "Ports"
 	case healthSection:
 		return "Health"
-	case connectionsSection:
-		return "Connections"
 	case historySection:
 		return "History"
 	default:
@@ -155,6 +158,15 @@ type keyMap struct {
 	NextSection       key.Binding
 	PrevSection       key.Binding
 	Action            key.Binding
+	EditField         key.Binding
+	CancelEdit        key.Binding
+	SaveConfig        key.Binding
+	ApplyConfig       key.Binding
+	ResetConfig       key.Binding
+	ApplyDefaults     key.Binding
+	PreviewConfig     key.Binding
+	ScaffoldConfig    key.Binding
+	ForceScaffold     key.Binding
 	Confirm           key.Binding
 	Cancel            key.Binding
 	Refresh           key.Binding
@@ -194,6 +206,42 @@ func defaultKeyMap() keyMap {
 		Action: key.NewBinding(
 			key.WithKeys("1", "2", "3", "4", "5", "6"),
 			key.WithHelp("1-6", "action"),
+		),
+		EditField: key.NewBinding(
+			key.WithKeys("enter", "e"),
+			key.WithHelp("enter/e", "edit field"),
+		),
+		CancelEdit: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "cancel edit"),
+		),
+		SaveConfig: key.NewBinding(
+			key.WithKeys("ctrl+s"),
+			key.WithHelp("ctrl+s", "save/apply"),
+		),
+		ApplyConfig: key.NewBinding(
+			key.WithKeys("A"),
+			key.WithHelp("A", "save/apply"),
+		),
+		ResetConfig: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "reset draft"),
+		),
+		ApplyDefaults: key.NewBinding(
+			key.WithKeys("u"),
+			key.WithHelp("u", "apply defaults"),
+		),
+		PreviewConfig: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "preview diff"),
+		),
+		ScaffoldConfig: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("g", "scaffold"),
+		),
+		ForceScaffold: key.NewBinding(
+			key.WithKeys("G"),
+			key.WithHelp("G", "force scaffold"),
 		),
 		Confirm: key.NewBinding(
 			key.WithKeys("y", "enter"),
@@ -256,33 +304,39 @@ type Model struct {
 	loader           Loader
 	logWatchLauncher LogWatchLauncher
 	runner           ActionRunner
+	configManager    *ConfigManager
 	keys             keyMap
 	help             help.Model
 	viewport         viewport.Model
 	banner           *actionBanner
 	confirmation     *confirmationState
 	runningAction    *runningAction
+	runningConfigOp  *configOperation
 	history          []historyEntry
 	nextHistoryID    int
 	nextBannerID     int
 	selectedService  string
-	selectedPort     string
 	selectedHealth   string
+	configEditor     configEditor
 }
 
 func NewModel(loader Loader) Model {
-	return newModel(loader, nil, nil)
+	return newModel(loader, nil, nil, nil)
 }
 
 func NewActionModel(loader Loader, runner ActionRunner) Model {
-	return newModel(loader, nil, runner)
+	return newModel(loader, nil, runner, nil)
 }
 
 func NewInspectionModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRunner) Model {
-	return newModel(loader, logWatchLauncher, runner)
+	return newModel(loader, logWatchLauncher, runner, nil)
 }
 
-func newModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRunner) Model {
+func NewFullModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRunner, configManager *ConfigManager) Model {
+	return newModel(loader, logWatchLauncher, runner, configManager)
+}
+
+func newModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRunner, configManager *ConfigManager) Model {
 	viewportModel := viewport.New()
 	helpModel := help.New()
 	helpModel.ShowAll = false
@@ -295,9 +349,11 @@ func newModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRun
 		loader:           loader,
 		logWatchLauncher: logWatchLauncher,
 		runner:           runner,
+		configManager:    configManager,
 		keys:             defaultKeyMap(),
 		help:             helpModel,
 		viewport:         viewportModel,
+		configEditor:     newConfigEditor(),
 	}
 }
 
@@ -320,6 +376,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errMessage = ""
 			m.snapshot = msg.snapshot
 			m.normalizeSelections()
+			if m.configManager != nil {
+				m.configEditor.syncFromSnapshot(msg.snapshot, m.configManager, m.showSecrets, false)
+			}
 		}
 		m.syncLayout()
 		if m.autoRefresh {
@@ -327,6 +386,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, autoRefreshCmd(m.autoRefreshID, m.refreshInterval())
 		}
 		return m, nil
+	case configOperationMsg:
+		m.runningConfigOp = nil
+		bannerID := m.setBanner(msg.Status, msg.Message)
+		m.syncLayout()
+		if msg.Err != nil {
+			return m, clearBannerCmd(bannerID)
+		}
+		if msg.Reload {
+			m.configEditor.baseline = m.configEditor.draft
+			m.configEditor.source = ConfigSourceLoaded
+			m.configEditor.sourceMessage = ""
+			m.loading = true
+			return m, tea.Batch(loadSnapshotCmd(m.loader), clearBannerCmd(bannerID))
+		}
+		return m, clearBannerCmd(bannerID)
 	case logWatchDoneMsg:
 		m.loading = true
 		m.autoRefreshID++
@@ -355,7 +429,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case autoRefreshMsg:
-		if !m.autoRefresh || msg.id != m.autoRefreshID || m.runningAction != nil {
+		if !m.autoRefresh || msg.id != m.autoRefreshID || m.runningAction != nil || m.runningConfigOp != nil || m.configEditor.dirty() {
 			return m, nil
 		}
 		m.loading = true
@@ -364,7 +438,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.confirmation != nil {
 			switch {
 			case key.Matches(msg, m.keys.Confirm):
-				return m.beginAction(m.confirmation.Action)
+				return m.handleConfirmation()
 			case key.Matches(msg, m.keys.Cancel), key.Matches(msg, m.keys.Quit):
 				clearCmd := m.cancelConfirmation()
 				m.syncLayout()
@@ -374,11 +448,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.active == configSection && m.configManager != nil {
+			if cmd, handled := m.handleConfigKey(msg); handled {
+				m.syncLayout()
+				return m, cmd
+			}
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.Action):
-			if m.runner == nil || m.runningAction != nil {
+			if m.runner == nil || m.runningAction != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			index, ok := actionIndex(msg.Text)
@@ -391,7 +472,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			action := actions[index]
 			if action.RequiresConfirmation() {
-				m.confirmation = &confirmationState{Action: action}
+				m.confirmation = newActionConfirmation(action)
 				m.syncLayout()
 				return m, nil
 			}
@@ -421,14 +502,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.WatchLogs):
-			if m.logWatchLauncher == nil || m.runningAction != nil {
+			if m.logWatchLauncher == nil || m.runningAction != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			cmd := m.startSelectedLogWatch()
 			m.syncLayout()
 			return m, cmd
 		case key.Matches(msg, m.keys.Refresh):
-			if m.runningAction != nil {
+			if m.runningAction != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			m.loading = true
@@ -494,7 +575,7 @@ func (m Model) View() tea.View {
 	header := renderHeader(m)
 	status := renderGlobalStatus(m, m.width)
 	body := renderBody(m)
-	footer := footerStyle().Width(m.width).Render(m.help.View(m.helpBindings()))
+	footer := m.footerView()
 
 	blocks := []string{header}
 	if status != "" {
@@ -507,18 +588,58 @@ func (m Model) View() tea.View {
 	return view
 }
 
+func (m Model) footerView() string {
+	helpModel := m.help
+	helpModel.SetWidth(maxInt(20, m.width-footerStyle().GetHorizontalFrameSize()))
+	return footerStyle().Width(m.width).Render(helpModel.View(m.helpBindings()))
+}
+
 func (m Model) helpBindings() helpBindings {
-	short := []key.Binding{m.keys.NextSection}
-	if m.runner != nil {
-		short = append(short, m.keys.Action)
+	if m.active == configSection && m.configManager != nil {
+		short := []key.Binding{m.keys.SaveConfig}
+		short = append(short, m.keys.NextItem)
+		if m.configEditor.editing {
+			short = append(short, m.keys.EditField, m.keys.CancelEdit)
+		} else {
+			short = append(short, m.keys.EditField)
+		}
+		short = append(short, m.keys.Quit, m.keys.ToggleHelp, m.keys.NextSection)
+
+		row1 := []key.Binding{m.keys.NextSection, m.keys.PrevSection}
+		row2 := []key.Binding{m.keys.Confirm, m.keys.Cancel, m.keys.Refresh}
+		row3 := []key.Binding{m.keys.EditField, m.keys.SaveConfig, m.keys.CancelEdit}
+		row4 := []key.Binding{}
+		if !m.configEditor.editing {
+			row3 = append(row3, m.keys.ResetConfig)
+			row4 = append(row4, m.keys.ApplyDefaults, m.keys.PreviewConfig)
+			if m.configEditor.showScaffoldAction() {
+				row4 = append(row4, m.keys.ScaffoldConfig, m.keys.ForceScaffold)
+			}
+		}
+		full := [][]key.Binding{row1, row2, row3}
+		if len(row4) > 0 {
+			full = append(full, row4)
+		}
+		full = append(full,
+			[]key.Binding{m.keys.ToggleAutoRefresh, m.keys.ToggleLayout, m.keys.ToggleSecrets},
+			[]key.Binding{m.keys.ToggleHelp, m.keys.Quit},
+		)
+		return helpBindings{short: short, full: full}
 	}
+
+	short := []key.Binding{m.keys.NextSection, m.keys.PrevSection}
 	if m.activeHasSelectionList() {
 		short = append(short, m.keys.NextItem)
 	}
 	if m.showWatchLogsHelp() {
 		short = append(short, m.keys.WatchLogs)
 	}
-	short = append(short, m.keys.Refresh, m.keys.Quit)
+	if m.runner != nil {
+		short = append(short, m.keys.Action)
+	} else {
+		short = append(short, m.keys.Refresh)
+	}
+	short = append(short, m.keys.ToggleHelp, m.keys.Quit)
 
 	row1 := []key.Binding{m.keys.NextSection, m.keys.PrevSection}
 	if m.runner != nil {
@@ -591,18 +712,20 @@ func nextSection(current section) section {
 }
 
 func (m Model) refreshInterval() time.Duration {
+	if seconds := m.snapshot.ConfigData.TUI.AutoRefreshIntervalSec; seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
 	return autoRefreshInterval
 }
 
 func (m *Model) normalizeSelections() {
 	m.selectedService = pickSelectedName(m.selectedService, selectableServiceNames(m.snapshot))
-	m.selectedPort = pickSelectedName(m.selectedPort, selectablePortNames(m.snapshot))
 	m.selectedHealth = pickSelectedName(m.selectedHealth, selectableServiceNames(m.snapshot))
 }
 
 func (m Model) activeHasSelectionList() bool {
 	switch m.active {
-	case servicesSection, portsSection, healthSection:
+	case servicesSection, healthSection:
 		return true
 	default:
 		return false
@@ -617,9 +740,6 @@ func (m *Model) cycleActiveSelection(step int) tea.Cmd {
 	switch m.active {
 	case servicesSection:
 		m.selectedService = cycleSelectedName(m.selectedService, selectableServiceNames(m.snapshot), step)
-		return nil
-	case portsSection:
-		m.selectedPort = cycleSelectedName(m.selectedPort, selectablePortNames(m.snapshot), step)
 		return nil
 	case healthSection:
 		m.selectedHealth = cycleSelectedName(m.selectedHealth, selectableServiceNames(m.snapshot), step)
@@ -651,8 +771,6 @@ func (m Model) selectedLogWatchService() (Service, bool) {
 	switch m.active {
 	case servicesSection:
 		return selectedService(m.snapshot, m.selectedService)
-	case portsSection:
-		return selectedPortService(m.snapshot, m.selectedPort)
 	case healthSection:
 		return selectedService(m.snapshot, m.selectedHealth)
 	default:
@@ -694,20 +812,37 @@ func previousSection(current section) section {
 }
 
 func (m *Model) syncLayout() {
-	sidebarWidth := 26
-	bodyHeight := m.height - 6
-	if bodyHeight < 8 {
-		bodyHeight = 8
+	_, bodyHeight, mainWidth := m.bodyDimensions()
+
+	panelStyle := mainPanelStyle()
+	m.viewport.SetWidth(maxInt(20, mainWidth-panelStyle.GetHorizontalFrameSize()))
+	m.viewport.SetHeight(maxInt(4, bodyHeight-panelStyle.GetVerticalFrameSize()))
+	if m.configManager != nil {
+		m.configEditor.setSize(m.viewport.Width(), m.viewport.Height(), m.showSecrets)
 	}
+	m.viewport.SetContent(m.currentContent())
+}
+
+func (m Model) bodyDimensions() (int, int, int) {
+	sidebarWidth := 26
+	if m.active == configSection {
+		sidebarWidth = 22
+	}
+	headerHeight := lipgloss.Height(renderHeader(m))
+	statusHeight := lipgloss.Height(renderGlobalStatus(m, m.width))
+	footerHeight := lipgloss.Height(m.footerView())
+
+	bodyHeight := m.height - headerHeight - statusHeight - footerHeight
+	if bodyHeight < 4 {
+		bodyHeight = 4
+	}
+
 	mainWidth := m.width - sidebarWidth - 3
 	if mainWidth < 36 {
 		mainWidth = 36
 	}
 
-	panelStyle := mainPanelStyle()
-	m.viewport.SetWidth(maxInt(20, mainWidth-panelStyle.GetHorizontalFrameSize()))
-	m.viewport.SetHeight(maxInt(4, bodyHeight-panelStyle.GetVerticalFrameSize()))
-	m.viewport.SetContent(m.currentContent())
+	return sidebarWidth, bodyHeight, mainWidth
 }
 
 func (m Model) currentContent() string {
@@ -720,14 +855,16 @@ func (m Model) currentContent() string {
 	switch m.active {
 	case overviewSection:
 		blocks = append(blocks, renderOverview(m.snapshot, m.layout))
+	case configSection:
+		if m.configManager == nil {
+			blocks = append(blocks, renderConfigUnavailable())
+		} else {
+			blocks = append(blocks, m.configEditor.View(m.showSecrets))
+		}
 	case servicesSection:
 		blocks = append(blocks, renderServices(m.snapshot, m.showSecrets, m.layout, m.selectedService, contentWidth))
-	case portsSection:
-		blocks = append(blocks, renderPorts(m.snapshot, m.selectedPort, contentWidth))
 	case healthSection:
 		blocks = append(blocks, renderHealth(m.snapshot, m.selectedHealth, contentWidth))
-	case connectionsSection:
-		blocks = append(blocks, renderConnections(m.snapshot, m.showSecrets, m.layout))
 	case historySection:
 		blocks = append(blocks, renderHistory(m.history))
 	default:
@@ -735,6 +872,136 @@ func (m Model) currentContent() string {
 	}
 
 	return strings.Join(blocks, "\n\n")
+}
+
+func renderConfigUnavailable() string {
+	return strings.Join([]string{
+		sectionTitleStyle().Render("Config"),
+		"",
+		mutedStyle().Render("Config editing is unavailable in this model."),
+	}, "\n")
+}
+
+func (m Model) handleConfirmation() (tea.Model, tea.Cmd) {
+	if m.confirmation == nil {
+		return m, nil
+	}
+
+	switch m.confirmation.Kind {
+	case confirmationAction:
+		return m.beginAction(m.confirmation.Action)
+	case confirmationConfigReset:
+		m.confirmation = nil
+		m.configEditor.resetDraft(m.configManager, m.showSecrets)
+		bannerID := m.setBanner(output.StatusInfo, "config draft reset")
+		m.syncLayout()
+		return m, clearBannerCmd(bannerID)
+	default:
+		return m, nil
+	}
+}
+
+func (m *Model) handleConfigKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	if m.configManager == nil {
+		return nil, false
+	}
+
+	if m.configEditor.editing {
+		if key.Matches(msg, m.keys.SaveConfig) {
+			if err := m.configEditor.commitEdit(); err != nil {
+				return nil, true
+			}
+			m.configEditor.syncValidation(m.configManager)
+			m.configEditor.refreshList(m.showSecrets)
+			return m.startConfigSaveFlow()
+		}
+		return m.configEditor.handleKey(msg, m.keys, m.configManager, m.showSecrets)
+	}
+
+	switch {
+	case key.Matches(msg, m.keys.SaveConfig):
+		return m.startConfigSaveFlow()
+	case key.Matches(msg, m.keys.ApplyConfig):
+		return m.startConfigSaveFlow()
+	case key.Matches(msg, m.keys.ResetConfig):
+		if !m.configEditor.needsSave() {
+			bannerID := m.setBanner(output.StatusInfo, "config draft is already clean")
+			return clearBannerCmd(bannerID), true
+		}
+		m.confirmation = newConfigResetConfirmation()
+		return nil, true
+	case key.Matches(msg, m.keys.ApplyDefaults):
+		m.configEditor.applyDerivedDefaults(m.configManager, m.showSecrets)
+		bannerID := m.setBanner(output.StatusInfo, "applied derived defaults to the draft")
+		return clearBannerCmd(bannerID), true
+	case key.Matches(msg, m.keys.PreviewConfig):
+		m.configEditor.togglePreview(m.showSecrets)
+		return nil, true
+	case key.Matches(msg, m.keys.ScaffoldConfig):
+		if m.runningConfigOp != nil {
+			return nil, true
+		}
+		ok, reason := m.configEditor.canScaffold()
+		if !ok {
+			bannerID := m.setBanner(output.StatusWarn, reason)
+			return clearBannerCmd(bannerID), true
+		}
+		m.runningConfigOp = &configOperation{Message: "Scaffolding managed stack"}
+		return scaffoldConfigCmd(m.configManager, m.configEditor.path, m.configEditor.draft, false, m.configEditor.runningStack), true
+	case key.Matches(msg, m.keys.ForceScaffold):
+		if m.runningConfigOp != nil {
+			return nil, true
+		}
+		ok, reason := m.configEditor.canScaffold()
+		if !ok {
+			bannerID := m.setBanner(output.StatusWarn, reason)
+			return clearBannerCmd(bannerID), true
+		}
+		m.runningConfigOp = &configOperation{Message: "Refreshing managed scaffold"}
+		return scaffoldConfigCmd(m.configManager, m.configEditor.path, m.configEditor.draft, true, m.configEditor.runningStack), true
+	default:
+		return m.configEditor.handleKey(msg, m.keys, m.configManager, m.showSecrets)
+	}
+}
+
+func (m *Model) startConfigSaveFlow() (tea.Cmd, bool) {
+	if m.configManager == nil || m.runningConfigOp != nil {
+		return nil, true
+	}
+
+	plan := m.configEditor.savePlan()
+	if plan.Allowed {
+		if plan.Restart && m.runner == nil {
+			plan.Restart = false
+		}
+		m.runningConfigOp = &configOperation{Message: plan.pendingMessage()}
+		return applyConfigCmd(
+			m.configManager,
+			m.runner,
+			m.configEditor.path,
+			m.configEditor.baseline,
+			m.configEditor.draft,
+			plan,
+		), true
+	}
+
+	if !m.configEditor.needsSave() && m.configEditor.source == ConfigSourceLoaded {
+		message := "config draft already matches disk"
+		if strings.TrimSpace(plan.Reason) != "" && plan.Reason != "nothing new needs to be applied" {
+			message = plan.Reason
+		}
+		bannerID := m.setBanner(output.StatusInfo, message)
+		return clearBannerCmd(bannerID), true
+	}
+
+	m.runningConfigOp = &configOperation{Message: "Saving config"}
+	return saveConfigCmd(
+		m.configManager,
+		m.configEditor.path,
+		m.configEditor.baseline,
+		m.configEditor.draft,
+		m.configEditor.runningStack,
+	), true
 }
 
 func titleStyle() lipgloss.Style {
@@ -760,6 +1027,8 @@ func headerStatusStyle(m Model) lipgloss.Style {
 
 	switch {
 	case m.runningAction != nil:
+		return style.Foreground(lipgloss.Color("81"))
+	case m.runningConfigOp != nil:
 		return style.Foreground(lipgloss.Color("81"))
 	case m.confirmation != nil:
 		return style.Foreground(lipgloss.Color("221"))
@@ -847,6 +1116,8 @@ func renderHeader(m Model) string {
 	switch {
 	case m.runningAction != nil:
 		statusLabel = "Running " + m.runningAction.Action.Label
+	case m.runningConfigOp != nil:
+		statusLabel = m.runningConfigOp.Message
 	case m.confirmation != nil:
 		statusLabel = "Awaiting confirmation"
 	case m.loading:
@@ -898,15 +1169,7 @@ func renderHeader(m Model) string {
 }
 
 func renderBody(m Model) string {
-	sidebarWidth := 26
-	bodyHeight := m.height - 6
-	if bodyHeight < 8 {
-		bodyHeight = 8
-	}
-	mainWidth := m.width - sidebarWidth - 3
-	if mainWidth < 36 {
-		mainWidth = 36
-	}
+	sidebarWidth, bodyHeight, mainWidth := m.bodyDimensions()
 	panelStyle := mainPanelStyle()
 	mainInnerWidth := maxInt(20, mainWidth-panelStyle.GetHorizontalFrameSize())
 	mainInnerHeight := maxInt(4, bodyHeight-panelStyle.GetVerticalFrameSize())
@@ -932,11 +1195,13 @@ func renderSidebar(m Model) string {
 		lines = append(lines, navItemStyle().Render("  "+label))
 	}
 
-	lines = append(lines, "")
-	if actionRail := renderActionRail(m); actionRail != "" {
-		lines = append(lines, actionRail)
-	} else if m.runner == nil {
-		lines = append(lines, mutedStyle().Render("Read-only dashboard"))
+	if m.active != configSection {
+		lines = append(lines, "")
+		if actionRail := renderActionRail(m); actionRail != "" {
+			lines = append(lines, actionRail)
+		} else if m.runner == nil {
+			lines = append(lines, mutedStyle().Render("Read-only dashboard"))
+		}
 	}
 
 	return strings.Join(lines, "\n")
@@ -1007,85 +1272,81 @@ func renderOverview(snapshot Snapshot, layout layoutMode) string {
 }
 
 func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, hostTool bool) []string {
-	lines := make([]string, 0, 16)
+	lines := make([]string, 0, 20)
 	status := displayServiceStatus(service)
-	lines = append(lines, renderServiceHeading(status, service.DisplayName))
-	lines = append(lines, renderStatusLine(status))
-	if hostTool {
-		lines = append(lines, mutedStyle().Render("Lifecycle: external to stack lifecycle"))
+	runtimeGroup := []string{
+		renderServiceHeading(status, service.DisplayName),
+		renderStatusLine(status),
 	}
+	if hostTool {
+		runtimeGroup = append(runtimeGroup, mutedStyle().Render("Lifecycle: external to stack lifecycle"))
+	}
+
+	metaGroup := make([]string, 0, 3)
 	if layout == expandedLayout && service.ContainerName != "" {
-		lines = append(lines, fmt.Sprintf("Container: %s", service.ContainerName))
+		metaGroup = append(metaGroup, fmt.Sprintf("Container: %s", service.ContainerName))
 	}
 	if layout == expandedLayout && service.Image != "" {
-		lines = append(lines, fmt.Sprintf("Image: %s", service.Image))
+		metaGroup = append(metaGroup, fmt.Sprintf("Image: %s", service.Image))
 	}
 	if layout == expandedLayout && service.DataVolume != "" {
-		lines = append(lines, fmt.Sprintf("Data volume: %s", service.DataVolume))
+		metaGroup = append(metaGroup, fmt.Sprintf("Data volume: %s", service.DataVolume))
 	}
+
+	endpointGroup := make([]string, 0, 6)
 	if service.Host != "" {
-		lines = append(lines, fmt.Sprintf("Host: %s", service.Host))
+		endpointGroup = append(endpointGroup, fmt.Sprintf("Host: %s", service.Host))
 	}
-	lines = append(lines, servicePortLines(service)...)
-	if service.Database != "" {
-		lines = append(lines, fmt.Sprintf("Database: %s", service.Database))
-	}
-	if layout == expandedLayout && service.MaintenanceDB != "" {
-		lines = append(lines, fmt.Sprintf("Maintenance DB: %s", service.MaintenanceDB))
-	}
-	if service.Email != "" {
-		lines = append(lines, fmt.Sprintf("Email: %s", service.Email))
-	}
-	if service.Username != "" {
-		lines = append(lines, fmt.Sprintf("Username: %s", service.Username))
-	}
-	if layout == expandedLayout && service.Password != "" {
-		lines = append(lines, fmt.Sprintf("Password: %s", maskSecret(service.Password, showSecrets)))
-	}
-	if layout == expandedLayout && service.AppendOnly != nil {
-		lines = append(lines, fmt.Sprintf("Appendonly: %s", enabledDisabled(*service.AppendOnly)))
-	}
-	if layout == expandedLayout && service.SavePolicy != "" {
-		lines = append(lines, fmt.Sprintf("Save policy: %s", service.SavePolicy))
-	}
-	if layout == expandedLayout && service.MaxMemoryPolicy != "" {
-		lines = append(lines, fmt.Sprintf("Maxmemory policy: %s", service.MaxMemoryPolicy))
-	}
-	if layout == expandedLayout && service.ServerMode != "" {
-		lines = append(lines, fmt.Sprintf("Server mode: %s", service.ServerMode))
-	}
+	endpointGroup = append(endpointGroup, servicePortLines(service)...)
 	if service.URL != "" {
-		lines = append(lines, fmt.Sprintf("URL: %s", service.URL))
+		endpointGroup = append(endpointGroup, fmt.Sprintf("URL: %s", service.URL))
 	}
 	if service.DSN != "" {
-		lines = append(lines, fmt.Sprintf("DSN: %s", maskConnectionValue(service.DSN, showSecrets)))
+		endpointGroup = append(endpointGroup, fmt.Sprintf("DSN: %s", maskConnectionValue(service.DSN, showSecrets)))
+	}
+
+	accessGroup := make([]string, 0, 5)
+	if service.Database != "" {
+		accessGroup = append(accessGroup, fmt.Sprintf("Database: %s", service.Database))
+	}
+	if layout == expandedLayout && service.MaintenanceDB != "" {
+		accessGroup = append(accessGroup, fmt.Sprintf("Maintenance DB: %s", service.MaintenanceDB))
+	}
+	if service.Email != "" {
+		accessGroup = append(accessGroup, fmt.Sprintf("Email: %s", service.Email))
+	}
+	if service.Username != "" {
+		accessGroup = append(accessGroup, fmt.Sprintf("Username: %s", service.Username))
+	}
+	if layout == expandedLayout && service.Password != "" {
+		accessGroup = append(accessGroup, fmt.Sprintf("Password: %s", maskSecret(service.Password, showSecrets)))
+	}
+
+	settingGroup := make([]string, 0, 4)
+	if layout == expandedLayout && service.AppendOnly != nil {
+		settingGroup = append(settingGroup, fmt.Sprintf("Appendonly: %s", enabledDisabled(*service.AppendOnly)))
+	}
+	if layout == expandedLayout && service.SavePolicy != "" {
+		settingGroup = append(settingGroup, fmt.Sprintf("Save policy: %s", service.SavePolicy))
+	}
+	if layout == expandedLayout && service.MaxMemoryPolicy != "" {
+		settingGroup = append(settingGroup, fmt.Sprintf("Maxmemory policy: %s", service.MaxMemoryPolicy))
+	}
+	if layout == expandedLayout && service.ServerMode != "" {
+		settingGroup = append(settingGroup, fmt.Sprintf("Server mode: %s", service.ServerMode))
+	}
+
+	for _, group := range [][]string{runtimeGroup, metaGroup, endpointGroup, accessGroup, settingGroup} {
+		if len(group) == 0 {
+			continue
+		}
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, group...)
 	}
 
 	return lines
-}
-
-func renderConnections(snapshot Snapshot, showSecrets bool, layout layoutMode) string {
-	lines := []string{sectionTitleStyle().Render("Connections"), ""}
-	if len(snapshot.Connections) == 0 {
-		lines = append(lines, mutedStyle().Render("No connection info loaded."))
-		return strings.Join(lines, "\n")
-	}
-
-	for idx, entry := range snapshot.Connections {
-		if layout == compactLayout {
-			lines = append(lines, fmt.Sprintf("%s: %s", entry.Name, maskConnectionValue(entry.Value, showSecrets)))
-		} else {
-			lines = append(lines, entry.Name)
-			lines = append(lines, "  "+maskConnectionValue(entry.Value, showSecrets))
-		}
-		if idx < len(snapshot.Connections)-1 {
-			lines = append(lines, "")
-		}
-	}
-	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, connectionsSection)))
-
-	return strings.Join(lines, "\n")
 }
 
 func splitServices(services []Service) ([]Service, []Service) {
@@ -1273,21 +1534,34 @@ func renderHealthSummary(services []Service) string {
 }
 
 func renderHealthBlock(service Service) []string {
-	lines := make([]string, 0, 8)
+	lines := make([]string, 0, 10)
 	status := classifyServiceHealth(service)
-	lines = append(lines, renderServiceHeading(status, service.DisplayName))
-	lines = append(lines, renderStatusLine(healthStatusLabel(service)))
-	lines = append(lines, fmt.Sprintf("Runtime: %s", emptyLabel(displayServiceStatus(service))))
+	runtimeGroup := []string{
+		renderServiceHeading(status, service.DisplayName),
+		renderStatusLine(healthStatusLabel(service)),
+		fmt.Sprintf("Runtime: %s", emptyLabel(displayServiceStatus(service))),
+	}
 
+	reachabilityGroup := make([]string, 0, 3)
 	reachability := healthReachabilityLabel(service)
 	if reachability != "" {
-		lines = append(lines, fmt.Sprintf("Reachability: %s", reachability))
+		reachabilityGroup = append(reachabilityGroup, fmt.Sprintf("Reachability: %s", reachability))
 	}
 	if note := healthNote(service); note != "" {
-		lines = append(lines, mutedStyle().Render(note))
+		reachabilityGroup = append(reachabilityGroup, mutedStyle().Render(note))
 	}
 	if service.URL != "" {
-		lines = append(lines, fmt.Sprintf("URL: %s", service.URL))
+		reachabilityGroup = append(reachabilityGroup, fmt.Sprintf("URL: %s", service.URL))
+	}
+
+	for _, group := range [][]string{runtimeGroup, reachabilityGroup} {
+		if len(group) == 0 {
+			continue
+		}
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, group...)
 	}
 
 	return lines
@@ -1391,13 +1665,7 @@ func copyHintTargets(snapshot Snapshot, active section) []string {
 				add(service.DisplayName + " URL")
 			}
 		}
-	case portsSection:
-		for _, service := range snapshot.Services {
-			if service.ExternalPort > 0 {
-				add(fmt.Sprintf("%s port %d", service.DisplayName, service.ExternalPort))
-			}
-		}
-	case overviewSection, connectionsSection:
+	case overviewSection:
 		for _, entry := range snapshot.Connections {
 			add(entry.Name)
 		}

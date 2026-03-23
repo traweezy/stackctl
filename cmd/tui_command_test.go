@@ -68,10 +68,10 @@ func TestTUICmdHelpDocumentsInspectionPanelsAndLiveLogs(t *testing.T) {
 	}
 	collapsed := strings.Join(strings.Fields(stdout), " ")
 	for _, fragment := range []string{
-		"overview, services, ports,",
-		"health, connections, and action history",
+		"overview, config, services, health, and action history",
+		"services pane includes host ports, URLs, DSNs, and live-log handoff",
 		"switch the active service inside split inspection panes",
-		"press w from the service-focused panels to open live logs",
+		"press w from the service and health panels to open live logs",
 	} {
 		if !strings.Contains(collapsed, fragment) {
 			t.Fatalf("expected tui help to contain %q:\n%s", fragment, stdout)
@@ -79,7 +79,7 @@ func TestTUICmdHelpDocumentsInspectionPanelsAndLiveLogs(t *testing.T) {
 	}
 }
 
-func TestLoadTUISnapshotReturnsValidationError(t *testing.T) {
+func TestLoadTUISnapshotCarriesValidationIssuesIntoTheEditor(t *testing.T) {
 	withTestDeps(t, func(value *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.ApplyDerivedFields()
@@ -92,17 +92,87 @@ func TestLoadTUISnapshotReturnsValidationError(t *testing.T) {
 		}
 	})
 
-	_, err := loadTUISnapshot()
-	if err == nil {
-		t.Fatalf("expected validation error")
+	snapshot, err := loadTUISnapshot()
+	if err != nil {
+		t.Fatalf("expected validation issues to stay in the snapshot, got %v", err)
 	}
-	for _, fragment := range []string{
-		"config validation failed",
-		"stack.dir: must not be empty",
-		"stack.compose_file: must not be empty",
-	} {
-		if !strings.Contains(err.Error(), fragment) {
-			t.Fatalf("expected validation error to contain %q, got %v", fragment, err)
+	if len(snapshot.ConfigIssues) != 2 {
+		t.Fatalf("expected validation issues in snapshot, got %+v", snapshot.ConfigIssues)
+	}
+	if !strings.Contains(snapshot.ServiceError, "Config has 2 validation issue(s)") {
+		t.Fatalf("expected service error summary, got %q", snapshot.ServiceError)
+	}
+}
+
+func TestLoadTUISnapshotUsesDefaultsWhenConfigIsMissing(t *testing.T) {
+	withTestDeps(t, func(value *commandDeps) {
+		value.defaultConfig = configpkg.Default
+		value.validateConfig = configpkg.Validate
+		value.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
+		value.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Config{}, configpkg.ErrNotFound }
+	})
+
+	snapshot, err := loadTUISnapshot()
+	if err != nil {
+		t.Fatalf("expected missing config to stay recoverable in the TUI, got %v", err)
+	}
+	if snapshot.ConfigSource != stacktui.ConfigSourceMissing {
+		t.Fatalf("expected missing config source, got %q", snapshot.ConfigSource)
+	}
+	if snapshot.ConfigData.Stack.Name != configpkg.Default().Stack.Name {
+		t.Fatalf("expected default config draft, got %+v", snapshot.ConfigData.Stack)
+	}
+	if len(snapshot.ConfigIssues) != 0 {
+		t.Fatalf("expected pending scaffold to stay out of validation issues, got %+v", snapshot.ConfigIssues)
+	}
+	if !snapshot.ConfigNeedsScaffold {
+		t.Fatalf("expected missing config draft to mark scaffold as pending")
+	}
+	if !strings.Contains(snapshot.ConfigProblem, "No stackctl config was found") {
+		t.Fatalf("expected missing-config guidance, got %q", snapshot.ConfigProblem)
+	}
+}
+
+func TestLoadTUISnapshotKeepsUnreadableConfigEditable(t *testing.T) {
+	withTestDeps(t, func(value *commandDeps) {
+		value.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Config{}, errors.New("parse config broken") }
+	})
+
+	snapshot, err := loadTUISnapshot()
+	if err != nil {
+		t.Fatalf("expected unreadable config to remain recoverable in the TUI, got %v", err)
+	}
+	if snapshot.ConfigSource != stacktui.ConfigSourceUnavailable {
+		t.Fatalf("expected unavailable config source, got %q", snapshot.ConfigSource)
+	}
+	if !strings.Contains(snapshot.ConfigProblem, "Current config could not be loaded") {
+		t.Fatalf("expected unreadable-config guidance, got %q", snapshot.ConfigProblem)
+	}
+}
+
+func TestBuildTUISnapshotTreatsPendingManagedScaffoldAsGuidance(t *testing.T) {
+	withTestDeps(t, func(value *commandDeps) {
+		value.validateConfig = configpkg.Validate
+		value.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
+		value.captureResult = func(_ context.Context, _ string, _ string, _ ...string) (system.CommandResult, error) {
+			t.Fatal("runtime inspection should not run while scaffold is pending")
+			return system.CommandResult{}, nil
+		}
+	})
+
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+
+	snapshot := buildTUISnapshot("/tmp/test-config.yaml", cfg, stacktui.ConfigSourceLoaded, "")
+	if len(snapshot.ConfigIssues) != 0 {
+		t.Fatalf("expected scaffold-pending snapshot to stay validation-clean, got %+v", snapshot.ConfigIssues)
+	}
+	if !snapshot.ConfigNeedsScaffold {
+		t.Fatalf("expected scaffold-pending snapshot to mark pending scaffold")
+	}
+	for _, message := range []string{snapshot.ServiceError, snapshot.HealthError, snapshot.DoctorError} {
+		if !strings.Contains(message, "Use g in Config") {
+			t.Fatalf("expected scaffold guidance message, got %q", message)
 		}
 	}
 }
@@ -119,7 +189,7 @@ func TestBuildTUISnapshotPreservesServiceLoadErrors(t *testing.T) {
 	cfg := configpkg.Default()
 	cfg.ApplyDerivedFields()
 
-	snapshot := buildTUISnapshot("/tmp/test-config.yaml", cfg)
+	snapshot := buildTUISnapshot("/tmp/test-config.yaml", cfg, stacktui.ConfigSourceLoaded, "")
 	if snapshot.ServiceError == "" {
 		t.Fatalf("expected service error in snapshot")
 	}
@@ -145,7 +215,7 @@ func TestBuildTUISnapshotIncludesDoctorSummary(t *testing.T) {
 	cfg := configpkg.Default()
 	cfg.ApplyDerivedFields()
 
-	snapshot := buildTUISnapshot("/tmp/test-config.yaml", cfg)
+	snapshot := buildTUISnapshot("/tmp/test-config.yaml", cfg, stacktui.ConfigSourceLoaded, "")
 	if snapshot.DoctorSummary.OK != 1 || snapshot.DoctorSummary.Warn != 1 || snapshot.DoctorSummary.Fail != 1 {
 		t.Fatalf("unexpected doctor summary: %+v", snapshot.DoctorSummary)
 	}

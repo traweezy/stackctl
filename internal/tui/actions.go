@@ -51,8 +51,18 @@ type actionBanner struct {
 	Message string
 }
 
+type confirmationKind int
+
+const (
+	confirmationAction confirmationKind = iota
+	confirmationConfigReset
+)
+
 type confirmationState struct {
-	Action ActionSpec
+	Kind    confirmationKind
+	Title   string
+	Message string
+	Action  ActionSpec
 }
 
 type runningAction struct {
@@ -257,7 +267,7 @@ func renderActionRail(m Model) string {
 		lines = append(lines, mutedStyle().Render("Running "+m.runningAction.Action.Label))
 	case m.confirmation != nil:
 		lines = append(lines, "")
-		lines = append(lines, mutedStyle().Render("Confirm "+m.confirmation.Action.Label))
+		lines = append(lines, mutedStyle().Render(m.confirmationSidebarLabel()))
 	}
 
 	return strings.Join(lines, "\n")
@@ -269,11 +279,11 @@ func renderConfirmation(state *confirmationState) string {
 	}
 
 	lines := []string{
-		subsectionTitleStyle().Render("Confirm action"),
+		subsectionTitleStyle().Render(emptyLabel(state.Title)),
 		"",
-		state.Action.Label,
+		emptyLabel(state.confirmationLabel()),
 		"",
-		state.Action.ConfirmMessage,
+		state.confirmationMessage(),
 		"",
 		mutedStyle().Render("y / enter confirm  •  n / esc cancel"),
 	}
@@ -352,7 +362,7 @@ func actionChipStyle(action ActionSpec, m Model) lipgloss.Style {
 	style := lipgloss.NewStyle().Bold(true)
 
 	switch {
-	case m.confirmation != nil && m.confirmation.Action.ID == action.ID:
+	case m.confirmation != nil && m.confirmation.Kind == confirmationAction && m.confirmation.Action.ID == action.ID:
 		return style.Foreground(lipgloss.Color("221"))
 	case m.runningAction != nil && m.runningAction.Action.ID == action.ID:
 		return style.Foreground(lipgloss.Color("81"))
@@ -410,6 +420,16 @@ func runActionCmd(runner ActionRunner, action ActionSpec, historyID int) tea.Cmd
 func (m *Model) cancelConfirmation() tea.Cmd {
 	if m.confirmation == nil {
 		return nil
+	}
+
+	if m.confirmation.Kind != confirmationAction {
+		title := strings.ToLower(strings.TrimSpace(m.confirmation.Title))
+		if title == "" {
+			title = "confirmation"
+		}
+		m.confirmation = nil
+		bannerID := m.setBanner(output.StatusWarn, title+" cancelled")
+		return clearBannerCmd(bannerID)
 	}
 
 	action := m.confirmation.Action
@@ -496,4 +516,48 @@ func applyOptimisticUpdate(snapshot Snapshot, action ActionID) Snapshot {
 	}
 
 	return updated
+}
+
+func newActionConfirmation(action ActionSpec) *confirmationState {
+	return &confirmationState{
+		Kind:    confirmationAction,
+		Title:   "Confirm action",
+		Message: action.ConfirmMessage,
+		Action:  action,
+	}
+}
+
+func newConfigResetConfirmation() *confirmationState {
+	return &confirmationState{
+		Kind:    confirmationConfigReset,
+		Title:   "Reset draft",
+		Message: "Discard the unsaved config changes and restore the last loaded values?",
+	}
+}
+
+func (c confirmationState) confirmationLabel() string {
+	if c.Kind == confirmationAction {
+		return c.Action.Label
+	}
+	return c.Title
+}
+
+func (c confirmationState) confirmationMessage() string {
+	if strings.TrimSpace(c.Message) != "" {
+		return c.Message
+	}
+	if c.Kind == confirmationAction {
+		return c.Action.ConfirmMessage
+	}
+	return ""
+}
+
+func (m Model) confirmationSidebarLabel() string {
+	if m.confirmation == nil {
+		return ""
+	}
+	if m.confirmation.Kind == confirmationAction {
+		return "Confirm " + m.confirmation.Action.Label
+	}
+	return "Confirm " + m.confirmation.Title
 }

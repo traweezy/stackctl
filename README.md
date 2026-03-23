@@ -309,12 +309,13 @@ Root flags:
 
 Open the interactive terminal dashboard.
 
-The TUI now includes the phase-three inspection workflow. It gives you a
-full-screen dashboard for the current stack config and runtime state, split
-detail panes for deeper inspection, and sidebar actions for `start`, `stop`,
-`restart`, `doctor`, `open cockpit`, and `open pgadmin`. Lifecycle actions run
-in the background, update the header status, and write a session-local action
-history you can review inside the dashboard.
+The TUI now includes the inspection workflow plus the phase-four config
+editor. It gives you a full-screen dashboard for the current stack config and
+runtime state, split detail panes for deeper inspection, a first-class config
+editing surface, and sidebar actions for `start`, `stop`, `restart`, `doctor`,
+`open cockpit`, and `open pgadmin`. Lifecycle and config operations run in the
+background, update the header status, and write a session-local action history
+you can review inside the dashboard.
 
 Examples:
 
@@ -326,13 +327,21 @@ Keys:
 
 - `tab`, `l`, `right` to move to the next section
 - `shift+tab`, `h`, `left` to move to the previous section
-- `j`, `k`, `[`, and `]` to switch the active service, port target, or health target inside split detail panes
+- `j`, `k`, `[`, and `]` to switch the active field, service, or health target inside the current pane
 - `1` through `6` to run the sidebar actions
+- `enter`, `e` to edit or toggle the selected field in `Config`
+- `esc` to cancel an in-progress field edit in `Config`
+- `ctrl+s`, `A` to save the current config draft and, when it is safe, refresh managed compose and restart running managed services automatically
+- `x` to reset the current config draft
+- `u` to apply derived defaults to the current config draft
+- `p` to preview the config diff
+- `g` to save the current draft and scaffold the managed stack when managed scaffolding is enabled and relevant
+- `G` to save the current draft and force-refresh the managed stack scaffold when managed scaffolding is enabled and relevant
 - `y`, `enter` to confirm a stop or restart action
 - `n`, `esc` to cancel a pending confirmation
 - `r` to refresh
-- `w` to watch live logs for the selected stack service from `Services`, `Ports`, or `Health`
-- `a` to toggle conservative auto-refresh (`30s`)
+- `w` to watch live logs for the selected stack service from `Services` or `Health`
+- `a` to toggle auto-refresh for the current TUI session using the configured interval
 - `m` to toggle expanded vs compact density
 - `s` to show or hide secrets in the dashboard
 - `?` to toggle the expanded help footer
@@ -341,20 +350,38 @@ Keys:
 Sections:
 
 - `Overview`: stack paths, mode, stack-managed service counts, and startup behavior
-- `Services`: a split service list and detail pane with runtime metadata, lifecycle status, DSNs, URLs, host-tool handling, and a live-log shortcut
-- `Ports`: a split list/detail view for exposed host ports, reachability, and per-service mappings
-- `Health`: a split service-by-service health summary with runtime, reachability, and doctor detail rendering
-- `Connections`: DSNs and URLs with secrets masked by default
+- `Config`: a grouped stack-and-service editor with stack, service, and TUI settings, a slim status strip, a field detail pane, inline validation, allowed-value hints for finite-choice settings, diff preview, save/reset/defaults actions, a key strip under the detail pane, and managed-stack scaffolding
+- `Services`: a split service list and detail pane with runtime metadata, lifecycle status, host ports, DSNs, URLs, host-tool handling, copy placeholders, and a live-log shortcut
+- `Health`: a split service-by-service health summary with runtime, reachability, doctor detail rendering, and a live-log shortcut for stack services
 - `History`: the current session’s action log, including cancellations, warnings, and doctor summaries
 
 Notes:
 
-- auto-refresh is on by default and can be turned off inside the TUI
+- auto-refresh is on by default, uses the saved `Config -> TUI` interval, and
+  can still be toggled off for the current session inside the TUI
 - the left sidebar keeps navigation and global stack actions together so the
   active panel stays focused on inspection
-- the services, ports, and health panels only split when the terminal is
-  wide enough; medium-width terminals fall back to a stacked layout to avoid
-  cramped wrapping
+- the `Config` section loads the saved config when it exists, otherwise starts
+  from defaults so you can recover from a missing or unreadable config without
+  leaving the TUI
+- config drafts stay local to the TUI session until you save them; refreshes do
+  not overwrite dirty edits
+- the slim `Config` status strip now makes draft state explicit, so you can
+  always tell whether a change is still draft-only or already written to disk
+- the `Config` key strip stays under the detail pane so save/edit controls stay
+  visible even in tighter terminals
+- `ctrl+s` is the main config action: it always writes the draft first, and for
+  managed stacks it also refreshes compose and restarts running services
+  automatically when the change can be applied safely
+- managed-stack scaffold work is shown as a pending config task instead of a
+  hard validation failure, so brand-new installs can save and scaffold cleanly
+- when a change cannot be applied safely, the status strip explains the exact
+  follow-up, such as save-only, manual compose updates, or stack-target changes
+- for external stacks, service, port, and credential edits update stackctl
+  metadata and helper commands but do not rewrite your compose file
+- the services and health panels only split when the terminal is wide enough;
+  medium-width terminals fall back to a stacked layout to avoid cramped
+  wrapping
 - Cockpit is shown as a host tool, not a stack-managed service, so
   `start`/`stop`/`restart` only apply to the compose stack
 - confirmations temporarily take over the center panel instead of pushing the
@@ -371,13 +398,15 @@ Notes:
   any warnings or failures in the history panel
 - Cockpit and pgAdmin open as separate sidebar actions so you can launch only
   the UI you want
-- services and connections panels now show copy placeholders for the DSNs and
-  URLs that will become real copy actions in a later phase
+- the `Services` detail pane shows copy placeholders for DSNs and URLs that
+  will become real copy actions in a later phase
 - live logs are intentionally handed off to the real compose log stream with
-  `w`, so the TUI stays focused on inspection instead of embedding a cramped
-  tail viewer
+  `w` from `Services` and `Health`, so the TUI stays focused on inspection
+  instead of embedding a cramped tail viewer
 - returning from a live log watch refreshes the snapshot so service state and
   health data stay current
+- the config field list intentionally shortens long values such as stack paths;
+  the full value always stays visible in the detail pane and diff preview
 - long-running actions usually mean image pulls, Podman startup, or service
   readiness waits; leave the TUI open and let the action finish before forcing
   another lifecycle operation
@@ -480,6 +509,9 @@ This is the easiest way to change service credentials, optional Redis auth,
 managed-stack ports, Postgres maintenance-db behavior, Redis persistence and
 memory settings, pgAdmin server mode, and service image/data-volume settings
 without editing compose files manually.
+
+If you want a full-screen workflow with diff preview, save/reset, and managed
+stack scaffolding in one place, use the `Config` section inside `stackctl tui`.
 
 Examples:
 
@@ -1109,8 +1141,6 @@ commands are in place.
 
 These are appealing, but not ahead of the higher-value local-platform work.
 
-- deeper TUI inspection views for service detail, ports, and doctor detail
-- in-TUI config editing, validation, and managed-stack scaffolding
 - TUI power-user workflows such as copy actions, a command palette, and quick jumps
 - a self-update flow such as `stackctl update`
 - a plugin model for optional service packs

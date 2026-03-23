@@ -13,6 +13,7 @@ import (
 func TestSaveLoadAndMarshalRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := Default()
+	cfg.TUI.AutoRefreshIntervalSec = 12
 
 	if err := Save(path, cfg); err != nil {
 		t.Fatalf("Save returned error: %v", err)
@@ -25,6 +26,9 @@ func TestSaveLoadAndMarshalRoundTrip(t *testing.T) {
 	if loaded.Stack.Name != cfg.Stack.Name {
 		t.Fatalf("loaded config stack name = %q", loaded.Stack.Name)
 	}
+	if loaded.TUI.AutoRefreshIntervalSec != 12 {
+		t.Fatalf("loaded config TUI auto-refresh interval = %d", loaded.TUI.AutoRefreshIntervalSec)
+	}
 
 	data, err := Marshal(cfg)
 	if err != nil {
@@ -35,6 +39,9 @@ func TestSaveLoadAndMarshalRoundTrip(t *testing.T) {
 	}
 	if strings.Contains(string(data), "open_cockpit_on_start") || strings.Contains(string(data), "open_pgadmin_on_start") {
 		t.Fatalf("marshal output should not include removed open-on-start fields: %s", string(data))
+	}
+	if !strings.Contains(string(data), "auto_refresh_interval_seconds: 12") {
+		t.Fatalf("marshal output missing TUI auto-refresh interval: %s", string(data))
 	}
 }
 
@@ -90,6 +97,53 @@ system:
 	}
 	if !cfg.Behavior.WaitForServicesStart || cfg.Behavior.StartupTimeoutSec != 30 {
 		t.Fatalf("unexpected behavior config: %+v", cfg.Behavior)
+	}
+}
+
+func TestLoadAppliesDefaultTUIAutoRefreshIntervalWhenMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := `stack:
+  name: dev-stack
+  dir: /tmp/dev-stack
+  compose_file: compose.yaml
+  managed: false
+services:
+  postgres_container: local-postgres
+  redis_container: local-redis
+  pgadmin_container: local-pgadmin
+connection:
+  host: localhost
+  postgres_database: app
+  postgres_username: app
+  postgres_password: app
+  redis_password: ""
+  pgadmin_email: admin@example.com
+  pgadmin_password: admin
+ports:
+  postgres: 5432
+  redis: 6379
+  pgadmin: 8081
+  cockpit: 9090
+behavior:
+  wait_for_services_on_start: true
+  startup_timeout_seconds: 30
+setup:
+  install_cockpit: true
+  include_pgadmin: true
+  scaffold_default_stack: false
+system:
+  package_manager: apt
+`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.TUI.AutoRefreshIntervalSec != DefaultTUIAutoRefreshIntervalSeconds {
+		t.Fatalf("expected default TUI auto-refresh interval, got %+v", cfg.TUI)
 	}
 }
 

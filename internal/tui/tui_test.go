@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
+	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/output"
 )
 
@@ -63,14 +67,26 @@ func TestModelNavigatesSectionsAndRefreshes(t *testing.T) {
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
 	current = updatedModel.(Model)
+	if current.active != configSection {
+		t.Fatalf("expected config section, got %v", current.active)
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	current = updatedModel.(Model)
 	if current.active != servicesSection {
-		t.Fatalf("expected services section, got %v", current.active)
+		t.Fatalf("expected services section after config, got %v", current.active)
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	current = updatedModel.(Model)
+	if current.active != configSection {
+		t.Fatalf("expected config section on the way back, got %v", current.active)
 	}
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	current = updatedModel.(Model)
 	if current.active != overviewSection {
-		t.Fatalf("expected overview section, got %v", current.active)
+		t.Fatalf("expected overview section after config, got %v", current.active)
 	}
 
 	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
@@ -160,6 +176,15 @@ func TestModelAutoRefreshSchedulesAndCanBeDisabled(t *testing.T) {
 	}
 }
 
+func TestModelRefreshIntervalUsesSnapshotConfig(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	model.snapshot = Snapshot{ConfigData: configpkg.Config{TUI: configpkg.TUIConfig{AutoRefreshIntervalSec: 12}}}
+
+	if got := model.refreshInterval(); got != 12*time.Second {
+		t.Fatalf("expected refresh interval from config, got %s", got)
+	}
+}
+
 func TestRenderHeaderPadsAndColorizesStatus(t *testing.T) {
 	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
 		return ActionReport{}, nil
@@ -206,7 +231,7 @@ func TestViewMasksSecretsUntilToggled(t *testing.T) {
 
 	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
 	current = updatedModel.(Model)
-	current = navigateToSection(t, current, connectionsSection)
+	current = navigateToSection(t, current, servicesSection)
 
 	view := current.currentContent()
 	if strings.Contains(view, "secret-password") {
@@ -490,7 +515,7 @@ func TestWatchLogsKeyLaunchesSelectedServiceFromServicesPane(t *testing.T) {
 	}
 }
 
-func TestWatchLogsKeyUsesSelectedPortService(t *testing.T) {
+func TestWatchLogsKeyUsesSelectedServicePaneTarget(t *testing.T) {
 	requests := make([]LogWatchRequest, 0, 1)
 	model := NewInspectionModel(
 		func() (Snapshot, error) { return Snapshot{}, nil },
@@ -510,7 +535,7 @@ func TestWatchLogsKeyUsesSelectedPortService(t *testing.T) {
 			{Name: "redis", DisplayName: "Redis", Status: "running", ContainerName: "stack-redis", Host: "localhost", ExternalPort: 6379, InternalPort: 6379},
 		},
 	}
-	current.active = portsSection
+	current.active = servicesSection
 	current.normalizeSelections()
 	current.syncLayout()
 
@@ -519,7 +544,7 @@ func TestWatchLogsKeyUsesSelectedPortService(t *testing.T) {
 	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	current = updatedModel.(Model)
 	if cmd == nil {
-		t.Fatalf("expected watch logs command from ports section")
+		t.Fatalf("expected watch logs command from services section")
 	}
 	if len(requests) != 1 {
 		t.Fatalf("expected one watch request, got %d", len(requests))
@@ -647,7 +672,7 @@ func TestLogWatchDoneReloadsSnapshot(t *testing.T) {
 	}
 }
 
-func TestSelectionKeysSwitchPortDetailPane(t *testing.T) {
+func TestSelectionKeysSwitchServiceDetailPane(t *testing.T) {
 	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
 	current := updatedModel.(Model)
@@ -658,7 +683,7 @@ func TestSelectionKeysSwitchPortDetailPane(t *testing.T) {
 			{Name: "redis", DisplayName: "Redis", Status: "running", ContainerName: "stack-redis", Host: "localhost", ExternalPort: 6379, InternalPort: 6379},
 		},
 	}
-	current.active = portsSection
+	current.active = servicesSection
 	current.normalizeSelections()
 	current.syncLayout()
 
@@ -668,8 +693,8 @@ func TestSelectionKeysSwitchPortDetailPane(t *testing.T) {
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: ']', Text: "]"})
 	current = updatedModel.(Model)
-	if current.selectedPort != "redis" {
-		t.Fatalf("expected selected port to switch to redis, got %q", current.selectedPort)
+	if current.selectedService != "redis" {
+		t.Fatalf("expected selected service to switch to redis, got %q", current.selectedService)
 	}
 	if !collapsedContainsTest(current.currentContent(), "Host port: 6379") {
 		t.Fatalf("expected port detail to switch to redis:\n%s", current.currentContent())
@@ -1304,6 +1329,1018 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 	}
 }
 
+func TestConfigSectionRendersEditorSummary(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"Config fields",
+		"Draft values • saved",
+		"Stack",
+		"Postgres",
+		"Redis",
+		"Stack / Name",
+		"Managed mode",
+		"Config detail",
+		"Values",
+		"Field",
+		"Draft dev-stack",
+		"Saved dev-stack",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected config section to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestConfigSectionFitsViewportAndKeepsFooterAtCompactHeight(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModelSized(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""), 120, 24)
+	current = navigateToSection(t, current, configSection)
+
+	renderedEditor := current.configEditor.View(false)
+	if got, max := lipgloss.Height(renderedEditor), current.viewport.Height(); got > max {
+		t.Fatalf("expected config editor to fit viewport height, got %d > %d:\n%s", got, max, renderedEditor)
+	}
+
+	view := current.View().Content
+	if got := lipgloss.Height(view); got > 24 {
+		t.Fatalf("expected full view to fit terminal height, got %d > 24:\n%s", got, view)
+	}
+	for _, fragment := range []string{
+		"Config fields",
+		"Config detail",
+		"ctrl+s save/apply",
+		"q quit",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected compact config view to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestConfigSectionFitsViewportWhenStacked(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModelSized(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""), 92, 24)
+	current = navigateToSection(t, current, configSection)
+
+	renderedEditor := current.configEditor.View(false)
+	if got, max := lipgloss.Height(renderedEditor), current.viewport.Height(); got > max {
+		t.Fatalf("expected stacked config editor to fit viewport height, got %d > %d:\n%s", got, max, renderedEditor)
+	}
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"Config fields",
+		"Config detail",
+		"ctrl+s save/apply",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected stacked compact config view to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestConfigSectionKeepsFooterAndEditorVisibleAcrossCompactSizes(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+
+	type sizeCase struct {
+		width   int
+		height  int
+		stacked bool
+	}
+
+	cases := []sizeCase{
+		{width: 80, height: 20, stacked: true},
+		{width: 88, height: 20, stacked: true},
+		{width: 92, height: 22, stacked: true},
+		{width: 100, height: 20, stacked: false},
+		{width: 110, height: 20, stacked: false},
+		{width: 120, height: 22, stacked: false},
+	}
+
+	for _, tc := range cases {
+		current := loadConfigSnapshotModelSized(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""), tc.width, tc.height)
+		current = navigateToSection(t, current, configSection)
+
+		view := current.View().Content
+		if got := lipgloss.Height(view); got > tc.height {
+			t.Fatalf("size %dx%d overflowed full view: %d > %d\n%s", tc.width, tc.height, got, tc.height, view)
+		}
+		for _, fragment := range []string{
+			"Config fields",
+			"Config detail",
+			"ctrl+s save/apply",
+			"q quit",
+		} {
+			if !collapsedContainsTest(view, fragment) {
+				t.Fatalf("size %dx%d missing %q:\n%s", tc.width, tc.height, fragment, view)
+			}
+		}
+		if tc.stacked && !collapsedContainsTest(view, "ctrl+s save/apply") {
+			t.Fatalf("size %dx%d lost the primary config save hint:\n%s", tc.width, tc.height, view)
+		}
+	}
+}
+
+func TestConfigSectionScrollsFieldListWithoutLosingFooter(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModelSized(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""), 120, 24)
+	current = navigateToSection(t, current, configSection)
+
+	for range 20 {
+		updatedModel, _ := current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+		current = updatedModel.(Model)
+	}
+
+	view := current.View().Content
+	for _, fragment := range []string{
+		"Redis / Port",
+		"ctrl+s save/apply",
+		"q quit",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected scrolled config view to contain %q:\n%s", fragment, view)
+		}
+	}
+	if got := lipgloss.Height(view); got > 24 {
+		t.Fatalf("expected scrolled config view to fit terminal height, got %d > 24:\n%s", got, view)
+	}
+}
+
+func TestConfigSectionFieldHeaderUsesSavedDraftEditingAndInvalidStates(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	if view := current.currentContent(); !collapsedContainsTest(view, "Stack / Name") || collapsedContainsTest(view, "saved Stack / Name") {
+		t.Fatalf("expected clean field header to omit extra state copy:\n%s", view)
+	}
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if view := current.currentContent(); !collapsedContainsTest(view, "editing Stack / Name") {
+		t.Fatalf("expected active edit header to show editing state:\n%s", view)
+	}
+
+	current.configEditor.input.SetValue("dev-stack-ops")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if view := current.currentContent(); !collapsedContainsTest(view, "edited Stack / Name") {
+		t.Fatalf("expected unsaved field header to show edited state:\n%s", view)
+	}
+
+	current.configEditor.selectedKey = "ports.postgres"
+	current.configEditor.refreshList(false)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current.configEditor.input.SetValue("bad-port")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if view := current.currentContent(); !collapsedContainsTest(view, "invalid Postgres / Port") {
+		t.Fatalf("expected invalid field header to show invalid state:\n%s", view)
+	}
+}
+
+func TestConfigFieldGroupPlacesHostUnderStack(t *testing.T) {
+	stackSpecs := groupedConfigFieldSpecs("Stack")
+	foundHost := false
+	for _, spec := range stackSpecs {
+		if spec.Key == "connection.host" {
+			foundHost = true
+			break
+		}
+	}
+	if !foundHost {
+		t.Fatalf("expected connection.host to be grouped under Stack, got %+v", stackSpecs)
+	}
+}
+
+func TestConfigSectionEditsStackNameAndUpdatesManagedDir(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current = sendTextToModel(t, current, "-ops")
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if current.configEditor.editing {
+		t.Fatalf("expected stack-name edit to commit")
+	}
+	if current.configEditor.draft.Stack.Name != "dev-stack-ops" {
+		t.Fatalf("unexpected edited stack name: %+v", current.configEditor.draft.Stack)
+	}
+	if !strings.Contains(current.configEditor.draft.Stack.Dir, "dev-stack-ops") {
+		t.Fatalf("expected managed stack dir to follow the edited name: %+v", current.configEditor.draft.Stack)
+	}
+}
+
+func TestConfigSectionAllowsTypingNWhileEditing(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current = sendTextToModel(t, current, "n")
+	if !current.configEditor.editing {
+		t.Fatalf("expected editor to stay active after typing n")
+	}
+	if got := current.configEditor.input.Value(); got != "dev-stackn" {
+		t.Fatalf("expected n to be inserted into the field, got %q", got)
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if current.configEditor.draft.Stack.Name != "dev-stackn" {
+		t.Fatalf("expected edited stack name to include n, got %+v", current.configEditor.draft.Stack)
+	}
+}
+
+func TestConfigSectionClearsPortInputErrorAfterCorrection(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "ports.postgres"
+	current.configEditor.refreshList(false)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current.configEditor.input.SetValue("not-a-port")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if current.configEditor.input.Err == nil {
+		t.Fatalf("expected invalid port entry to leave an inline error")
+	}
+	if !current.configEditor.editing {
+		t.Fatalf("expected invalid port entry to keep the field in edit mode")
+	}
+
+	current.configEditor.input.SetValue("5432")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if current.configEditor.editing {
+		t.Fatalf("expected corrected port entry to commit")
+	}
+	if current.configEditor.input.Err != nil {
+		t.Fatalf("expected corrected port entry to clear the inline error, got %v", current.configEditor.input.Err)
+	}
+
+	current.configEditor.selectedKey = "services.redis.maxmemory_policy"
+	current.configEditor.refreshList(false)
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if current.configEditor.input.Err != nil {
+		t.Fatalf("expected next field to use its own validator, got %v", current.configEditor.input.Err)
+	}
+	view := current.currentContent()
+	if collapsedContainsTest(view, "enter a valid port") {
+		t.Fatalf("expected stale port validation error to disappear after moving to another field:\n%s", view)
+	}
+}
+
+func TestConfigSectionEscapeCancelsEdit(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current = sendTextToModel(t, current, "-ops")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	current = updatedModel.(Model)
+	if current.configEditor.editing {
+		t.Fatalf("expected escape to cancel the edit")
+	}
+	if current.configEditor.draft.Stack.Name != cfg.Stack.Name {
+		t.Fatalf("expected escape to discard in-progress edits, got %+v", current.configEditor.draft.Stack)
+	}
+}
+
+func TestConfigSectionPreviewShowsDiffForDraftChanges(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current = sendTextToModel(t, current, "-ops")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
+	current = updatedModel.(Model)
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"Config diff",
+		"--- saved",
+		"+++ draft",
+		"- name: dev-stack",
+		"+ name: dev-stack-ops",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected diff preview to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestConfigSectionResetConfirmationRestoresDraft(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current = sendTextToModel(t, current, "-ops")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	current = updatedModel.(Model)
+	if current.confirmation == nil || current.confirmation.Kind != confirmationConfigReset {
+		t.Fatalf("expected reset confirmation, got %+v", current.confirmation)
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if current.configEditor.draft.Stack.Name != cfg.Stack.Name {
+		t.Fatalf("expected reset draft to restore stack name, got %+v", current.configEditor.draft.Stack)
+	}
+	if current.confirmation != nil {
+		t.Fatalf("expected reset confirmation to clear")
+	}
+}
+
+func TestConfigSectionApplyDefaultsFillsEmptyValues(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Connection.PostgresPassword = ""
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "connection.postgres_password"
+	current.configEditor.refreshList(false)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
+	current = updatedModel.(Model)
+	if current.configEditor.draft.Connection.PostgresPassword != "app" {
+		t.Fatalf("expected derived defaults to restore postgres password, got %+v", current.configEditor.draft.Connection)
+	}
+}
+
+func TestConfigSectionScaffoldWarnsForExternalStacks(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
+	current = updatedModel.(Model)
+	if cmd == nil {
+		t.Fatalf("expected warning banner clear command")
+	}
+	if current.banner == nil || !strings.Contains(current.banner.Message, "managed stack") {
+		t.Fatalf("expected scaffold warning banner, got %+v", current.banner)
+	}
+}
+
+func TestConfigSectionHidesUnavailableScaffoldActionForExternalStacks(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	view := current.currentContent()
+	if collapsedContainsTest(view, "g / G") {
+		t.Fatalf("expected external-stack config detail to hide unavailable scaffold keys:\n%s", view)
+	}
+	if !collapsedContainsTest(view, "ctrl+s would only update stackctl metadata here") {
+		t.Fatalf("expected external-stack workflow guidance in config view:\n%s", view)
+	}
+}
+
+func TestConfigFieldDescriptionCompactsLongValues(t *testing.T) {
+	cfg := configpkg.Default()
+	var stackDirSpec configFieldSpec
+	for _, spec := range configFieldSpecs {
+		if spec.Key == "stack.dir" {
+			stackDirSpec = spec
+			break
+		}
+	}
+	if stackDirSpec.Key == "" {
+		t.Fatal("expected stack.dir field spec")
+	}
+
+	description := fieldItemDescription(stackDirSpec, cfg, false, nil)
+	if !strings.Contains(description, "…") {
+		t.Fatalf("expected compact description to use an ellipsis, got %q", description)
+	}
+	if strings.Contains(description, cfg.Stack.Dir) {
+		t.Fatalf("expected compact description to hide the full path, got %q", description)
+	}
+}
+
+func TestConfigSectionShowsRedisMaxmemoryPolicyHints(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "services.redis.maxmemory_policy"
+	current.configEditor.refreshList(false)
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"Redis / Maxmemory policy",
+		"Redis policies",
+		"Values noeviction, allkeys-lru, allkeys-lfu",
+		"volatile-random, volatile-ttl",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected redis maxmemory detail to contain %q:\n%s", fragment, view)
+		}
+	}
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if !current.configEditor.input.ShowSuggestions {
+		t.Fatalf("expected redis maxmemory edit mode to enable suggestions")
+	}
+
+	editView := current.currentContent()
+	for _, fragment := range []string{
+		"Redis policies",
+		"noeviction, allkeys-lru, allkeys-lfu",
+	} {
+		if !collapsedContainsTest(editView, fragment) {
+			t.Fatalf("expected edit view to contain %q:\n%s", fragment, editView)
+		}
+	}
+}
+
+func TestConfigSectionShowsTUIAutoRefreshIntervalHints(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "tui.auto_refresh_interval_seconds"
+	current.configEditor.refreshList(false)
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"TUI / Auto refresh interval",
+		"future TUI sessions",
+		"Common values",
+		"Values 5, 10, 30, 60",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected TUI auto-refresh detail to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestSelectedFieldEffectDifferentiatesRepresentativeFields(t *testing.T) {
+	cfg := configpkg.Default()
+
+	cases := []struct {
+		key      string
+		contains string
+	}{
+		{key: "services.redis.maxmemory_policy", contains: "Redis eviction policy"},
+		{key: "behavior.startup_timeout_seconds", contains: "how long stackctl waits"},
+		{key: "tui.auto_refresh_interval_seconds", contains: "future TUI sessions"},
+		{key: "system.package_manager", contains: "package manager"},
+	}
+
+	for _, tc := range cases {
+		var spec configFieldSpec
+		for _, candidate := range configFieldSpecs {
+			if candidate.Key == tc.key {
+				spec = candidate
+				break
+			}
+		}
+		if spec.Key == "" {
+			t.Fatalf("expected config field spec for %s", tc.key)
+		}
+		if got := selectedFieldEffect(spec, cfg); !strings.Contains(got, tc.contains) {
+			t.Fatalf("expected effect for %s to contain %q, got %q", tc.key, tc.contains, got)
+		}
+	}
+}
+
+func TestRedisMaxmemoryPolicySuggestionsIncludeLRMForRedis86(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Services.Redis.Image = "docker.io/library/redis:8.6"
+
+	values := redisMaxMemoryPolicySuggestions(cfg)
+	if !slices.Contains(values, "allkeys-lrm") || !slices.Contains(values, "volatile-lrm") {
+		t.Fatalf("expected redis 8.6 suggestions to include LRM policies, got %+v", values)
+	}
+}
+
+func TestConfigSectionSaveUpdatesHeaderAutoRefreshInterval(t *testing.T) {
+	cfg := configpkg.Default()
+	savedCfg := cfg
+	manager := configTestManager()
+	manager.SaveConfig = func(_ string, next configpkg.Config) error {
+		savedCfg = next
+		return nil
+	}
+
+	model := NewFullModel(func() (Snapshot, error) {
+		return configSnapshot(savedCfg, ConfigSourceLoaded, ""), nil
+	}, nil, nil, &manager)
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "tui.auto_refresh_interval_seconds"
+	current.configEditor.refreshList(false)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current.configEditor.input.SetValue("10")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 's'})
+	current = updatedModel.(Model)
+	if cmd == nil {
+		t.Fatalf("expected save command for TUI interval")
+	}
+
+	msg, ok := cmd().(configOperationMsg)
+	if !ok {
+		t.Fatalf("expected configOperationMsg, got %T", cmd())
+	}
+	updatedModel, reloadCmd := current.Update(msg)
+	current = updatedModel.(Model)
+	loaded := snapshotFromCmd(t, reloadCmd)
+	updatedModel, _ = current.Update(loaded)
+	current = updatedModel.(Model)
+
+	if got := current.refreshInterval(); got != 10*time.Second {
+		t.Fatalf("expected saved TUI interval to apply to the model, got %s", got)
+	}
+	if !strings.Contains(current.View().Content, "auto-refresh: 10s") {
+		t.Fatalf("expected header to show updated auto-refresh interval:\n%s", current.View().Content)
+	}
+}
+
+func TestConfigSectionHighlightsUnsavedDraftState(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current = sendTextToModel(t, current, "-ops")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"Draft values • unsaved",
+		"Unsaved draft",
+		"ctrl+s saves only; stack target changes do not restart the current stack",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected unsaved draft view to contain %q:\n%s", fragment, view)
+		}
+	}
+	if collapsedContainsTest(view, "Unsaved field:") {
+		t.Fatalf("expected duplicate field-state notice to be removed:\n%s", view)
+	}
+}
+
+func TestConfigSectionTreatsMaintenanceDatabaseAsConfigOnly(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "services.postgres.maintenance_database"
+	current.configEditor.draft.Services.Postgres.MaintenanceDatabase = "template1"
+	current.configEditor.syncValidation(current.configManager)
+	current.configEditor.refreshList(false)
+
+	spec, ok := current.configEditor.selectedSpec()
+	if !ok {
+		t.Fatal("expected selected config field")
+	}
+	if got := selectedFieldEffect(spec, current.configEditor.draft); !strings.Contains(got, "future database commands only") {
+		t.Fatalf("expected helper-only effect text, got %q", got)
+	}
+
+	plan := current.configEditor.applyPlan()
+	if plan.Allowed || plan.Reason != "use ctrl+s to save config-only changes" {
+		t.Fatalf("expected maintenance database change to stay config-only, got %+v", plan)
+	}
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"ctrl+s writes config only",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected config-only view to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestConfigSectionExplainsManagedRuntimeFollowUp(t *testing.T) {
+	cfg := configpkg.Default()
+	snapshot := configSnapshot(cfg, ConfigSourceLoaded, "")
+	snapshot.Services = []Service{{Name: "postgres", DisplayName: "Postgres", ContainerName: "local-postgres", Status: "running"}}
+
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, snapshot)
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "services.postgres.image"
+	current.configEditor.draft.Services.Postgres.Image = "docker.io/library/postgres:18"
+	current.configEditor.syncValidation(current.configManager)
+	current.configEditor.refreshList(false)
+
+	spec, ok := current.configEditor.selectedSpec()
+	if !ok {
+		t.Fatal("expected selected config field")
+	}
+	if got := selectedFieldEffect(spec, current.configEditor.draft); !strings.Contains(got, "refreshes compose automatically") {
+		t.Fatalf("expected managed field effect to mention automatic apply behavior, got %q", got)
+	}
+	lines := current.configEditor.runtimeImpactLines()
+	if !slices.Contains(lines, "Saving refreshes the managed compose file and restarts the running stack automatically.") {
+		t.Fatalf("expected managed runtime impact to mention automatic restart, got %+v", lines)
+	}
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"ctrl+s saves, refreshes compose, and restarts running services",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected managed runtime view to contain %q:\n%s", fragment, view)
+		}
+	}
+}
+
+func TestConfigSectionExplainsExternalMetadataOnlyChanges(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
+	cfg.Stack.Dir = t.TempDir()
+
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "services.postgres.image"
+	current.configEditor.draft.Services.Postgres.Image = "docker.io/library/postgres:18"
+	current.configEditor.syncValidation(current.configManager)
+	current.configEditor.refreshList(false)
+
+	spec, ok := current.configEditor.selectedSpec()
+	if !ok {
+		t.Fatal("expected selected config field")
+	}
+	if got := selectedFieldEffect(spec, current.configEditor.draft); !strings.Contains(got, "does not rewrite your compose file") {
+		t.Fatalf("expected external field effect to mention metadata-only behavior, got %q", got)
+	}
+	lines := current.configEditor.runtimeImpactLines()
+	if !slices.Contains(lines, "External compose services keep running until you change them yourself.") {
+		t.Fatalf("expected external runtime impact to mention untouched compose services, got %+v", lines)
+	}
+}
+
+func TestConfigSectionSaveUsesDraftAndReloadsSnapshot(t *testing.T) {
+	cfg := configpkg.Default()
+	savedCfg := cfg
+	saveCalls := 0
+	manager := configTestManager()
+	manager.SaveConfig = func(path string, next configpkg.Config) error {
+		saveCalls++
+		if path != "/tmp/stackctl/config.yaml" {
+			t.Fatalf("unexpected save path: %s", path)
+		}
+		savedCfg = next
+		return nil
+	}
+
+	loader := func() (Snapshot, error) {
+		return configSnapshot(savedCfg, ConfigSourceLoaded, ""), nil
+	}
+	model := NewFullModel(loader, nil, nil, &manager)
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current = sendTextToModel(t, current, "-ops")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 's'})
+	current = updatedModel.(Model)
+	if current.runningConfigOp == nil {
+		t.Fatalf("expected save operation to start")
+	}
+	if cmd == nil {
+		t.Fatalf("expected save command")
+	}
+
+	resultMsg, ok := cmd().(configOperationMsg)
+	if !ok {
+		t.Fatalf("expected configOperationMsg, got %T", cmd())
+	}
+	if saveCalls != 1 {
+		t.Fatalf("expected one save call, got %d", saveCalls)
+	}
+	if savedCfg.Stack.Name != "dev-stack-ops" {
+		t.Fatalf("expected saved config to use edited stack name, got %+v", savedCfg.Stack)
+	}
+	if !strings.Contains(resultMsg.Message, "future stackctl commands use the new stack target") {
+		t.Fatalf("expected save result to include follow-up guidance, got %q", resultMsg.Message)
+	}
+
+	updatedModel, reloadCmd := current.Update(resultMsg)
+	current = updatedModel.(Model)
+	if !current.loading {
+		t.Fatalf("expected save to trigger a snapshot reload")
+	}
+	loaded := snapshotFromCmd(t, reloadCmd)
+	updatedModel, _ = current.Update(loaded)
+	current = updatedModel.(Model)
+	if current.configEditor.dirty() {
+		t.Fatalf("expected editor draft to be clean after save reload")
+	}
+	if current.configEditor.draft.Stack.Name != "dev-stack-ops" {
+		t.Fatalf("expected reloaded draft to preserve saved stack name, got %+v", current.configEditor.draft.Stack)
+	}
+}
+
+func TestConfigSectionSaveMentionsScaffoldForRunningManagedServices(t *testing.T) {
+	cfg := configpkg.Default()
+	manager := configTestManager()
+	loader := func() (Snapshot, error) {
+		snapshot := configSnapshot(cfg, ConfigSourceLoaded, "")
+		snapshot.Services = []Service{{Name: "postgres", DisplayName: "Postgres", ContainerName: "local-postgres", Status: "running"}}
+		return snapshot, nil
+	}
+	model := NewFullModel(loader, nil, nil, &manager)
+	snapshot := configSnapshot(cfg, ConfigSourceLoaded, "")
+	snapshot.Services = []Service{{Name: "postgres", DisplayName: "Postgres", ContainerName: "local-postgres", Status: "running"}}
+	current := loadConfigSnapshotModel(t, model, snapshot)
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "services.postgres.image"
+	current.configEditor.draft.Services.Postgres.Image = "docker.io/library/postgres:18"
+	current.configEditor.syncValidation(current.configManager)
+	current.configEditor.refreshList(false)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 's'})
+	current = updatedModel.(Model)
+	if current.runningConfigOp == nil {
+		t.Fatalf("expected save operation to start")
+	}
+	if cmd == nil {
+		t.Fatalf("expected save command")
+	}
+
+	resultMsg, ok := cmd().(configOperationMsg)
+	if !ok {
+		t.Fatalf("expected configOperationMsg, got %T", cmd())
+	}
+	if !strings.Contains(resultMsg.Message, "restart the stack to load the refreshed compose file") {
+		t.Fatalf("expected save message to mention restart follow-up, got %q", resultMsg.Message)
+	}
+}
+
+func TestConfigSectionApplyFromFreshManagedConfigSavesAndScaffolds(t *testing.T) {
+	cfg := configpkg.Default()
+	savedCfg := cfg
+	saveCalls := 0
+	scaffoldCalls := 0
+	forcedScaffold := false
+	manager := configTestManager()
+	manager.SaveConfig = func(path string, next configpkg.Config) error {
+		saveCalls++
+		savedCfg = next
+		return nil
+	}
+	manager.ManagedStackNeedsScaffold = func(configpkg.Config) (bool, error) {
+		return true, nil
+	}
+	manager.ScaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+		scaffoldCalls++
+		forcedScaffold = force
+		return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+	}
+
+	model := NewFullModel(func() (Snapshot, error) {
+		return configSnapshot(savedCfg, ConfigSourceLoaded, ""), nil
+	}, nil, nil, &manager)
+
+	snapshot := configSnapshot(cfg, ConfigSourceMissing, "No stackctl config was found.")
+	snapshot.ConfigNeedsScaffold = true
+	current := loadConfigSnapshotModel(t, model, snapshot)
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'A', Text: "A"})
+	current = updatedModel.(Model)
+	if current.runningConfigOp == nil {
+		t.Fatalf("expected apply operation to start")
+	}
+	if cmd == nil {
+		t.Fatalf("expected apply command")
+	}
+
+	resultMsg, ok := cmd().(configOperationMsg)
+	if !ok {
+		t.Fatalf("expected configOperationMsg, got %T", cmd())
+	}
+	if saveCalls != 1 || scaffoldCalls != 1 {
+		t.Fatalf("expected one save and one scaffold call, got save=%d scaffold=%d", saveCalls, scaffoldCalls)
+	}
+	if forcedScaffold {
+		t.Fatalf("expected fresh scaffold apply to avoid force overwrite")
+	}
+	if !strings.Contains(resultMsg.Message, "ready for the next stack start") {
+		t.Fatalf("expected apply result to explain next start behavior, got %q", resultMsg.Message)
+	}
+}
+
+func TestConfigSectionApplyConfirmsRestartForRunningManagedChanges(t *testing.T) {
+	cfg := configpkg.Default()
+	saveCalls := 0
+	scaffoldCalls := 0
+	forcedScaffold := false
+	restarted := 0
+	manager := configTestManager()
+	manager.SaveConfig = func(string, configpkg.Config) error {
+		saveCalls++
+		return nil
+	}
+	manager.ScaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+		scaffoldCalls++
+		forcedScaffold = force
+		return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+	}
+
+	snapshot := configSnapshot(cfg, ConfigSourceLoaded, "")
+	snapshot.Services = []Service{{Name: "postgres", DisplayName: "Postgres", ContainerName: "local-postgres", Status: "running"}}
+	model := NewFullModel(func() (Snapshot, error) {
+		return snapshot, nil
+	}, nil, func(action ActionID) (ActionReport, error) {
+		if action != ActionRestart {
+			t.Fatalf("expected apply to use restart, got %q", action)
+		}
+		restarted++
+		return ActionReport{Status: output.StatusOK, Message: "stack restarted", Refresh: true}, nil
+	}, &manager)
+	current := loadConfigSnapshotModel(t, model, snapshot)
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "services.postgres.image"
+	current.configEditor.draft.Services.Postgres.Image = "docker.io/library/postgres:18"
+	current.configEditor.syncValidation(current.configManager)
+	current.configEditor.refreshList(false)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'A', Text: "A"})
+	current = updatedModel.(Model)
+	if current.runningConfigOp == nil {
+		t.Fatalf("expected save/apply operation to start")
+	}
+	if cmd == nil {
+		t.Fatalf("expected save/apply command")
+	}
+
+	resultMsg, ok := cmd().(configOperationMsg)
+	if !ok {
+		t.Fatalf("expected configOperationMsg, got %T", cmd())
+	}
+	if saveCalls != 1 || scaffoldCalls != 1 || restarted != 1 {
+		t.Fatalf("expected save, scaffold, and restart once, got save=%d scaffold=%d restart=%d", saveCalls, scaffoldCalls, restarted)
+	}
+	if !forcedScaffold {
+		t.Fatalf("expected managed apply to force scaffold refresh when compose content changed")
+	}
+	if !strings.Contains(resultMsg.Message, "stack restarted") {
+		t.Fatalf("expected apply result to include restart message, got %q", resultMsg.Message)
+	}
+}
+
+func TestConfigSectionApplyWarnsForManualFollowUpChanges(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+	managedDir, err := configpkg.ManagedStackDir("custom-stack")
+	if err != nil {
+		t.Fatalf("managed stack dir: %v", err)
+	}
+	current.configEditor.selectedKey = "stack.name"
+	current.configEditor.draft.Stack.Name = "custom-stack"
+	current.configEditor.draft.Stack.Dir = managedDir
+	current.configEditor.draft.Stack.ComposeFile = configpkg.DefaultComposeFileName
+	current.configEditor.syncValidation(current.configManager)
+	current.configEditor.refreshList(false)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'A', Text: "A"})
+	current = updatedModel.(Model)
+	if current.runningConfigOp == nil {
+		t.Fatalf("expected save command for manual-follow-up change")
+	}
+	if cmd == nil {
+		t.Fatalf("expected save command for manual-follow-up change")
+	}
+	resultMsg, ok := cmd().(configOperationMsg)
+	if !ok {
+		t.Fatalf("expected configOperationMsg, got %T", cmd())
+	}
+	if !strings.Contains(resultMsg.Message, "future stackctl commands use the new stack target") {
+		t.Fatalf("expected manual-follow-up save guidance, got %q", resultMsg.Message)
+	}
+}
+
+func TestConfigSectionApplyDirectsExternalStacksToPlainSave(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
+	cfg.Stack.Dir = t.TempDir()
+	saveCalls := 0
+	scaffoldCalls := 0
+	manager := configTestManager()
+	manager.SaveConfig = func(string, configpkg.Config) error {
+		saveCalls++
+		return nil
+	}
+	manager.ScaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+		scaffoldCalls++
+		return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+	}
+
+	model := NewFullModel(func() (Snapshot, error) {
+		return configSnapshot(cfg, ConfigSourceLoaded, ""), nil
+	}, nil, nil, &manager)
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+	current.configEditor.selectedKey = "services.postgres.image"
+	current.configEditor.draft.Services.Postgres.Image = "docker.io/library/postgres:18"
+	current.configEditor.syncValidation(current.configManager)
+	current.configEditor.refreshList(false)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'A', Text: "A"})
+	current = updatedModel.(Model)
+	if cmd == nil {
+		t.Fatalf("expected save command for external metadata-only changes")
+	}
+	resultMsg, ok := cmd().(configOperationMsg)
+	if !ok {
+		t.Fatalf("expected configOperationMsg, got %T", cmd())
+	}
+	if !strings.Contains(resultMsg.Message, "external compose files were not changed") {
+		t.Fatalf("expected external save guidance, got %q", resultMsg.Message)
+	}
+	if saveCalls != 1 || scaffoldCalls != 0 {
+		t.Fatalf("expected external apply alias to save only, got save=%d scaffold=%d", saveCalls, scaffoldCalls)
+	}
+}
+
+func TestConfigSectionPreservesDirtyDraftAcrossSnapshotRefresh(t *testing.T) {
+	cfg := configpkg.Default()
+	model := newConfigTestModel(cfg, configTestManager())
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	current = sendTextToModel(t, current, "-ops")
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+
+	refreshed := cfg
+	refreshed.Stack.Name = "external-change"
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: configSnapshot(refreshed, ConfigSourceLoaded, "")})
+	current = updatedModel.(Model)
+	if current.configEditor.draft.Stack.Name != "dev-stack-ops" {
+		t.Fatalf("expected dirty draft to survive refresh, got %+v", current.configEditor.draft.Stack)
+	}
+}
+
 var ansiStripPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 var whitespaceCollapsePattern = regexp.MustCompile(`\s+`)
 
@@ -1368,5 +2405,72 @@ func navigateToSection(t *testing.T, current Model, target section) Model {
 	}
 
 	t.Fatalf("failed to navigate to section %v", target)
+	return current
+}
+
+func newConfigTestModel(cfg configpkg.Config, manager ConfigManager) Model {
+	loader := func() (Snapshot, error) {
+		return configSnapshot(cfg, ConfigSourceLoaded, ""), nil
+	}
+	return NewFullModel(loader, nil, nil, &manager)
+}
+
+func loadConfigSnapshotModel(t *testing.T, model Model, snapshot Snapshot) Model {
+	t.Helper()
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	current := updatedModel.(Model)
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	return updatedModel.(Model)
+}
+
+func loadConfigSnapshotModelSized(t *testing.T, model Model, snapshot Snapshot, width int, height int) Model {
+	t.Helper()
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: width, Height: height})
+	current := updatedModel.(Model)
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	return updatedModel.(Model)
+}
+
+func configSnapshot(cfg configpkg.Config, source ConfigSourceState, problem string) Snapshot {
+	cfg.ApplyDerivedFields()
+	return Snapshot{
+		ConfigPath:        "/tmp/stackctl/config.yaml",
+		ConfigData:        cfg,
+		ConfigSource:      source,
+		ConfigProblem:     problem,
+		StackName:         cfg.Stack.Name,
+		StackDir:          cfg.Stack.Dir,
+		ComposePath:       configpkg.ComposePath(cfg),
+		Managed:           cfg.Stack.Managed,
+		WaitForServices:   cfg.Behavior.WaitForServicesStart,
+		StartupTimeoutSec: cfg.Behavior.StartupTimeoutSec,
+		LoadedAt:          time.Now(),
+	}
+}
+
+func configTestManager() ConfigManager {
+	return ConfigManager{
+		DefaultConfig:  configpkg.Default,
+		SaveConfig:     func(string, configpkg.Config) error { return nil },
+		ValidateConfig: func(configpkg.Config) []configpkg.ValidationIssue { return nil },
+		MarshalConfig:  configpkg.Marshal,
+		ManagedStackNeedsScaffold: func(configpkg.Config) (bool, error) {
+			return false, nil
+		},
+		ScaffoldManagedStack: func(cfg configpkg.Config, _ bool) (configpkg.ScaffoldResult, error) {
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+		},
+	}
+}
+
+func sendTextToModel(t *testing.T, current Model, value string) Model {
+	t.Helper()
+
+	for _, r := range value {
+		updatedModel, _ := current.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		current = updatedModel.(Model)
+	}
 	return current
 }
