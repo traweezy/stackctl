@@ -69,7 +69,7 @@ func TestTUICmdHelpDocumentsInspectionPanelsAndLiveLogs(t *testing.T) {
 	collapsed := strings.Join(strings.Fields(stdout), " ")
 	for _, fragment := range []string{
 		"overview, config, services, health, and action history",
-		"services pane includes host ports, URLs, DSNs, and live-log handoff",
+		"services pane includes host ports, URLs, DSNs, copy actions, shell handoff, and live-log handoff",
 		"switch the active service inside split inspection panes",
 		"press w from the service and health panels to open live logs",
 	} {
@@ -275,5 +275,126 @@ func TestBuildTUILogWatchCommandRejectsUnknownServiceAlias(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid service") {
 		t.Fatalf("expected invalid service error, got %v", err)
+	}
+}
+
+func TestTUICmdHelpDocumentsPaletteAndShellShortcuts(t *testing.T) {
+	stdout, _, err := executeRoot(t, "tui", "--help")
+	if err != nil {
+		t.Fatalf("tui --help returned error: %v", err)
+	}
+	collapsed := strings.Join(strings.Fields(stdout), " ")
+	for _, fragment := range []string{
+		"use c to copy service values",
+		"g to jump between services",
+		"ctrl+k for the command palette",
+		"e for a service shell",
+		"d for the Postgres db shell",
+	} {
+		if !strings.Contains(collapsed, fragment) {
+			t.Fatalf("expected tui help to contain %q:\n%s", fragment, stdout)
+		}
+	}
+}
+
+func TestCopyTUIValueToClipboardUsesClipboardDependency(t *testing.T) {
+	copied := ""
+	withTestDeps(t, func(value *commandDeps) {
+		value.copyToClipboard = func(_ context.Context, _ system.Runner, target string) error {
+			copied = target
+			return nil
+		}
+	})
+
+	if err := copyTUIValueToClipboard("postgres://app:secret@localhost:5432/app"); err != nil {
+		t.Fatalf("copyTUIValueToClipboard returned error: %v", err)
+	}
+	if copied != "postgres://app:secret@localhost:5432/app" {
+		t.Fatalf("unexpected copied value: %q", copied)
+	}
+}
+
+func TestBuildTUIServiceShellCommandCanonicalizesAliasAndUsesTTYShell(t *testing.T) {
+	var capturedService string
+	var capturedTTY bool
+	var capturedArgs []string
+
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.composeExec = func(_ context.Context, runner system.Runner, _ configpkg.Config, service string, _ []string, commandArgs []string, tty bool) error {
+			capturedService = service
+			capturedTTY = tty
+			capturedArgs = append([]string(nil), commandArgs...)
+			_, _ = io.WriteString(runner.Stdout, "shell\n")
+			return nil
+		}
+	})
+
+	command, err := buildTUIServiceShellCommand(stacktui.ServiceShellRequest{Service: "pg"})
+	if err != nil {
+		t.Fatalf("buildTUIServiceShellCommand returned error: %v", err)
+	}
+	command.SetStdout(io.Discard)
+	command.SetStderr(io.Discard)
+	if err := command.Run(); err != nil {
+		t.Fatalf("service shell run returned error: %v", err)
+	}
+	if capturedService != "postgres" {
+		t.Fatalf("expected postgres alias to normalize, got %q", capturedService)
+	}
+	if !capturedTTY {
+		t.Fatalf("expected service shell to allocate a TTY")
+	}
+	if len(capturedArgs) != 3 || capturedArgs[0] != "sh" || capturedArgs[1] != "-lc" {
+		t.Fatalf("unexpected shell command args: %+v", capturedArgs)
+	}
+}
+
+func TestBuildTUIDBShellCommandUsesConfiguredDatabase(t *testing.T) {
+	var capturedService string
+	var capturedTTY bool
+	var capturedEnv []string
+	var capturedArgs []string
+
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.PostgresUsername = "stackuser"
+		cfg.Connection.PostgresPassword = "stackpass"
+		cfg.Connection.PostgresDatabase = "stackdb"
+		cfg.ApplyDerivedFields()
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.composeExec = func(_ context.Context, runner system.Runner, _ configpkg.Config, service string, env []string, commandArgs []string, tty bool) error {
+			capturedService = service
+			capturedTTY = tty
+			capturedEnv = append([]string(nil), env...)
+			capturedArgs = append([]string(nil), commandArgs...)
+			_, _ = io.WriteString(runner.Stdout, "psql\n")
+			return nil
+		}
+	})
+
+	command, err := buildTUIDBShellCommand(stacktui.DBShellRequest{Service: "postgres"})
+	if err != nil {
+		t.Fatalf("buildTUIDBShellCommand returned error: %v", err)
+	}
+	command.SetStdout(io.Discard)
+	command.SetStderr(io.Discard)
+	if err := command.Run(); err != nil {
+		t.Fatalf("db shell run returned error: %v", err)
+	}
+	if capturedService != "postgres" {
+		t.Fatalf("expected postgres db shell service, got %q", capturedService)
+	}
+	if !capturedTTY {
+		t.Fatalf("expected db shell to allocate a TTY")
+	}
+	if len(capturedEnv) != 1 || capturedEnv[0] != "PGPASSWORD=stackpass" {
+		t.Fatalf("unexpected db shell env: %+v", capturedEnv)
+	}
+	expectedArgs := []string{"psql", "-h", "127.0.0.1", "-p", "5432", "-U", "stackuser", "-d", "stackdb"}
+	if strings.Join(capturedArgs, " ") != strings.Join(expectedArgs, " ") {
+		t.Fatalf("unexpected db shell args: %+v", capturedArgs)
 	}
 }

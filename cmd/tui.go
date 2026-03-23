@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -27,7 +28,8 @@ func newTUICmd() *cobra.Command {
 		Long: "Open the interactive stack dashboard.\n\n" +
 			"Use a full-screen operator view for overview, config, services,\n" +
 			"health, and action history. The services pane includes host\n" +
-			"ports, URLs, DSNs, and live-log handoff in one place. The dashboard\n" +
+			"ports, URLs, DSNs, copy actions, shell handoff, and live-log\n" +
+			"handoff in one place. The dashboard\n" +
 			"supports manual refresh, optional auto-refresh with a saved\n" +
 			"TUI interval, compact mode,\n" +
 			"masked secrets by default, split inspection panes, in-TUI\n" +
@@ -36,9 +38,12 @@ func newTUICmd() *cobra.Command {
 			"and in-TUI actions for stack lifecycle tasks. Use\n" +
 			"tab/shift+tab or h/l to\n" +
 			"change sections, use j/k or [ and ] to switch the active\n" +
-			"service inside split inspection panes, and press w from the\n" +
-			"service and health panels to open live logs for the selected\n" +
-			"compose service in the full terminal viewer.",
+			"service inside split inspection panes, use c to copy service\n" +
+			"values, g to jump between services, : or ctrl+k for the\n" +
+			"command palette, e for a service shell, d for the Postgres db\n" +
+			"shell, and press w from the service and health panels to open\n" +
+			"live logs for the selected compose service in the full terminal\n" +
+			"viewer.",
 		Example: "  stackctl tui",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			model := stacktui.NewFullModel(func() (stacktui.Snapshot, error) {
@@ -50,7 +55,7 @@ func newTUICmd() *cobra.Command {
 				MarshalConfig:             deps.marshalConfig,
 				ManagedStackNeedsScaffold: deps.managedStackNeedsScaffold,
 				ScaffoldManagedStack:      deps.scaffoldManagedStack,
-			})
+			}).WithProductivity(copyTUIValueToClipboard, buildTUIServiceShellCommand, buildTUIDBShellCommand)
 
 			program := tea.NewProgram(model)
 			_, err := program.Run()
@@ -287,6 +292,21 @@ type tuiLogWatchCommand struct {
 	stderr  io.Writer
 }
 
+type tuiServiceShellCommand struct {
+	cfg     configpkg.Config
+	service string
+	stdin   io.Reader
+	stdout  io.Writer
+	stderr  io.Writer
+}
+
+type tuiDBShellCommand struct {
+	cfg    configpkg.Config
+	stdin  io.Reader
+	stdout io.Writer
+	stderr io.Writer
+}
+
 func buildTUILogWatchCommand(request stacktui.LogWatchRequest) (tea.ExecCommand, error) {
 	_, cfg, err := loadTUIConfig()
 	if err != nil {
@@ -311,6 +331,59 @@ func buildTUILogWatchCommand(request stacktui.LogWatchRequest) (tea.ExecCommand,
 	}, nil
 }
 
+func copyTUIValueToClipboard(value string) error {
+	return deps.copyToClipboard(
+		context.Background(),
+		system.Runner{Stdout: io.Discard, Stderr: io.Discard},
+		value,
+	)
+}
+
+func buildTUIServiceShellCommand(request stacktui.ServiceShellRequest) (tea.ExecCommand, error) {
+	_, cfg, err := loadTUIConfig()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureComposeRuntimeForConfig(cfg); err != nil {
+		return nil, err
+	}
+
+	service := strings.TrimSpace(request.Service)
+	if service == "" {
+		return nil, errors.New("service shell requires a selected service")
+	}
+	service, err = canonicalServiceName(service)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tuiServiceShellCommand{
+		cfg:     cfg,
+		service: service,
+	}, nil
+}
+
+func buildTUIDBShellCommand(request stacktui.DBShellRequest) (tea.ExecCommand, error) {
+	_, cfg, err := loadTUIConfig()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureComposeRuntimeForConfig(cfg); err != nil {
+		return nil, err
+	}
+	if service := strings.TrimSpace(request.Service); service != "" {
+		normalized, err := canonicalServiceName(service)
+		if err != nil {
+			return nil, err
+		}
+		if normalized != "postgres" {
+			return nil, errors.New("db shell is only available for Postgres")
+		}
+	}
+
+	return &tuiDBShellCommand{cfg: cfg}, nil
+}
+
 func (c *tuiLogWatchCommand) SetStdin(reader io.Reader) {
 	c.stdin = reader
 }
@@ -333,6 +406,70 @@ func (c *tuiLogWatchCommand) Run() error {
 		Stderr: c.stderr,
 	}
 	err := deps.composeLogs(ctx, runner, c.cfg, tuiLogWatchTail, true, "", c.service)
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
+}
+
+func (c *tuiServiceShellCommand) SetStdin(reader io.Reader) {
+	c.stdin = reader
+}
+
+func (c *tuiServiceShellCommand) SetStdout(writer io.Writer) {
+	c.stdout = writer
+}
+
+func (c *tuiServiceShellCommand) SetStderr(writer io.Writer) {
+	c.stderr = writer
+}
+
+func (c *tuiServiceShellCommand) Run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	runner := system.Runner{
+		Stdin:  c.stdin,
+		Stdout: c.stdout,
+		Stderr: c.stderr,
+	}
+	commandArgs := []string{"sh", "-lc", "if command -v bash >/dev/null 2>&1; then exec bash; fi; exec sh"}
+	err := deps.composeExec(ctx, runner, c.cfg, c.service, nil, commandArgs, true)
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
+}
+
+func (c *tuiDBShellCommand) SetStdin(reader io.Reader) {
+	c.stdin = reader
+}
+
+func (c *tuiDBShellCommand) SetStdout(writer io.Writer) {
+	c.stdout = writer
+}
+
+func (c *tuiDBShellCommand) SetStderr(writer io.Writer) {
+	c.stderr = writer
+}
+
+func (c *tuiDBShellCommand) Run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	runner := system.Runner{
+		Stdin:  c.stdin,
+		Stdout: c.stdout,
+		Stderr: c.stderr,
+	}
+	commandArgs := []string{
+		"psql",
+		"-h", "127.0.0.1",
+		"-p", strconv.Itoa(5432),
+		"-U", c.cfg.Connection.PostgresUsername,
+		"-d", c.cfg.Connection.PostgresDatabase,
+	}
+	err := deps.composeExec(ctx, runner, c.cfg, "postgres", postgresPasswordEnv(c.cfg), commandArgs, true)
 	if ctx.Err() != nil {
 		return nil
 	}

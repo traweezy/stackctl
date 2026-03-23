@@ -185,7 +185,7 @@ func doctorSummaryLine(summary DoctorSummary) string {
 	}, " ")
 }
 
-func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode, selected string, width int) string {
+func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode, selected string, width int, pinned map[string]struct{}) string {
 	lines := []string{sectionTitleStyle().Render("Services"), ""}
 	if snapshot.ServiceError != "" {
 		lines = append(lines, errorBannerStyle().Render(snapshot.ServiceError), "")
@@ -201,19 +201,39 @@ func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode, sele
 		return strings.Join(lines, "\n")
 	}
 
-	left := renderServiceListPane(snapshot, serviceKey(selectedService))
-	right := renderServiceDetailPane(selectedService, showSecrets, layout)
+	left := renderServiceListPane(snapshot, serviceKey(selectedService), pinned)
+	right := renderServiceDetailPane(selectedService, showSecrets, layout, pinned)
 	lines = append(lines, splitPane(left, right, width, defaultListPaneMinW, defaultListPaneMaxW))
-	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render(renderCopyHint(snapshot, servicesSection)))
 
 	return strings.Join(lines, "\n")
 }
 
-func renderServiceListPane(snapshot Snapshot, selected string) string {
+func renderServiceListPane(snapshot Snapshot, selected string, pinned map[string]struct{}) string {
 	lines := []string{detailHeading("Service list"), ""}
-	stackServices, hostTools := splitServices(snapshot.Services)
+	pinnedServices := make([]Service, 0, len(snapshot.Services))
+	stackServices := make([]Service, 0, len(snapshot.Services))
+	hostTools := make([]Service, 0, len(snapshot.Services))
+	for _, service := range snapshot.Services {
+		if _, ok := pinned[serviceKey(service)]; ok {
+			pinnedServices = append(pinnedServices, service)
+			continue
+		}
+		if isStackService(service) {
+			stackServices = append(stackServices, service)
+			continue
+		}
+		hostTools = append(hostTools, service)
+	}
+	if len(pinnedServices) > 0 {
+		lines = append(lines, mutedStyle().Render("Pinned"))
+		for _, service := range pinnedServices {
+			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(displayServiceStatus(service), displayServiceStatus(service))))
+		}
+	}
 	if len(stackServices) > 0 {
+		if len(pinnedServices) > 0 {
+			lines = append(lines, "")
+		}
 		lines = append(lines, mutedStyle().Render("Stack services"))
 		for _, service := range stackServices {
 			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(displayServiceStatus(service), displayServiceStatus(service))))
@@ -230,24 +250,24 @@ func renderServiceListPane(snapshot Snapshot, selected string) string {
 		}
 	}
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render("j/k or [ ] switch service"))
+	lines = append(lines, mutedStyle().Render("j/k or [ ] switch service  •  g jump"))
 
 	return strings.Join(lines, "\n")
 }
 
-func renderServiceDetailPane(service Service, showSecrets bool, layout layoutMode) string {
+func renderServiceDetailPane(service Service, showSecrets bool, layout layoutMode, pinned map[string]struct{}) string {
 	lines := []string{
 		detailHeading("Service detail"),
 		"",
 	}
 	lines = append(lines, renderServiceBlock(service, showSecrets, layout, !isStackService(service))...)
 	lines = append(lines, "")
-	lines = append(lines, renderLogWatchHint(service))
+	lines = append(lines, renderProductivityHint(service, pinned))
 
 	return strings.Join(lines, "\n")
 }
 
-func renderHealth(snapshot Snapshot, selected string, width int) string {
+func renderHealth(snapshot Snapshot, selected string, width int, pinned map[string]struct{}) string {
 	lines := []string{sectionTitleStyle().Render("Health"), ""}
 	if snapshot.HealthError != "" {
 		lines = append(lines, errorBannerStyle().Render(snapshot.HealthError), "")
@@ -290,17 +310,39 @@ func renderHealth(snapshot Snapshot, selected string, width int) string {
 
 	lines = append(lines, renderHealthSummary(snapshot.Services))
 	lines = append(lines, "")
-	left := renderHealthListPane(snapshot, serviceKey(selectedService))
-	right := renderHealthDetailPane(snapshot, selectedService)
+	left := renderHealthListPane(snapshot, serviceKey(selectedService), pinned)
+	right := renderHealthDetailPane(snapshot, selectedService, pinned)
 	lines = append(lines, splitPane(left, right, width, defaultListPaneMinW, defaultListPaneMaxW))
 
 	return strings.Join(lines, "\n")
 }
 
-func renderHealthListPane(snapshot Snapshot, selected string) string {
+func renderHealthListPane(snapshot Snapshot, selected string, pinned map[string]struct{}) string {
 	lines := []string{detailHeading("Health targets"), ""}
-	stackServices, hostTools := splitServices(snapshot.Services)
+	pinnedServices := make([]Service, 0, len(snapshot.Services))
+	stackServices := make([]Service, 0, len(snapshot.Services))
+	hostTools := make([]Service, 0, len(snapshot.Services))
+	for _, service := range snapshot.Services {
+		if _, ok := pinned[serviceKey(service)]; ok {
+			pinnedServices = append(pinnedServices, service)
+			continue
+		}
+		if isStackService(service) {
+			stackServices = append(stackServices, service)
+			continue
+		}
+		hostTools = append(hostTools, service)
+	}
+	if len(pinnedServices) > 0 {
+		lines = append(lines, mutedStyle().Render("Pinned"))
+		for _, service := range pinnedServices {
+			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(healthStatusLabel(service), classifyServiceHealth(service))))
+		}
+	}
 	if len(stackServices) > 0 {
+		if len(pinnedServices) > 0 {
+			lines = append(lines, "")
+		}
 		lines = append(lines, mutedStyle().Render("Stack services"))
 		for _, service := range stackServices {
 			lines = append(lines, listItem(selected == serviceKey(service), service.DisplayName, statusChip(healthStatusLabel(service), classifyServiceHealth(service))))
@@ -316,7 +358,7 @@ func renderHealthListPane(snapshot Snapshot, selected string) string {
 		}
 	}
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render("j/k or [ ] switch target"))
+	lines = append(lines, mutedStyle().Render("j/k or [ ] switch target  •  g jump"))
 	lines = append(lines, "")
 	lines = append(lines, detailHeading("Doctor summary"))
 	lines = append(lines, doctorSummaryLine(snapshot.DoctorSummary))
@@ -324,11 +366,11 @@ func renderHealthListPane(snapshot Snapshot, selected string) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderHealthDetailPane(snapshot Snapshot, service Service) string {
+func renderHealthDetailPane(snapshot Snapshot, service Service, pinned map[string]struct{}) string {
 	lines := []string{detailHeading("Health detail"), ""}
 	lines = append(lines, renderHealthBlock(service)...)
 	lines = append(lines, "")
-	lines = append(lines, renderLogWatchHint(service))
+	lines = append(lines, renderProductivityHint(service, pinned))
 	lines = append(lines, "")
 	lines = append(lines, detailHeading("Doctor findings"))
 	findings := make([]DoctorCheck, 0, len(snapshot.DoctorChecks))
@@ -350,10 +392,22 @@ func renderHealthDetailPane(snapshot Snapshot, service Service) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderLogWatchHint(service Service) string {
-	if !isStackService(service) {
-		return mutedStyle().Render("Live logs unavailable for host tools.")
+func renderProductivityHint(service Service, pinned map[string]struct{}) string {
+	parts := make([]string, 0, 6)
+	if len(serviceCopyTargets(service, false)) > 0 {
+		parts = append(parts, "c copy")
 	}
-
-	return mutedStyle().Render("Live logs: press w for the full stream.")
+	if isStackService(service) {
+		parts = append(parts, "w logs", "e shell")
+		if strings.EqualFold(logWatchServiceName(service), "postgres") {
+			parts = append(parts, "d db shell")
+		}
+	}
+	if _, ok := pinned[serviceKey(service)]; ok {
+		parts = append(parts, "p unpin")
+	} else {
+		parts = append(parts, "p pin")
+	}
+	parts = append(parts, "g jump", ": palette")
+	return mutedStyle().Render("Actions: " + strings.Join(parts, "  •  "))
 }

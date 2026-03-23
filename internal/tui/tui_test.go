@@ -337,8 +337,8 @@ func TestModelTogglesCompactLayout(t *testing.T) {
 			t.Fatalf("expected expanded services view to contain %q:\n%s", fragment, expandedView)
 		}
 	}
-	if !strings.Contains(expandedContent, "Copy placeholders: Postgres DSN") {
-		t.Fatalf("expected expanded services content to contain copy placeholders:\n%s", expandedContent)
+	if !strings.Contains(expandedContent, "Actions: c copy") {
+		t.Fatalf("expected expanded services content to contain service actions:\n%s", expandedContent)
 	}
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
@@ -359,8 +359,8 @@ func TestModelTogglesCompactLayout(t *testing.T) {
 			t.Fatalf("expected compact services view to contain %q:\n%s", fragment, compactView)
 		}
 	}
-	if !strings.Contains(compactContent, "Copy placeholders: Postgres DSN") {
-		t.Fatalf("expected compact services content to contain copy placeholders:\n%s", compactContent)
+	if !strings.Contains(compactContent, "Actions: c copy") {
+		t.Fatalf("expected compact services content to contain service actions:\n%s", compactContent)
 	}
 	for _, fragment := range []string{
 		"Image: docker.io/library/postgres:16",
@@ -605,12 +605,13 @@ func TestServiceDetailShowsConciseLiveLogHint(t *testing.T) {
 	current.syncLayout()
 
 	content := current.currentContent()
-	if !collapsedContainsTest(content, "Live logs: press w for the full stream.") {
-		t.Fatalf("expected concise live-log hint:\n%s", content)
+	if !collapsedContainsTest(content, "Actions: w logs") {
+		t.Fatalf("expected concise service actions hint:\n%s", content)
 	}
 	for _, fragment := range []string{
 		"w watch selected service",
 		"Returns here when the stream exits.",
+		"Copy placeholders:",
 	} {
 		if strings.Contains(content, fragment) {
 			t.Fatalf("expected services content to omit %q:\n%s", fragment, content)
@@ -642,6 +643,258 @@ func TestFooterHelpShowsWatchLogsOnlyWhenAvailable(t *testing.T) {
 	current.active = overviewSection
 	if strings.Contains(current.help.View(current.helpBindings()), "watch logs") {
 		t.Fatalf("expected overview footer help to hide live-log shortcut")
+	}
+}
+
+func TestCopyShortcutOpensPaletteAndCopiesSelectedValue(t *testing.T) {
+	copied := ""
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(LogWatchRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		nil,
+	).WithProductivity(
+		func(value string) error {
+			copied = value
+			return nil
+		},
+		nil,
+		nil,
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				Name:          "postgres",
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+				Username:      "app",
+				Password:      "secret-password",
+				Database:      "app",
+				DSN:           "postgres://app:secret-password@localhost:5432/app",
+			},
+		},
+	}
+	current.active = servicesSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	current = updatedModel.(Model)
+	if cmd != nil {
+		t.Fatalf("expected copy shortcut to open the palette without a command")
+	}
+	if current.palette == nil {
+		t.Fatalf("expected copy palette to open")
+	}
+	if got := current.palette.filtered[0].Title; got != "Copy Postgres DSN" {
+		t.Fatalf("expected first copy target to be the DSN, got %q", got)
+	}
+
+	updatedModel, cmd = current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if cmd == nil {
+		t.Fatalf("expected copy command after selecting a palette item")
+	}
+
+	msg := cmd()
+	copyMsg, ok := msg.(copyDoneMsg)
+	if !ok {
+		t.Fatalf("expected copyDoneMsg, got %T", msg)
+	}
+	updatedModel, clearCmd := current.Update(copyMsg)
+	current = updatedModel.(Model)
+	if clearCmd == nil {
+		t.Fatalf("expected banner clear command after copy")
+	}
+	if copied != "postgres://app:secret-password@localhost:5432/app" {
+		t.Fatalf("unexpected copied value: %q", copied)
+	}
+	if len(current.history) == 0 || current.history[len(current.history)-1].Action != "Copy Postgres DSN" {
+		t.Fatalf("expected copy action in history, got %+v", current.history)
+	}
+}
+
+func TestQuickJumpPaletteFuzzySelectsService(t *testing.T) {
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(LogWatchRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		nil,
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres"},
+			{Name: "redis", DisplayName: "Redis", Status: "running", ContainerName: "stack-redis"},
+		},
+	}
+	current.active = overviewSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
+	current = updatedModel.(Model)
+	if current.palette == nil {
+		t.Fatalf("expected jump palette to open")
+	}
+
+	for _, ch := range []string{"r", "e", "d", "i", "s"} {
+		updatedModel, _ = current.Update(tea.KeyPressMsg{Code: rune(ch[0]), Text: ch})
+		current = updatedModel.(Model)
+	}
+	if len(current.palette.filtered) == 0 || current.palette.filtered[0].ServiceKey != "redis" {
+		t.Fatalf("expected fuzzy search to rank redis first, got %+v", current.palette.filtered)
+	}
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if cmd != nil {
+		t.Fatalf("expected jump selection to navigate without a command")
+	}
+	if current.active != servicesSection || current.selectedService != "redis" {
+		t.Fatalf("expected jump palette to focus redis in services, got active=%v selected=%q", current.active, current.selectedService)
+	}
+}
+
+func TestPinShortcutMovesServiceIntoPinnedGroup(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres"},
+			{Name: "redis", DisplayName: "Redis", Status: "running", ContainerName: "stack-redis"},
+		},
+	}
+	current.active = servicesSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
+	current = updatedModel.(Model)
+	if cmd == nil {
+		t.Fatalf("expected pin toggle to return a banner clear command")
+	}
+
+	content := current.currentContent()
+	if !collapsedContainsTest(content, "Pinned") {
+		t.Fatalf("expected pinned group in services pane:\n%s", content)
+	}
+	if strings.Index(content, "Pinned") > strings.Index(content, "Stack services") {
+		t.Fatalf("expected pinned group to render before stack services:\n%s", content)
+	}
+}
+
+func TestExecShellShortcutLaunchesSelectedServiceAndRefreshes(t *testing.T) {
+	loadCount := 0
+	requests := make([]ServiceShellRequest, 0, 1)
+	model := NewInspectionModel(
+		func() (Snapshot, error) {
+			loadCount++
+			return Snapshot{StackName: fmt.Sprintf("stack-%d", loadCount)}, nil
+		},
+		func(LogWatchRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		nil,
+	).WithProductivity(
+		nil,
+		func(request ServiceShellRequest) (tea.ExecCommand, error) {
+			requests = append(requests, request)
+			return stubExecCommand{}, nil
+		},
+		nil,
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres"},
+		},
+	}
+	current.active = servicesSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	current = updatedModel.(Model)
+	if cmd == nil {
+		t.Fatalf("expected service shell shortcut to launch a handoff command")
+	}
+	if len(requests) != 1 || requests[0].Service != "postgres" {
+		t.Fatalf("unexpected shell request capture: %+v", requests)
+	}
+	if current.runningHandoff == nil {
+		t.Fatalf("expected shell handoff to be tracked as running")
+	}
+
+	updatedModel, reloadCmd := current.Update(handoffDoneMsg{
+		historyID: current.runningHandoff.History,
+		action:    current.runningHandoff.Action,
+		message:   "closed Postgres shell",
+		refresh:   true,
+	})
+	current = updatedModel.(Model)
+	loaded := snapshotFromCmd(t, reloadCmd)
+	if loaded.snapshot.StackName != "stack-1" {
+		t.Fatalf("unexpected refreshed snapshot after shell handoff: %+v", loaded.snapshot)
+	}
+	if len(current.history) == 0 || current.history[len(current.history)-1].Action != "Open Postgres shell" {
+		t.Fatalf("expected shell action to be recorded in history, got %+v", current.history)
+	}
+}
+
+func TestCommandPaletteShowsRecentActionsAheadOfStaticEntries(t *testing.T) {
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(LogWatchRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		nil,
+	).WithProductivity(
+		func(string) error { return nil },
+		nil,
+		nil,
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{Name: "postgres", DisplayName: "Postgres", Status: "running", ContainerName: "stack-postgres", DSN: "postgres://app:secret@localhost:5432/app"},
+		},
+	}
+	current.active = servicesSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	current = updatedModel.(Model)
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	msg := cmd()
+	copyMsg, ok := msg.(copyDoneMsg)
+	if !ok {
+		t.Fatalf("expected copyDoneMsg, got %T", msg)
+	}
+	updatedModel, _ = current.Update(copyMsg)
+	current = updatedModel.(Model)
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Text: ":"})
+	current = updatedModel.(Model)
+	if current.palette == nil {
+		t.Fatalf("expected command palette to open")
+	}
+	if len(current.palette.filtered) == 0 || current.palette.filtered[0].Subtitle != "copied Postgres DSN to clipboard" {
+		t.Fatalf("expected recent actions to lead the palette, got %+v", current.palette.filtered)
 	}
 }
 
@@ -1320,8 +1573,11 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 
 	current = navigateToSection(t, current, servicesSection)
 	servicesContent := current.currentContent()
-	if strings.Contains(servicesContent, "[1] Restart") || strings.Contains(servicesContent, "Actions") {
-		t.Fatalf("expected services panel content to stay action-free:\n%s", servicesContent)
+	if strings.Contains(servicesContent, "[1] Restart") {
+		t.Fatalf("expected services panel content to keep sidebar actions out of the detail pane:\n%s", servicesContent)
+	}
+	if !strings.Contains(servicesContent, "Actions:") {
+		t.Fatalf("expected services panel content to show contextual service actions:\n%s", servicesContent)
 	}
 	servicesSidebar := renderSidebar(current)
 	if !strings.Contains(servicesSidebar, "Actions") || !strings.Contains(servicesSidebar, "[1] Restart") {

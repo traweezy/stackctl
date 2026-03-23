@@ -158,6 +158,13 @@ type keyMap struct {
 	NextSection       key.Binding
 	PrevSection       key.Binding
 	Action            key.Binding
+	OpenPalette       key.Binding
+	QuickJump         key.Binding
+	Search            key.Binding
+	CopyValue         key.Binding
+	ExecShell         key.Binding
+	DBShell           key.Binding
+	PinService        key.Binding
 	EditField         key.Binding
 	CancelEdit        key.Binding
 	SaveConfig        key.Binding
@@ -206,6 +213,34 @@ func defaultKeyMap() keyMap {
 		Action: key.NewBinding(
 			key.WithKeys("1", "2", "3", "4", "5", "6"),
 			key.WithHelp("1-6", "action"),
+		),
+		OpenPalette: key.NewBinding(
+			key.WithKeys(":", "ctrl+k"),
+			key.WithHelp(":/ctrl+k", "palette"),
+		),
+		QuickJump: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("g", "jump to service"),
+		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search services"),
+		),
+		CopyValue: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "copy value"),
+		),
+		ExecShell: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "service shell"),
+		),
+		DBShell: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "db shell"),
+		),
+		PinService: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "pin service"),
 		),
 		EditField: key.NewBinding(
 			key.WithKeys("enter", "e"),
@@ -305,18 +340,24 @@ type Model struct {
 	logWatchLauncher LogWatchLauncher
 	runner           ActionRunner
 	configManager    *ConfigManager
+	clipboardWriter  ClipboardWriter
+	shellLauncher    ServiceShellLauncher
+	dbShellLauncher  DBShellLauncher
 	keys             keyMap
 	help             help.Model
 	viewport         viewport.Model
 	banner           *actionBanner
 	confirmation     *confirmationState
 	runningAction    *runningAction
+	runningHandoff   *runningHandoff
 	runningConfigOp  *configOperation
 	history          []historyEntry
 	nextHistoryID    int
 	nextBannerID     int
 	selectedService  string
 	selectedHealth   string
+	pinnedServices   map[string]struct{}
+	palette          *paletteState
 	configEditor     configEditor
 }
 
@@ -353,8 +394,19 @@ func newModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRun
 		keys:             defaultKeyMap(),
 		help:             helpModel,
 		viewport:         viewportModel,
+		pinnedServices:   make(map[string]struct{}),
 		configEditor:     newConfigEditor(),
 	}
+}
+
+func (m Model) WithProductivity(copyWriter ClipboardWriter, shellLauncher ServiceShellLauncher, dbShellLauncher DBShellLauncher) Model {
+	m.clipboardWriter = copyWriter
+	m.shellLauncher = shellLauncher
+	m.dbShellLauncher = dbShellLauncher
+	if m.pinnedServices == nil {
+		m.pinnedServices = make(map[string]struct{})
+	}
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -376,6 +428,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errMessage = ""
 			m.snapshot = msg.snapshot
 			m.normalizeSelections()
+			m.normalizePinnedServices()
 			if m.configManager != nil {
 				m.configEditor.syncFromSnapshot(msg.snapshot, m.configManager, m.showSecrets, false)
 			}
@@ -401,6 +454,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(loadSnapshotCmd(m.loader), clearBannerCmd(bannerID))
 		}
 		return m, clearBannerCmd(bannerID)
+	case copyDoneMsg:
+		cmd := m.completeCopy(msg)
+		m.syncLayout()
+		return m, cmd
+	case handoffDoneMsg:
+		cmd := m.completeHandoff(msg)
+		m.syncLayout()
+		return m, cmd
 	case logWatchDoneMsg:
 		m.loading = true
 		m.autoRefreshID++
@@ -429,7 +490,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case autoRefreshMsg:
-		if !m.autoRefresh || msg.id != m.autoRefreshID || m.runningAction != nil || m.runningConfigOp != nil || m.configEditor.dirty() {
+		if !m.autoRefresh || msg.id != m.autoRefreshID || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil || m.configEditor.dirty() {
 			return m, nil
 		}
 		m.loading = true
@@ -448,6 +509,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		if m.palette != nil {
+			if cmd, handled := m.handlePaletteKey(msg); handled {
+				m.syncLayout()
+				return m, cmd
+			}
+		}
+
 		if m.active == configSection && m.configManager != nil {
 			if cmd, handled := m.handleConfigKey(msg); handled {
 				m.syncLayout()
@@ -458,8 +526,70 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
+		case key.Matches(msg, m.keys.OpenPalette):
+			if m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+				return m, nil
+			}
+			m.openCommandPalette()
+			m.syncLayout()
+			return m, nil
+		case key.Matches(msg, m.keys.QuickJump), key.Matches(msg, m.keys.Search):
+			if m.active == configSection || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+				return m, nil
+			}
+			cmd := m.openJumpPalette()
+			m.syncLayout()
+			return m, cmd
+		case key.Matches(msg, m.keys.CopyValue):
+			if m.active == configSection || !m.activeHasSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+				return m, nil
+			}
+			cmd := m.openCopyPalette()
+			m.syncLayout()
+			return m, cmd
+		case key.Matches(msg, m.keys.ExecShell):
+			if m.active == configSection || !m.activeHasSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+				return m, nil
+			}
+			service, ok := m.selectedProductivityService()
+			if !ok {
+				return m, nil
+			}
+			cmd := m.executePaletteAction(paletteAction{
+				Kind:       paletteActionExecShell,
+				Title:      "Open " + service.DisplayName + " shell",
+				ServiceKey: serviceKey(service),
+			})
+			m.syncLayout()
+			return m, cmd
+		case key.Matches(msg, m.keys.DBShell):
+			if m.active == configSection || !m.activeHasSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+				return m, nil
+			}
+			service, ok := m.selectedProductivityService()
+			if !ok {
+				return m, nil
+			}
+			cmd := m.executePaletteAction(paletteAction{
+				Kind:       paletteActionDBShell,
+				Title:      "Open " + service.DisplayName + " db shell",
+				ServiceKey: serviceKey(service),
+			})
+			m.syncLayout()
+			return m, cmd
+		case key.Matches(msg, m.keys.PinService):
+			if m.active == configSection || !m.activeHasSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+				return m, nil
+			}
+			service, ok := m.selectedProductivityService()
+			if !ok {
+				return m, nil
+			}
+			cmd := m.togglePinnedService(serviceKey(service))
+			m.syncLayout()
+			return m, cmd
 		case key.Matches(msg, m.keys.Action):
-			if m.runner == nil || m.runningAction != nil || m.runningConfigOp != nil {
+			if m.runner == nil || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			index, ok := actionIndex(msg.Text)
@@ -502,14 +632,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.WatchLogs):
-			if m.logWatchLauncher == nil || m.runningAction != nil || m.runningConfigOp != nil {
+			if m.logWatchLauncher == nil || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			cmd := m.startSelectedLogWatch()
 			m.syncLayout()
 			return m, cmd
 		case key.Matches(msg, m.keys.Refresh):
-			if m.runningAction != nil || m.runningConfigOp != nil {
+			if m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			m.loading = true
@@ -628,11 +758,26 @@ func (m Model) helpBindings() helpBindings {
 	}
 
 	short := []key.Binding{m.keys.NextSection, m.keys.PrevSection}
+	if m.showProductivityHelp() {
+		short = append(short, m.keys.OpenPalette, m.keys.QuickJump)
+	}
 	if m.activeHasSelectionList() {
 		short = append(short, m.keys.NextItem)
 	}
+	if m.showCopyHelp() {
+		short = append(short, m.keys.CopyValue)
+	}
 	if m.showWatchLogsHelp() {
 		short = append(short, m.keys.WatchLogs)
+	}
+	if m.showExecShellHelp() {
+		short = append(short, m.keys.ExecShell)
+	}
+	if m.showDBShellHelp() {
+		short = append(short, m.keys.DBShell)
+	}
+	if m.showPinHelp() {
+		short = append(short, m.keys.PinService)
 	}
 	if m.runner != nil {
 		short = append(short, m.keys.Action)
@@ -649,11 +794,26 @@ func (m Model) helpBindings() helpBindings {
 	row2 := []key.Binding{m.keys.Confirm, m.keys.Cancel, m.keys.Refresh}
 
 	row3 := []key.Binding{}
+	if m.showProductivityHelp() {
+		row3 = append(row3, m.keys.OpenPalette, m.keys.QuickJump, m.keys.Search)
+	}
 	if m.activeHasSelectionList() {
 		row3 = append(row3, m.keys.PrevItem, m.keys.NextItem)
 	}
+	if m.showCopyHelp() {
+		row3 = append(row3, m.keys.CopyValue)
+	}
 	if m.showWatchLogsHelp() {
 		row3 = append(row3, m.keys.WatchLogs)
+	}
+	if m.showExecShellHelp() {
+		row3 = append(row3, m.keys.ExecShell)
+	}
+	if m.showDBShellHelp() {
+		row3 = append(row3, m.keys.DBShell)
+	}
+	if m.showPinHelp() {
+		row3 = append(row3, m.keys.PinService)
 	}
 
 	full := [][]key.Binding{row1, row2}
@@ -673,19 +833,6 @@ func loadSnapshotCmd(loader Loader) tea.Cmd {
 		snapshot, err := loader()
 		return snapshotMsg{snapshot: snapshot, err: err}
 	}
-}
-
-func watchLogsCmd(launcher LogWatchLauncher, request LogWatchRequest, displayName string) tea.Cmd {
-	execCmd, err := launcher(request)
-	if err != nil {
-		return func() tea.Msg {
-			return logWatchDoneMsg{Service: displayName, Err: err}
-		}
-	}
-
-	return tea.Exec(execCmd, func(err error) tea.Msg {
-		return logWatchDoneMsg{Service: displayName, Err: err}
-	})
 }
 
 func autoRefreshCmd(id int, interval time.Duration) tea.Cmd {
@@ -760,11 +907,11 @@ func (m *Model) startSelectedLogWatch() tea.Cmd {
 		return clearBannerCmd(bannerID)
 	}
 
-	return watchLogsCmd(
-		m.logWatchLauncher,
-		LogWatchRequest{Service: logWatchServiceName(service)},
-		service.DisplayName,
-	)
+	return m.startServiceLogWatch(paletteAction{
+		Kind:       paletteActionWatchLogs,
+		Title:      "Watch " + service.DisplayName + " logs",
+		ServiceKey: serviceKey(service),
+	})
 }
 
 func (m Model) selectedLogWatchService() (Service, bool) {
@@ -862,9 +1009,9 @@ func (m Model) currentContent() string {
 			blocks = append(blocks, m.configEditor.View(m.showSecrets))
 		}
 	case servicesSection:
-		blocks = append(blocks, renderServices(m.snapshot, m.showSecrets, m.layout, m.selectedService, contentWidth))
+		blocks = append(blocks, renderServices(m.snapshot, m.showSecrets, m.layout, m.selectedService, contentWidth, m.pinnedServices))
 	case healthSection:
-		blocks = append(blocks, renderHealth(m.snapshot, m.selectedHealth, contentWidth))
+		blocks = append(blocks, renderHealth(m.snapshot, m.selectedHealth, contentWidth, m.pinnedServices))
 	case historySection:
 		blocks = append(blocks, renderHistory(m.history))
 	default:
@@ -1028,10 +1175,14 @@ func headerStatusStyle(m Model) lipgloss.Style {
 	switch {
 	case m.runningAction != nil:
 		return style.Foreground(lipgloss.Color("81"))
+	case m.runningHandoff != nil:
+		return style.Foreground(lipgloss.Color("81"))
 	case m.runningConfigOp != nil:
 		return style.Foreground(lipgloss.Color("81"))
 	case m.confirmation != nil:
 		return style.Foreground(lipgloss.Color("221"))
+	case m.palette != nil:
+		return style.Foreground(lipgloss.Color("117"))
 	case m.loading:
 		return style.Foreground(lipgloss.Color("117"))
 	default:
@@ -1116,10 +1267,14 @@ func renderHeader(m Model) string {
 	switch {
 	case m.runningAction != nil:
 		statusLabel = "Running " + m.runningAction.Action.Label
+	case m.runningHandoff != nil:
+		statusLabel = "Running " + m.runningHandoff.Action.Title
 	case m.runningConfigOp != nil:
 		statusLabel = m.runningConfigOp.Message
 	case m.confirmation != nil:
 		statusLabel = "Awaiting confirmation"
+	case m.palette != nil:
+		statusLabel = "Command palette"
 	case m.loading:
 		statusLabel = "Refreshing"
 	}
@@ -1178,6 +1333,8 @@ func renderBody(m Model) string {
 	mainContent := m.viewport.View()
 	if m.confirmation != nil {
 		mainContent = renderConfirmationPanel(m.confirmation, mainInnerWidth, mainInnerHeight)
+	} else if m.palette != nil {
+		mainContent = renderPalettePanel(m.palette, mainInnerWidth, mainInnerHeight)
 	}
 	main := panelStyle.Width(mainWidth).Height(bodyHeight).Render(mainContent)
 
@@ -1431,15 +1588,6 @@ func renderStatusSummaryLine(label, status string) string {
 	return statusStyle(status).Render(fmt.Sprintf("%s: %s", label, emptyLabel(status)))
 }
 
-func renderCopyHint(snapshot Snapshot, active section) string {
-	hints := copyHintTargets(snapshot, active)
-	if len(hints) == 0 {
-		return "Copy placeholders: no DSNs or URLs available yet."
-	}
-
-	return "Copy placeholders: " + strings.Join(hints, "  •  ")
-}
-
 func renderOverviewSummary(services []Service) string {
 	running := 0
 	stopped := 0
@@ -1638,40 +1786,6 @@ func serviceHasReachablePort(service Service) bool {
 	}
 
 	return service.PortListening
-}
-
-func copyHintTargets(snapshot Snapshot, active section) []string {
-	targets := make([]string, 0, 4)
-	seen := make(map[string]struct{})
-
-	add := func(label string) {
-		if strings.TrimSpace(label) == "" {
-			return
-		}
-		if _, ok := seen[label]; ok {
-			return
-		}
-		seen[label] = struct{}{}
-		targets = append(targets, label)
-	}
-
-	switch active {
-	case servicesSection:
-		for _, service := range snapshot.Services {
-			if service.DSN != "" {
-				add(service.DisplayName + " DSN")
-			}
-			if service.URL != "" {
-				add(service.DisplayName + " URL")
-			}
-		}
-	case overviewSection:
-		for _, entry := range snapshot.Connections {
-			add(entry.Name)
-		}
-	}
-
-	return targets
 }
 
 func serviceStatusBadge(status string) string {

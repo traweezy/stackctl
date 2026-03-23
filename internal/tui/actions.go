@@ -79,6 +79,7 @@ type historyEntry struct {
 	Details     []string
 	StartedAt   time.Time
 	CompletedAt time.Time
+	Recent      *paletteAction
 }
 
 type actionMsg struct {
@@ -387,6 +388,7 @@ func (m Model) beginAction(action ActionSpec) (tea.Model, tea.Cmd) {
 		Status:    action.PendingStatus,
 		Message:   action.PendingMessage,
 		StartedAt: time.Now(),
+		Recent:    recentPaletteActionForActionSpec(action),
 	})
 	m.runningAction = &runningAction{
 		Action:   action,
