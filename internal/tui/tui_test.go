@@ -691,6 +691,61 @@ func TestFooterViewWrapsShortHelpAcrossLines(t *testing.T) {
 	}
 }
 
+func TestPaletteChromeUsesOverlaySpecificHeaderAndFooter(t *testing.T) {
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(LogWatchRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		nil,
+	).WithProductivity(
+		func(string) error { return nil },
+		func(ServiceShellRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		func(DBShellRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Managed:   true,
+		LoadedAt:  time.Now(),
+		Services: []Service{
+			{
+				Name:          "postgres",
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				DSN:           "postgres://app:secret@localhost:5432/app",
+			},
+		},
+	}
+	current.active = servicesSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	current.openJumpPalette()
+	header := stripANSITest(renderHeader(current))
+	if !strings.Contains(header, "Jump to service") {
+		t.Fatalf("expected jump palette header label:\n%s", header)
+	}
+	if strings.Contains(header, "Command palette") {
+		t.Fatalf("expected jump palette header to omit generic command palette label:\n%s", header)
+	}
+
+	footer := stripANSITest(current.footerView())
+	if !strings.Contains(footer, "type to filter") || !strings.Contains(footer, "enter run") {
+		t.Fatalf("expected palette footer instructions:\n%s", footer)
+	}
+	if strings.Contains(footer, "watch logs") {
+		t.Fatalf("expected palette footer to omit global service shortcuts:\n%s", footer)
+	}
+
+	current.openCopyPalette()
+	header = stripANSITest(renderHeader(current))
+	if !strings.Contains(header, "Copy value") {
+		t.Fatalf("expected copy palette header label:\n%s", header)
+	}
+}
+
 func TestCopyShortcutOpensPaletteAndCopiesSelectedValue(t *testing.T) {
 	copied := ""
 	model := NewInspectionModel(

@@ -720,6 +720,10 @@ func (m Model) View() tea.View {
 
 func (m Model) footerView() string {
 	contentWidth := maxInt(20, m.width-footerStyle().GetHorizontalFrameSize())
+	if m.palette != nil {
+		return footerStyle().Width(m.width).Render(renderPaletteFooter(contentWidth))
+	}
+
 	helpModel := m.help
 	helpModel.SetWidth(contentWidth)
 
@@ -732,6 +736,13 @@ func (m Model) footerView() string {
 	}
 
 	return footerStyle().Width(m.width).Render(content)
+}
+
+func renderPaletteFooter(width int) string {
+	return wrapText(
+		"type to filter  •  ↑/↓ choose  •  enter run  •  esc close",
+		maxInt(20, width),
+	)
 }
 
 func (m Model) helpBindings() helpBindings {
@@ -1337,7 +1348,7 @@ func renderHeader(m Model) string {
 	case m.confirmation != nil:
 		statusLabel = "Awaiting confirmation"
 	case m.palette != nil:
-		statusLabel = "Command palette"
+		statusLabel = emptyLabel(m.palette.title)
 	case m.loading:
 		statusLabel = "Refreshing"
 	}
