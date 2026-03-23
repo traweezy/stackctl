@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -18,7 +19,7 @@ func CopyToClipboard(ctx context.Context, runner Runner, value string) error {
 
 func clipboardCommand() (string, []string, bool) {
 	switch {
-	case CommandExists("wl-copy"):
+	case canUseWaylandClipboard():
 		return "wl-copy", nil, true
 	case CommandExists("xclip"):
 		return "xclip", []string{"-selection", "clipboard"}, true
@@ -26,7 +27,20 @@ func clipboardCommand() (string, []string, bool) {
 		return "xsel", []string{"--clipboard", "--input"}, true
 	case CommandExists("pbcopy"):
 		return "pbcopy", nil, true
+	case CommandExists("wl-copy"):
+		return "wl-copy", nil, true
 	default:
 		return "", nil, false
 	}
+}
+
+func canUseWaylandClipboard() bool {
+	if !CommandExists("wl-copy") {
+		return false
+	}
+
+	waylandDisplay := strings.TrimSpace(os.Getenv("WAYLAND_DISPLAY"))
+	sessionType := strings.TrimSpace(os.Getenv("XDG_SESSION_TYPE"))
+
+	return waylandDisplay != "" || strings.EqualFold(sessionType, "wayland")
 }
