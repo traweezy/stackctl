@@ -11,13 +11,13 @@ import (
 )
 
 type ScaffoldResult struct {
-	StackDir       string
-	ComposePath    string
-	NATSConfigPath string
-	CreatedDir     bool
-	WroteCompose   bool
+	StackDir        string
+	ComposePath     string
+	NATSConfigPath  string
+	CreatedDir      bool
+	WroteCompose    bool
 	WroteNATSConfig bool
-	AlreadyPresent bool
+	AlreadyPresent  bool
 }
 
 func ManagedStackNeedsScaffold(cfg Config) (bool, error) {

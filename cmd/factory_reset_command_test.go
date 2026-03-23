@@ -172,7 +172,9 @@ func TestFactoryResetStopsBeforeDeletingWhenComposeTeardownFails(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		d.configDirPath = func() (string, error) { return filepath.Join(root, "config", "stackctl"), nil }
 		d.configFilePath = func() (string, error) { return filepath.Join(root, "config", "stackctl", "config.yaml"), nil }
-		d.knownConfigPaths = func() ([]string, error) { return []string{filepath.Join(root, "config", "stackctl", "config.yaml")}, nil }
+		d.knownConfigPaths = func() ([]string, error) {
+			return []string{filepath.Join(root, "config", "stackctl", "config.yaml")}, nil
+		}
 		d.dataDirPath = func() (string, error) { return dataDir, nil }
 		d.composeDownPath = func(context.Context, system.Runner, string, string, bool) error { return errors.New("boom") }
 		d.removeAll = func(string) error {

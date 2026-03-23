@@ -58,17 +58,17 @@ type commandDeps struct {
 
 func defaultCommandDeps() commandDeps {
 	return commandDeps{
-		stdin:                     os.Stdin,
-		isTerminal:                defaultTerminalInteractive,
-		configDirPath:             configpkg.ConfigDirPath,
-		configFilePath:            configpkg.ConfigFilePath,
-		knownConfigPaths:          configpkg.KnownConfigPaths,
-		dataDirPath:               configpkg.DataDirPath,
-		loadConfig:                configpkg.Load,
-		saveConfig:                configpkg.Save,
-		removeFile:                os.Remove,
-		removeAll:                 os.RemoveAll,
-		marshalConfig:             configpkg.Marshal,
+		stdin:            os.Stdin,
+		isTerminal:       defaultTerminalInteractive,
+		configDirPath:    configpkg.ConfigDirPath,
+		configFilePath:   configpkg.ConfigFilePath,
+		knownConfigPaths: configpkg.KnownConfigPaths,
+		dataDirPath:      configpkg.DataDirPath,
+		loadConfig:       configpkg.Load,
+		saveConfig:       configpkg.Save,
+		removeFile:       os.Remove,
+		removeAll:        os.RemoveAll,
+		marshalConfig:    configpkg.Marshal,
 		defaultConfig: func() configpkg.Config {
 			return configpkg.DefaultForStack(configpkg.SelectedStackName())
 		},

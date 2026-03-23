@@ -8,8 +8,8 @@ func DefaultForStack(stackName string) Config {
 	name := normalizeStackName(stackName)
 	cfg := Config{
 		Stack: StackConfig{
-			Name:        name,
-			Managed:     true,
+			Name:    name,
+			Managed: true,
 		},
 		Services: ServicesConfig{
 			Postgres: PostgresServiceConfig{
