@@ -11,10 +11,12 @@ This gives you:
 
 - PostgreSQL
 - Redis
+- NATS
 - pgAdmin
 - ready-to-use connection strings
 
-No manual configuration required.
+No manual configuration required. The setup wizard and config editor also let
+you enable or disable each service explicitly.
 
 ## Why stackctl
 
@@ -164,13 +166,23 @@ Postgres
 
 Redis
   redis://localhost:6379
+
+NATS
+  nats://stackctl@localhost:4222
+
+pgAdmin
+  http://localhost:8081
+
+Cockpit
+  https://localhost:9090
 ```
 
 ### First run
 
 On first run, `stackctl` can:
 
-- create `~/.config/stackctl/config.yaml`
+- create `~/.config/stackctl/config.yaml` for the default stack or
+  `~/.config/stackctl/stacks/<name>.yaml` for a named stack
 - scaffold a managed compose file under your XDG data directory
 - validate the local environment
 
@@ -179,6 +191,7 @@ Common first-run commands:
 ```bash
 stackctl setup
 stackctl config init
+stackctl --stack staging config init --non-interactive
 stackctl start
 ```
 
@@ -190,6 +203,10 @@ stackctl setup --install
 stackctl setup --install --yes
 ```
 
+If you want a true clean slate before walking through setup again, use
+`stackctl factory-reset --force`. This is destructive and removes every
+stackctl-owned config and managed-stack directory for every stack.
+
 ## Defaults
 
 The managed stack uses these default connection values unless you change the
@@ -200,10 +217,20 @@ config:
 - Postgres username: `app`
 - Postgres password: `app`
 - Redis password: disabled by default
+- NATS token: `stackctl`
 - Postgres port: `5432`
 - Redis port: `6379`
+- NATS port: `4222`
 - pgAdmin URL: `http://localhost:8081`
 - Cockpit URL: `https://localhost:9090`
+
+Service toggles default to enabled for:
+
+- Postgres
+- Redis
+- NATS
+- pgAdmin
+- Cockpit helpers
 
 The managed pgAdmin service also ships with these default credentials:
 
@@ -220,25 +247,40 @@ Managed service defaults also include:
 - Redis appendonly persistence: disabled
 - Redis save policy: `3600 1 300 100 60 10000`
 - Redis maxmemory policy: `noeviction`
+- NATS image: `docker.io/library/nats:2.12.5`
 - pgAdmin image: `docker.io/dpage/pgadmin4:latest`
 - pgAdmin data volume: `pgadmin_data`
 - pgAdmin server mode: disabled
 
-Change them with `stackctl config edit` or by editing
-`~/.config/stackctl/config.yaml` directly.
+Change them with `stackctl config edit` or by editing the current stack config
+returned by `stackctl config path`. For named stacks, select the target first
+with `--stack <name>` or `STACKCTL_STACK=<name>`.
 
 ## Where files live
 
 By default, `stackctl` uses standard Linux user directories:
 
-- config file: `~/.config/stackctl/config.yaml`
+- default stack config file: `~/.config/stackctl/config.yaml`
+- named stack config files: `~/.config/stackctl/stacks/<name>.yaml`
 - managed data root: `~/.local/share/stackctl`
-- managed stack directory: `~/.local/share/stackctl/stacks/dev-stack`
+- default managed stack directory: `~/.local/share/stackctl/stacks/dev-stack`
+- named managed stack directory: `~/.local/share/stackctl/stacks/<name>`
 - managed compose file:
   `~/.local/share/stackctl/stacks/dev-stack/compose.yaml`
+- managed NATS config file:
+  `~/.local/share/stackctl/stacks/dev-stack/nats.conf`
 
 If `XDG_DATA_HOME` is set, managed stack data is stored under
 `$XDG_DATA_HOME/stackctl` instead.
+
+Use `stackctl config path` to print the exact config file for the current stack.
+Use `stackctl --stack <name> config path` or `STACKCTL_STACK=<name> stackctl
+config path` for named stacks.
+
+Non-default managed stacks also derive stack-specific container and volume
+names, such as `stackctl-staging-postgres` and
+`stackctl-staging-postgres-data`, so their managed resources do not collide
+with the default stack on disk or in Podman.
 
 ## Managed stack vs external stack
 
@@ -249,9 +291,10 @@ If `XDG_DATA_HOME` is set, managed stack data is stored under
 In managed mode:
 
 - `stackctl` owns the stack directory
-- `stackctl config scaffold` can create or refresh the compose file
+- `stackctl config scaffold` can create or refresh the managed stack files
 - the managed compose file is rendered from your config values, including
-  Postgres credentials, optional Redis auth, and pgAdmin login details
+  Postgres credentials, optional Redis auth, the NATS token, and pgAdmin login
+  details
 
 This is the default and the easiest way to get started.
 
@@ -284,9 +327,23 @@ stackctl start
 stackctl tui
 stackctl services
 stackctl connect
-stackctl logs --watch
 stackctl health
+stackctl logs --watch
 ```
+
+If you want separate local environments, create named stacks and select them
+with `--stack` or `STACKCTL_STACK`:
+
+```bash
+stackctl --stack staging config init --non-interactive
+stackctl --stack staging start
+stackctl --stack staging services
+stackctl --stack staging stop
+```
+
+Only one local stack is allowed to run at a time. If `staging` is running,
+`stackctl start` for the default stack or another named stack will tell you
+which stack to stop first.
 
 ## Command reference
 
@@ -295,15 +352,20 @@ This section documents the current CLI surface exactly, including flags.
 ### Top-level usage
 
 ```bash
-stackctl [command]
+stackctl [flags] [command]
 ```
 
 Root flags:
 
 | Flag | Meaning |
 | --- | --- |
+| `--stack` | Select a named stack config. The default stack uses `~/.config/stackctl/config.yaml`; named stacks use `~/.config/stackctl/stacks/<name>.yaml`. |
 | `-h`, `--help` | Show help for `stackctl` |
 | `-v`, `--version` | Print the short version string |
+
+`--stack` and `STACKCTL_STACK` select the same stack. If both are set, the
+flag wins. Stack names must use lowercase letters, numbers, hyphens, or
+underscores.
 
 ### `stackctl tui`
 
@@ -313,9 +375,13 @@ The TUI now includes the inspection workflow plus the phase-four config
 editor. It gives you a full-screen dashboard for the current stack config and
 runtime state, split detail panes for deeper inspection, a first-class config
 editing surface, and sidebar actions for `start`, `stop`, `restart`, `doctor`,
-`open cockpit`, and `open pgadmin`. Lifecycle and config operations run in the
-background, update the header status, and write a session-local action history
-you can review inside the dashboard.
+`open cockpit`, and `open pgadmin`. In `Services` and `Health`, the selected
+stack service also gets direct start, stop, and restart actions ahead of the
+global stack actions. Lifecycle and config operations run in the background,
+update the header status, and write a session-local action history you can
+review inside the dashboard. The header now carries clearer section context,
+`Services` includes a quick running/stopped/attention summary, and the detail
+panes use explicit subsections so service inspection is easier to scan.
 
 Examples:
 
@@ -328,7 +394,7 @@ Keys:
 - `tab`, `l`, `right` to move to the next section
 - `shift+tab`, `h`, `left` to move to the previous section
 - `j`, `k`, `[`, and `]` to switch the active field, service, or health target inside the current pane
-- `1` through `6` to run the sidebar actions
+- `1` through `9` to run the sidebar actions
 - `enter`, `e` to edit or toggle the selected field in `Config`
 - `esc` to cancel an in-progress field edit in `Config`
 - `ctrl+s`, `A` to save the current config draft and, when it is safe, refresh managed compose and restart running managed services automatically
@@ -502,6 +568,7 @@ Examples:
 stackctl config init
 stackctl config init --non-interactive
 stackctl config init --force
+stackctl --stack staging config init --non-interactive
 ```
 
 Flags:
@@ -511,6 +578,16 @@ Flags:
 | `--force` | Overwrite an existing config without prompting |
 | `--non-interactive` | Create the config from defaults without prompts |
 
+Named stacks:
+
+- the default stack resolves to `~/.config/stackctl/config.yaml`
+- named stacks resolve to `~/.config/stackctl/stacks/<name>.yaml`
+- `--stack <name>` and `STACKCTL_STACK=<name>` both select the current stack
+- stack names use lowercase letters, numbers, hyphens, or underscores
+- managed named stacks scaffold under `~/.local/share/stackctl/stacks/<name>`
+- only one local stack is allowed to run at a time; stop the current one
+  before starting another
+
 #### `stackctl config view`
 
 Print the current config in YAML format.
@@ -519,6 +596,7 @@ Examples:
 
 ```bash
 stackctl config view
+stackctl --stack staging config view
 ```
 
 Flags: `-h`, `--help` only.
@@ -531,6 +609,7 @@ Examples:
 
 ```bash
 stackctl config path
+stackctl --stack staging config path
 ```
 
 Flags: `-h`, `--help` only.
@@ -540,12 +619,17 @@ Flags: `-h`, `--help` only.
 Edit the current config using the interactive wizard.
 
 This is the easiest way to change service credentials, optional Redis auth,
-managed-stack ports, Postgres maintenance-db behavior, Redis persistence and
-memory settings, pgAdmin server mode, and service image/data-volume settings
-without editing compose files manually.
+the managed NATS token, managed-stack ports, Postgres maintenance-db behavior,
+Redis persistence and memory settings, pgAdmin server mode, and service
+image/data-volume settings without editing compose files manually. All managed
+services can also be enabled or disabled here. The wizard now moves
+service-by-service: enable Postgres and answer its settings, then Redis, then
+NATS, and so on, so each service stays self-contained while you edit it.
 
 If you want a full-screen workflow with diff preview, save/reset, and managed
 stack scaffolding in one place, use the `Config` section inside `stackctl tui`.
+Use `--stack <name>` when you want the wizard to edit a named stack instead of
+the default stack.
 
 Examples:
 
@@ -562,12 +646,14 @@ Flags:
 
 Service settings available in the config and wizard:
 
-- Postgres: image, data volume, maintenance database, database, username,
-  password, container name, and host port
-- Redis: image, data volume, password, appendonly persistence, save policy,
-  maxmemory policy, container name, and host port
-- pgAdmin: image, data volume, email, password, server mode, container name,
-  and host port
+- Postgres: enabled flag, image, data volume, maintenance database, database,
+  username, password, container name, and host port
+- Redis: enabled flag, image, data volume, password, appendonly persistence,
+  save policy, maxmemory policy, container name, and host port
+- NATS: enabled flag, image, auth token, container name, and host port
+- pgAdmin: enabled flag, image, data volume, email, password, server mode,
+  container name, and host port
+- Cockpit: enabled flag, install-on-setup flag, and host port
 
 #### `stackctl config validate`
 
@@ -589,8 +675,12 @@ Examples:
 
 ```bash
 stackctl config reset
+stackctl --stack staging config reset --force
 stackctl config reset --delete --force
 ```
+
+Without `--delete`, reset rewrites the selected stack config back to defaults
+and refreshes the managed scaffold when that stack uses managed mode.
 
 Flags:
 
@@ -619,39 +709,59 @@ Flags:
 
 ### `stackctl start`
 
-Start the local development stack. If `wait_for_services_on_start` is enabled
-in config, `stackctl` waits for the core app-facing services
-(`postgres` and `redis`) before returning.
+Start the local development stack or selected stack services. If
+`wait_for_services_on_start` is enabled in config, `stackctl` waits for the
+core app-facing services (`postgres`, `redis`, and `nats`) that are part of
+the requested start operation before returning. Disabled services are skipped
+automatically.
+
+Valid service targets are the enabled stack-managed services: `postgres`,
+`redis`, `nats`, and `pgadmin`. Cockpit is a host helper, not a compose
+service, so it is never a lifecycle target. `start` also refuses to run when
+another local stack is already running and tells you which stack to stop first.
 
 Examples:
 
 ```bash
 stackctl start
+stackctl --stack staging start
+stackctl start postgres
+stackctl start redis nats
 ```
 
 Flags: `-h`, `--help` only.
 
 ### `stackctl stop`
 
-Stop the local development stack.
+Stop the local development stack or selected stack services.
+
+Service arguments only target stack-managed services. Cockpit is not part of
+the compose lifecycle.
 
 Examples:
 
 ```bash
 stackctl stop
+stackctl --stack staging stop postgres
+stackctl stop redis nats
 ```
 
 Flags: `-h`, `--help` only.
 
 ### `stackctl restart`
 
-Restart the local development stack and print the current connection info when
-it is ready.
+Restart the local development stack or selected stack services and print the
+current connection info when it is ready.
+
+Like `start`, `restart` only targets stack-managed services and refuses to
+cross-start a second local stack while another one is running.
 
 Examples:
 
 ```bash
 stackctl restart
+stackctl --stack staging restart postgres
+stackctl restart redis nats
 ```
 
 Flags: `-h`, `--help` only.
@@ -693,6 +803,7 @@ Examples:
 stackctl services
 stackctl services --json
 stackctl services --copy postgres
+stackctl services --copy nats
 ```
 
 Flags:
@@ -710,12 +821,14 @@ Supported copy targets:
 
 - `postgres`
 - `redis`
+- `nats`
 - `pgadmin`
 - `cockpit`
 - `postgres-user`
 - `postgres-password`
 - `postgres-database`
 - `redis-password`
+- `nats-token`
 - `pgadmin-email`
 - `pgadmin-password`
 
@@ -736,6 +849,7 @@ Supported service targets:
 
 - `postgres` or `pg`
 - `redis` or `rd`
+- `nats`
 - `pgadmin`
 
 Flags:
@@ -857,6 +971,7 @@ Supported service filters:
 
 - `postgres` or `pg`
 - `redis` or `rd`
+- `nats`
 - `pgadmin`
 
 Flags:
@@ -947,6 +1062,34 @@ Flags:
 | `-f`, `--force` | Skip confirmation for destructive reset |
 | `-v`, `--volumes` | Remove volumes while stopping the stack |
 
+### `stackctl factory-reset`
+
+DANGEROUS: stop managed stacks discovered under stackctl's local data dir,
+remove their volumes, and then delete all stackctl-owned config and local data
+directories so you can start again from a true clean slate.
+
+This only removes stackctl-owned paths such as `~/.config/stackctl` and
+`~/.local/share/stackctl`. It does not follow an external stack path outside
+stackctl's local data root. Named stack configs under
+`~/.config/stackctl/stacks/` are removed too.
+
+This is the fastest way to re-run the first-run experience from scratch across
+all stacks, but it is intentionally gated behind a DANGEROUS confirmation
+prompt unless you pass `--force`.
+
+Examples:
+
+```bash
+stackctl factory-reset
+stackctl factory-reset --force
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-f`, `--force` | Skip the DANGEROUS confirmation prompt |
+
 ### `stackctl version`
 
 Print version information.
@@ -964,15 +1107,17 @@ Flags: `-h`, `--help` only.
 If you only remember a few commands, these are the ones most people will use:
 
 - `stackctl setup`: create config and prepare the machine
-- `stackctl start`: bring the stack up
+- `stackctl start`: bring the stack or selected services up
 - `stackctl services`: see the full runtime picture
 - `stackctl connect`: copy DSNs and URLs quickly
 - `stackctl services --copy postgres`: send a ready-to-use value straight to the clipboard
+- `stackctl services --copy nats`: send the configured NATS DSN straight to the clipboard
 - `stackctl db shell`: jump straight into `psql`
 - `stackctl db dump`: export the local database as SQL
 - `stackctl db restore`: replay a SQL dump into the local database
 - `stackctl db reset`: recreate the configured database cleanly
 - `stackctl ports`: check host-to-service port mappings quickly
+- `stackctl factory-reset`: wipe stackctl's local state and start over cleanly
 - `stackctl logs --watch`: keep a live log tail open while developing
 - `stackctl doctor`: diagnose environment and port problems
 - `stackctl doctor --fix`: apply the safe, supported automatic fixes
@@ -1007,6 +1152,30 @@ Then validate the config:
 ```bash
 stackctl config validate
 ```
+
+### Starting another stack fails
+
+Only one local stack can be running at a time.
+
+If `stackctl start` or `stackctl restart` tells you another local stack is
+already running, stop that stack first:
+
+```bash
+stackctl --stack staging stop
+```
+
+Then start the stack you actually want to work on.
+
+### I want to start over completely
+
+Use the DANGEROUS clean-slate command:
+
+```bash
+stackctl factory-reset --force
+```
+
+This removes stackctl-owned config and managed stack data for the default stack
+and every named stack.
 
 ### A service port is already in use
 
@@ -1095,15 +1264,25 @@ Available today:
 
 - PostgreSQL
 - Redis
+- NATS
 - pgAdmin
 - Cockpit
 - configurable Postgres database, username, password, and ports
 - optional Redis auth that flows through generated compose and DSNs
+- configurable NATS auth token and port that flow through managed scaffolding,
+  DSNs, and helper commands
 - configurable pgAdmin login details that stay in sync with the managed stack
+- explicit enable/disable toggles for Postgres, Redis, NATS, pgAdmin, and
+  Cockpit helpers in setup, `config edit`, and the TUI config editor
 - service-level image, data-volume, and tuning settings in `stackctl config`
 - configurable Postgres maintenance-database settings for admin helpers
 - configurable Redis persistence and maxmemory policy settings
 - configurable pgAdmin server-mode settings
+- named stacks via `--stack` or `STACKCTL_STACK`, with stack-specific managed
+  paths, container names, and volume names
+- per-service `start`, `stop`, and `restart` in both the CLI and the TUI for
+  stack-managed services
+- a one-local-stack-at-a-time safety guard when starting or restarting stacks
 - external-stack configs stay valid for non-runtime commands even before a
   compose file is present
 - machine-readable service output with `stackctl services --json`
@@ -1113,6 +1292,7 @@ Available today:
 - `stackctl db dump`, `stackctl db restore`, and `stackctl db reset`
   for repeatable local database workflows
 - `stackctl ports` for quick port inspection
+- DANGEROUS `stackctl factory-reset` for a full local clean slate
 - `stackctl doctor --fix` for supported automatic environment remediation
 - live Podman integration coverage for the managed-stack lifecycle
 
@@ -1120,6 +1300,7 @@ Current CLI surface:
 
 - `setup`
 - `doctor`
+- `tui`
 - `start`, `stop`, `restart`
 - `status`
 - `services`
@@ -1129,8 +1310,11 @@ Current CLI surface:
 - `logs`
 - `health`
 - `connect`
+- `open`
 - `reset`
+- `factory-reset`
 - `config`
+- `version`
 
 ### High priority
 
@@ -1138,9 +1322,6 @@ These are the highest-value additions after the current release line.
 
 #### More local services
 
-- `NATS`
-  Why: lightweight messaging for event-driven systems, workers, and
-  real-time backends
 - `MinIO`
   Why: S3-compatible object storage for uploads and cloud-like local dev
 - `Meilisearch`
@@ -1163,8 +1344,6 @@ commands are in place.
 
 - deeper service controls such as Redis ACL users, richer Postgres tuning,
   and pgAdmin server bootstrap helpers
-- multi-stack support such as `stackctl start dev` and
-  `stackctl start staging`
 - `stackctl env` to print app-ready environment variables
 - `stackctl run ...` to launch an app with stack-aware context
 - snapshot save and restore commands for dev-state workflows
