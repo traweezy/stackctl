@@ -94,7 +94,7 @@ Install a specific release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | \
-  bash -s -- --version v0.14.0
+  bash -s -- --version v0.15.0
 ```
 
 If `~/.local/bin` is not already on your `PATH`, add it:
@@ -1360,8 +1360,8 @@ Releases are created from tags that match `v*`.
 Example:
 
 ```bash
-git tag v0.14.0
-git push origin v0.14.0
+git tag v0.15.0
+git push origin v0.15.0
 ```
 
 ## Roadmap
