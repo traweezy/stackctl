@@ -2,12 +2,11 @@ package cmd
 
 import (
 	"context"
-	"fmt"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
+	"github.com/traweezy/stackctl/internal/output"
 )
 
 type portMapping struct {
@@ -20,9 +19,11 @@ type portMapping struct {
 
 func newPortsCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "ports",
-		Short:   "Show host-to-service port mappings",
-		Example: "  stackctl ports",
+		Use:               "ports",
+		Short:             "Show host-to-service port mappings",
+		Example:           "  stackctl ports",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
@@ -87,21 +88,14 @@ func configuredPortMappings(cfg configpkg.Config) []portMapping {
 }
 
 func printPortMappings(cmd *cobra.Command, mappings []portMapping) error {
-	writer := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 8, 2, ' ', 0)
-	if _, err := fmt.Fprintln(writer, "SERVICE\tHOST\tPORTS"); err != nil {
-		return err
-	}
+	rows := make([][]string, 0, len(mappings))
 	for _, mapping := range mappings {
-		if _, err := fmt.Fprintf(
-			writer,
-			"%s\t%s\t%s\n",
+		rows = append(rows, []string{
 			mapping.DisplayName,
 			mapping.Host,
 			formatServicePort(mapping.ExternalPort, mapping.InternalPort),
-		); err != nil {
-			return err
-		}
+		})
 	}
 
-	return writer.Flush()
+	return output.RenderTable(cmd.OutOrStdout(), []string{"Service", "Host", "Ports"}, rows)
 }

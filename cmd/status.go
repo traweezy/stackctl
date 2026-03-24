@@ -18,6 +18,8 @@ func newStatusCmd() *cobra.Command {
 		Example: "  stackctl status\n" +
 			"  stackctl status --verbose\n" +
 			"  stackctl status --json",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {

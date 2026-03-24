@@ -20,6 +20,8 @@ func newDoctorCmd() *cobra.Command {
 		Short: "Run diagnostics and optional fixes for the local stack",
 		Example: "  stackctl doctor\n" +
 			"  stackctl doctor --fix --yes",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if fix {
 				return runDoctorFixes(cmd, yes)

@@ -19,7 +19,8 @@ func newOpenCmd() *cobra.Command {
 			"  stackctl open cockpit\n" +
 			"  stackctl open pgadmin\n" +
 			"  stackctl open all",
-		Args: cobra.MaximumNArgs(1),
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeOpenTargets,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {

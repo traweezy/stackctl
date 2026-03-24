@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -155,44 +154,30 @@ func printStatusTable(cmd *cobra.Command, containers []system.Container, verbose
 		return err
 	}
 
-	writer := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 8, 2, ' ', 0)
+	rows := make([][]string, 0, len(containers))
 	if verbose {
-		if _, err := fmt.Fprintln(writer, "NAME\tIMAGE\tSTATUS\tPORTS\tID\tCREATED"); err != nil {
-			return err
-		}
 		for _, container := range containers {
-			if _, err := fmt.Fprintf(
-				writer,
-				"%s\t%s\t%s\t%s\t%s\t%s\n",
+			rows = append(rows, []string{
 				strings.Join(container.Names, ","),
 				container.Image,
 				container.Status,
 				formatPorts(container.Ports),
 				shortID(container.ID),
 				container.CreatedAt,
-			); err != nil {
-				return err
-			}
+			})
 		}
+		return output.RenderTable(cmd.OutOrStdout(), []string{"Name", "Image", "Status", "Ports", "ID", "Created"}, rows)
 	} else {
-		if _, err := fmt.Fprintln(writer, "NAME\tIMAGE\tSTATUS\tPORTS"); err != nil {
-			return err
-		}
 		for _, container := range containers {
-			if _, err := fmt.Fprintf(
-				writer,
-				"%s\t%s\t%s\t%s\n",
+			rows = append(rows, []string{
 				strings.Join(container.Names, ","),
 				container.Image,
 				container.Status,
 				formatPorts(container.Ports),
-			); err != nil {
-				return err
-			}
+			})
 		}
+		return output.RenderTable(cmd.OutOrStdout(), []string{"Name", "Image", "Status", "Ports"}, rows)
 	}
-
-	return writer.Flush()
 }
 
 func printConnectionInfo(cmd *cobra.Command, cfg configpkg.Config) error {

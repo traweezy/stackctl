@@ -20,6 +20,8 @@ func newHealthCmd() *cobra.Command {
 		Short: "Check whether the local stack is reachable",
 		Example: "  stackctl health\n" +
 			"  stackctl health --watch --interval 2",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {

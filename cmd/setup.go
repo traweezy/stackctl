@@ -25,6 +25,8 @@ func newSetupCmd() *cobra.Command {
 		Example: "  stackctl setup\n" +
 			"  stackctl setup --non-interactive\n" +
 			"  stackctl setup --install --yes",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			createdConfig := false
 

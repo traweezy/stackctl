@@ -18,15 +18,35 @@ func newConfigCmd() *cobra.Command {
 		Example: "  stackctl config view\n" +
 			"  stackctl config validate\n" +
 			"  stackctl config scaffold --force",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 	}
 
-	cmd.AddCommand(newConfigInitCmd())
-	cmd.AddCommand(newConfigViewCmd())
-	cmd.AddCommand(newConfigPathCmd())
-	cmd.AddCommand(newConfigEditCmd())
-	cmd.AddCommand(newConfigValidateCmd())
-	cmd.AddCommand(newConfigResetCmd())
-	cmd.AddCommand(newConfigScaffoldCmd())
+	cmd.AddGroup(configCommandGroups()...)
+	cmd.SetHelpCommandGroupID(configGroupInspect)
+
+	initCmd := noArgsCommand(newConfigInitCmd())
+	initCmd.GroupID = configGroupEdit
+	viewCmd := noArgsCommand(newConfigViewCmd())
+	viewCmd.GroupID = configGroupInspect
+	pathCmd := noArgsCommand(newConfigPathCmd())
+	pathCmd.GroupID = configGroupInspect
+	editCmd := noArgsCommand(newConfigEditCmd())
+	editCmd.GroupID = configGroupEdit
+	validateCmd := noArgsCommand(newConfigValidateCmd())
+	validateCmd.GroupID = configGroupInspect
+	resetCmd := noArgsCommand(newConfigResetCmd())
+	resetCmd.GroupID = configGroupMaintain
+	scaffoldCmd := noArgsCommand(newConfigScaffoldCmd())
+	scaffoldCmd.GroupID = configGroupMaintain
+
+	cmd.AddCommand(initCmd)
+	cmd.AddCommand(viewCmd)
+	cmd.AddCommand(pathCmd)
+	cmd.AddCommand(editCmd)
+	cmd.AddCommand(validateCmd)
+	cmd.AddCommand(resetCmd)
+	cmd.AddCommand(scaffoldCmd)
 
 	return cmd
 }

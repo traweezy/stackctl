@@ -13,9 +13,10 @@ import (
 
 func newRestartCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "restart [service...]",
-		Short:   "Restart the local development stack or selected services",
-		Example: "  stackctl restart\n  stackctl restart postgres\n  stackctl restart redis nats",
+		Use:               "restart [service...]",
+		Short:             "Restart the local development stack or selected services",
+		Example:           "  stackctl restart\n  stackctl restart postgres\n  stackctl restart redis nats",
+		ValidArgsFunction: completeStackServiceArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {

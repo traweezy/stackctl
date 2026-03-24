@@ -34,9 +34,10 @@ func NewRootCmd(app *App) *cobra.Command {
 			"  stackctl tui\n" +
 			"  stackctl services\n" +
 			"  stackctl exec postgres -- psql -U app -d app",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		Version:       app.Version,
+		SilenceUsage:               true,
+		SilenceErrors:              true,
+		Version:                    app.Version,
+		SuggestionsMinimumDistance: 2,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			selected := strings.TrimSpace(stackName)
 			if selected == "" {
@@ -49,27 +50,75 @@ func NewRootCmd(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.CompletionOptions.HiddenDefaultCmd = true
+	cmd.AddGroup(rootCommandGroups()...)
+	cmd.SetHelpCommandGroupID(commandGroupUtility)
+	cmd.SetCompletionCommandGroupID(commandGroupUtility)
 	cmd.PersistentFlags().StringVar(&stackName, "stack", "", "Select a named stack config (or use STACKCTL_STACK)")
-	cmd.AddCommand(newStartCmd())
-	cmd.AddCommand(newStopCmd())
-	cmd.AddCommand(newRestartCmd())
-	cmd.AddCommand(newTUICmd())
-	cmd.AddCommand(newStatusCmd())
-	cmd.AddCommand(newServicesCmd())
-	cmd.AddCommand(newPortsCmd())
-	cmd.AddCommand(newDBCmd())
-	cmd.AddCommand(newExecCmd())
-	cmd.AddCommand(newLogsCmd())
-	cmd.AddCommand(newOpenCmd())
-	cmd.AddCommand(newHealthCmd())
-	cmd.AddCommand(newConnectCmd())
-	cmd.AddCommand(newResetCmd())
-	cmd.AddCommand(newFactoryResetCmd())
-	cmd.AddCommand(newConfigCmd())
-	cmd.AddCommand(newDoctorCmd())
-	cmd.AddCommand(newSetupCmd())
-	cmd.AddCommand(newVersionCmd(app))
+	mustRegisterFlagCompletion(cmd, "stack", completeConfiguredStackNames)
+
+	startCmd := newStartCmd()
+	startCmd.GroupID = commandGroupLifecycle
+	stopCmd := newStopCmd()
+	stopCmd.GroupID = commandGroupLifecycle
+	restartCmd := newRestartCmd()
+	restartCmd.GroupID = commandGroupLifecycle
+	resetCmd := newResetCmd()
+	resetCmd.GroupID = commandGroupLifecycle
+
+	tuiCmd := newTUICmd()
+	tuiCmd.GroupID = commandGroupInspect
+	statusCmd := newStatusCmd()
+	statusCmd.GroupID = commandGroupInspect
+	servicesCmd := newServicesCmd()
+	servicesCmd.GroupID = commandGroupInspect
+	portsCmd := newPortsCmd()
+	portsCmd.GroupID = commandGroupInspect
+	logsCmd := newLogsCmd()
+	logsCmd.GroupID = commandGroupInspect
+	openCmd := newOpenCmd()
+	openCmd.GroupID = commandGroupInspect
+	healthCmd := newHealthCmd()
+	healthCmd.GroupID = commandGroupInspect
+	connectCmd := newConnectCmd()
+	connectCmd.GroupID = commandGroupInspect
+	doctorCmd := newDoctorCmd()
+	doctorCmd.GroupID = commandGroupInspect
+
+	dbCmd := newDBCmd()
+	dbCmd.GroupID = commandGroupOperate
+	execCmd := newExecCmd()
+	execCmd.GroupID = commandGroupOperate
+
+	setupCmd := newSetupCmd()
+	setupCmd.GroupID = commandGroupConfig
+	configCmd := newConfigCmd()
+	configCmd.GroupID = commandGroupConfig
+	factoryResetCmd := newFactoryResetCmd()
+	factoryResetCmd.GroupID = commandGroupConfig
+
+	versionCmd := newVersionCmd(app)
+	versionCmd.GroupID = commandGroupUtility
+
+	cmd.AddCommand(startCmd)
+	cmd.AddCommand(stopCmd)
+	cmd.AddCommand(restartCmd)
+	cmd.AddCommand(resetCmd)
+	cmd.AddCommand(tuiCmd)
+	cmd.AddCommand(statusCmd)
+	cmd.AddCommand(servicesCmd)
+	cmd.AddCommand(portsCmd)
+	cmd.AddCommand(dbCmd)
+	cmd.AddCommand(execCmd)
+	cmd.AddCommand(logsCmd)
+	cmd.AddCommand(openCmd)
+	cmd.AddCommand(healthCmd)
+	cmd.AddCommand(connectCmd)
+	cmd.AddCommand(factoryResetCmd)
+	cmd.AddCommand(configCmd)
+	cmd.AddCommand(doctorCmd)
+	cmd.AddCommand(setupCmd)
+	cmd.AddCommand(versionCmd)
+	cmd.InitDefaultCompletionCmd()
 	cmd.SetVersionTemplate(versionTemplate(app))
 
 	return cmd

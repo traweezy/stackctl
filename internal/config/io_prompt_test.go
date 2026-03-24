@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/creack/pty/v2"
 )
 
 func TestSaveLoadAndMarshalRoundTrip(t *testing.T) {
@@ -754,6 +756,156 @@ func TestPromptSessionInvalidBooleanAtEOFReturnsError(t *testing.T) {
 	_, err := session.askBool("Open", false)
 	if err == nil || !strings.Contains(err.Error(), "invalid boolean answer") {
 		t.Fatalf("unexpected bool error: %v", err)
+	}
+}
+
+func TestShouldUsePlainWizardForNonTerminalIO(t *testing.T) {
+	if !shouldUsePlainWizard(strings.NewReader(""), io.Discard) {
+		t.Fatal("expected non-terminal IO to use plain wizard prompts")
+	}
+}
+
+func TestShouldUsePlainWizardHonorsOverrideEnv(t *testing.T) {
+	t.Setenv("STACKCTL_WIZARD_PLAIN", "1")
+
+	if !shouldUsePlainWizard(os.Stdin, os.Stdout) {
+		t.Fatal("expected override env to force the plain wizard")
+	}
+}
+
+func TestShouldUsePlainWizardDoesNotForceLegacyFlowForAccessibleTerminals(t *testing.T) {
+	t.Setenv("ACCESSIBLE", "1")
+
+	ptmx, tty, err := pty.Open()
+	if err != nil {
+		t.Fatalf("pty.Open returned error: %v", err)
+	}
+	defer ptmx.Close()
+	defer tty.Close()
+
+	if shouldUsePlainWizard(tty, tty) {
+		t.Fatal("expected accessible terminals to keep the Huh wizard flow")
+	}
+}
+
+func TestNewWizardStateIncludesEnabledServices(t *testing.T) {
+	cfg := Default()
+
+	state := newWizardState(cfg)
+
+	for _, service := range []string{"postgres", "redis", "nats", "pgadmin"} {
+		if !state.includesService(service) {
+			t.Fatalf("expected service %q to be selected by default", service)
+		}
+	}
+	if !state.IncludeCockpit || !state.InstallCockpit {
+		t.Fatalf("expected cockpit helper defaults, got %+v", state)
+	}
+}
+
+func TestWizardStateToConfigAppliesManagedSelections(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	base := Default()
+	state := newWizardState(base)
+	state.StackName = "staging"
+	state.StackMode = wizardStackModeManaged
+	state.Services = []string{"postgres", "nats"}
+	state.IncludeCockpit = false
+	state.InstallCockpit = false
+	state.PostgresPort = "15432"
+	state.NATSPort = "14222"
+	state.StartupTimeoutSec = "45"
+	state.PackageManager = "dnf"
+
+	cfg, err := state.toConfig(base)
+	if err != nil {
+		t.Fatalf("toConfig returned error: %v", err)
+	}
+
+	wantDir, err := ManagedStackDir("staging")
+	if err != nil {
+		t.Fatalf("ManagedStackDir returned error: %v", err)
+	}
+	if !cfg.Stack.Managed || cfg.Stack.Dir != wantDir || cfg.Stack.ComposeFile != DefaultComposeFileName {
+		t.Fatalf("unexpected managed stack config: %+v", cfg.Stack)
+	}
+	if !cfg.Setup.IncludePostgres || cfg.Setup.IncludeRedis || !cfg.Setup.IncludeNATS || cfg.Setup.IncludePgAdmin {
+		t.Fatalf("unexpected service toggles: %+v", cfg.Setup)
+	}
+	if cfg.Setup.IncludeCockpit || cfg.Setup.InstallCockpit {
+		t.Fatalf("unexpected cockpit toggles: %+v", cfg.Setup)
+	}
+	if cfg.Ports.Postgres != 15432 || cfg.Ports.NATS != 14222 {
+		t.Fatalf("unexpected managed service ports: %+v", cfg.Ports)
+	}
+	if cfg.Behavior.StartupTimeoutSec != 45 || cfg.System.PackageManager != "dnf" {
+		t.Fatalf("unexpected behavior/system config: %+v %+v", cfg.Behavior, cfg.System)
+	}
+}
+
+func TestWizardStateToConfigAppliesExternalSettings(t *testing.T) {
+	base := Default()
+	externalDir := filepath.Join(t.TempDir(), "external")
+	state := newWizardState(base)
+	state.StackMode = wizardStackModeExternal
+	state.ExternalStackDir = externalDir
+	state.ExternalComposeFile = "compose.custom.yaml"
+
+	cfg, err := state.toConfig(base)
+	if err != nil {
+		t.Fatalf("toConfig returned error: %v", err)
+	}
+
+	if cfg.Stack.Managed || cfg.Setup.ScaffoldDefaultStack {
+		t.Fatalf("expected external stack config, got %+v / %+v", cfg.Stack, cfg.Setup)
+	}
+	if cfg.Stack.Dir != externalDir || cfg.Stack.ComposeFile != "compose.custom.yaml" {
+		t.Fatalf("unexpected external stack config: %+v", cfg.Stack)
+	}
+}
+
+func TestWizardReviewSummaryIncludesCurrentSelections(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	state := newWizardState(Default())
+	state.StackName = "staging"
+	state.StackMode = wizardStackModeManaged
+	state.Services = []string{"postgres", "nats"}
+	state.IncludeCockpit = false
+	state.PostgresPort = "15432"
+	state.NATSPort = "14222"
+	state.StartupTimeoutSec = "45"
+	state.PackageManager = "dnf"
+
+	summary := state.reviewSummary()
+	for _, fragment := range []string{
+		"Stack: staging",
+		"Mode: Managed",
+		"Services: Postgres, NATS",
+		"Postgres: 15432",
+		"NATS: 14222",
+		"Package manager: dnf",
+	} {
+		if !strings.Contains(summary, fragment) {
+			t.Fatalf("review summary missing %q:\n%s", fragment, summary)
+		}
+	}
+}
+
+func TestWizardStateMissingExternalDirConfirmation(t *testing.T) {
+	state := wizardState{
+		StackMode:        wizardStackModeExternal,
+		ExternalStackDir: filepath.Join(t.TempDir(), "missing"),
+	}
+	if !state.needsMissingExternalDirConfirmation() {
+		t.Fatal("expected missing external dir to require confirmation")
+	}
+
+	existingDir := t.TempDir()
+	state.ExternalStackDir = existingDir
+	if state.needsMissingExternalDirConfirmation() {
+		t.Fatal("did not expect an existing external dir to require confirmation")
 	}
 }
 

@@ -30,6 +30,8 @@ func newFactoryResetCmd() *cobra.Command {
 			"remove their volumes, and then delete all stackctl-owned config and data directories.",
 		Example: "  stackctl factory-reset\n" +
 			"  stackctl factory-reset --force",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configDir, err := deps.configDirPath()
 			if err != nil {

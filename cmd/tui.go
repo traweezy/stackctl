@@ -45,7 +45,9 @@ func newTUICmd() *cobra.Command {
 			"shell, and press w from the service and health panels to open\n" +
 			"live logs for the selected compose service in the full terminal\n" +
 			"viewer.",
-		Example: "  stackctl tui",
+		Example:           "  stackctl tui",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			model := stacktui.NewFullModel(func() (stacktui.Snapshot, error) {
 				return loadTUISnapshot()

@@ -23,6 +23,8 @@ func newLogsCmd() *cobra.Command {
 			"  stackctl logs --watch\n" +
 			"  stackctl logs --service postgres\n" +
 			"  stackctl logs --service pg --tail 200 --watch",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
@@ -60,8 +62,9 @@ func newLogsCmd() *cobra.Command {
 
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Follow logs")
 	cmd.Flags().IntVarP(&tail, "tail", "n", 100, "Number of log lines to show")
-	cmd.Flags().StringVarP(&service, "service", "s", "", "Filter logs to a single service (postgres|pg, redis|rd, nats|na, pgadmin)")
+	cmd.Flags().StringVarP(&service, "service", "s", "", "Filter logs to a single service (postgres|pg, redis|rd, nats, pgadmin)")
 	cmd.Flags().StringVar(&since, "since", "", "Show logs since a relative time or timestamp")
+	mustRegisterFlagCompletion(cmd, "service", completeLogsServiceFlag)
 
 	return cmd
 }

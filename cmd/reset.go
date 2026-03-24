@@ -18,6 +18,8 @@ func newResetCmd() *cobra.Command {
 		Short: "Bring the stack down and optionally wipe volumes",
 		Example: "  stackctl reset\n" +
 			"  stackctl reset --volumes --force",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {

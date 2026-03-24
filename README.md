@@ -28,7 +28,7 @@ Most local dev setups require:
 
 stackctl provides:
 
-- interactive setup
+- interactive setup wizard with service checkboxes, inline hints, and review
 - consistent service management
 - built-in connection helpers
 - diagnostics and health checks
@@ -367,6 +367,9 @@ Root flags:
 flag wins. Stack names must use lowercase letters, numbers, hyphens, or
 underscores.
 
+`stackctl --help` now groups commands into lifecycle, inspect, operate,
+setup/config, and utility sections so the command surface is easier to scan.
+
 ### `stackctl tui`
 
 Open the interactive terminal dashboard.
@@ -517,6 +520,12 @@ Flags: `-h`, `--help` only.
 
 Prepare the local machine and the `stackctl` config.
 
+When setup runs interactively, it opens the full-screen wizard: choose the
+stack mode, pick services with a checkbox list, fill only the enabled-service
+pages, then review the final config before saving. Set `ACCESSIBLE=1` to use
+the same wizard in accessible prompting mode, or `STACKCTL_WIZARD_PLAIN=1` to
+force the legacy plain prompt flow.
+
 Examples:
 
 ```bash
@@ -561,6 +570,10 @@ Subcommands:
 #### `stackctl config init`
 
 Create a new config file.
+
+Interactive `config init` uses the same page-based wizard as `stackctl setup`:
+stack details first, service selection next, then only the enabled service
+pages, followed by a review screen before the config is written.
 
 Examples:
 
@@ -622,9 +635,10 @@ This is the easiest way to change service credentials, optional Redis auth,
 the managed NATS token, managed-stack ports, Postgres maintenance-db behavior,
 Redis persistence and memory settings, pgAdmin server mode, and service
 image/data-volume settings without editing compose files manually. All managed
-services can also be enabled or disabled here. The wizard now moves
-service-by-service: enable Postgres and answer its settings, then Redis, then
-NATS, and so on, so each service stays self-contained while you edit it.
+services can also be enabled or disabled here. The wizard now starts with stack
+mode and a checkbox-style service picker, then only shows configuration pages
+for the services you selected. Each page includes inline hints so the common
+fields read more like the TUI than raw YAML keys.
 
 If you want a full-screen workflow with diff preview, save/reset, and managed
 stack scaffolding in one place, use the `Config` section inside `stackctl tui`.
@@ -1098,6 +1112,19 @@ Examples:
 
 ```bash
 stackctl version
+```
+
+Flags: `-h`, `--help` only.
+
+### `stackctl completion`
+
+Generate shell completion scripts for bash, zsh, fish, or PowerShell.
+
+Examples:
+
+```bash
+stackctl completion bash
+stackctl completion zsh
 ```
 
 Flags: `-h`, `--help` only.

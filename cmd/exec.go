@@ -20,6 +20,7 @@ func newExecCmd() *cobra.Command {
 		Example: "  stackctl exec postgres -- psql -U app -d app\n" +
 			"  stackctl exec redis -- redis-cli -a secret PING\n" +
 			"  stackctl exec pgadmin -- printenv PGADMIN_DEFAULT_EMAIL",
+		ValidArgsFunction: completeExecArgs,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 2 {
 				return errors.New("usage: stackctl exec <service> -- <command...>")

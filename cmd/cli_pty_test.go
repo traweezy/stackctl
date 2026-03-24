@@ -276,6 +276,7 @@ esac
 		"HOME=" + dataRoot,
 		"XDG_CONFIG_HOME=" + configRoot,
 		"XDG_DATA_HOME=" + dataRoot,
+		"STACKCTL_WIZARD_PLAIN=1",
 		"PATH=" + fakeBin,
 	}
 }

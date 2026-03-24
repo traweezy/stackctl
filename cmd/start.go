@@ -13,9 +13,10 @@ import (
 
 func newStartCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "start [service...]",
-		Short:   "Start the local development stack or selected services",
-		Example: "  stackctl start\n  stackctl start postgres\n  stackctl start redis nats",
+		Use:               "start [service...]",
+		Short:             "Start the local development stack or selected services",
+		Example:           "  stackctl start\n  stackctl start postgres\n  stackctl start redis nats",
+		ValidArgsFunction: completeStackServiceArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, true)
 			if err != nil {

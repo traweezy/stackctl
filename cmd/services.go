@@ -20,6 +20,8 @@ func newServicesCmd() *cobra.Command {
 		Example: "  stackctl services\n" +
 			"  stackctl services --json\n" +
 			"  stackctl services --copy postgres",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
@@ -48,6 +50,7 @@ func newServicesCmd() *cobra.Command {
 
 	cmd.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Print service details as JSON")
 	cmd.Flags().StringVar(&copyTarget, "copy", "", "Copy a service value like postgres, redis, nats, pgadmin, or cockpit to the clipboard")
+	mustRegisterFlagCompletion(cmd, "copy", completeServiceCopyTargets)
 
 	return cmd
 }

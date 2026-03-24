@@ -8,9 +8,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
+	if shouldUsePlainWizard(in, out) {
+		return runPlainWizard(in, out, base)
+	}
+
+	return runHuhWizard(in, out, base)
+}
+
+func runPlainWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	session := promptSession{
 		reader: bufio.NewReader(in),
 		out:    out,
@@ -112,6 +122,20 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	cfg.ApplyDerivedFields()
 
 	return cfg, nil
+}
+
+func shouldUsePlainWizard(in io.Reader, out io.Writer) bool {
+	if os.Getenv("STACKCTL_WIZARD_PLAIN") != "" {
+		return true
+	}
+
+	inputFile, inputOK := in.(*os.File)
+	outputFile, outputOK := out.(*os.File)
+	if !inputOK || !outputOK {
+		return true
+	}
+
+	return !term.IsTerminal(int(inputFile.Fd())) || !term.IsTerminal(int(outputFile.Fd()))
 }
 
 func PromptYesNo(in io.Reader, out io.Writer, question string, defaultYes bool) (bool, error) {

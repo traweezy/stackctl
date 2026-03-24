@@ -18,14 +18,28 @@ import (
 
 func newDBCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "db",
-		Short: "Run database-focused helpers",
+		Use:               "db",
+		Short:             "Run database-focused helpers",
+		Args:              cobra.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 	}
 
-	cmd.AddCommand(newDBShellCmd())
-	cmd.AddCommand(newDBDumpCmd())
-	cmd.AddCommand(newDBRestoreCmd())
-	cmd.AddCommand(newDBResetCmd())
+	cmd.AddGroup(dbCommandGroups()...)
+	cmd.SetHelpCommandGroupID(dbGroupAccess)
+
+	shellCmd := noFileCompletion(newDBShellCmd())
+	shellCmd.GroupID = dbGroupAccess
+	dumpCmd := newDBDumpCmd()
+	dumpCmd.GroupID = dbGroupBackupRestore
+	restoreCmd := newDBRestoreCmd()
+	restoreCmd.GroupID = dbGroupBackupRestore
+	resetCmd := noArgsCommand(newDBResetCmd())
+	resetCmd.GroupID = dbGroupMaintain
+
+	cmd.AddCommand(shellCmd)
+	cmd.AddCommand(dumpCmd)
+	cmd.AddCommand(restoreCmd)
+	cmd.AddCommand(resetCmd)
 
 	return cmd
 }

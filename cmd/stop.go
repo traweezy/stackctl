@@ -12,9 +12,10 @@ import (
 
 func newStopCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "stop [service...]",
-		Short:   "Stop the local development stack or selected services",
-		Example: "  stackctl stop\n  stackctl stop postgres\n  stackctl stop redis nats",
+		Use:               "stop [service...]",
+		Short:             "Stop the local development stack or selected services",
+		Example:           "  stackctl stop\n  stackctl stop postgres\n  stackctl stop redis nats",
+		ValidArgsFunction: completeStackServiceArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadRuntimeConfig(cmd, false)
 			if err != nil {
