@@ -27,7 +27,7 @@ func newTUICmd() *cobra.Command {
 		Use:   "tui",
 		Short: "Open the interactive stack dashboard",
 		Long: "Open the interactive stack dashboard.\n\n" +
-			"Use a full-screen operator view for overview, config, services,\n" +
+			"Use a full-screen operator view for overview, stacks, config, services,\n" +
 			"health, and action history. The services pane includes host\n" +
 			"ports, URLs, DSNs, copy actions, shell handoff, and live-log\n" +
 			"handoff in one place. The dashboard\n" +
@@ -36,11 +36,13 @@ func newTUICmd() *cobra.Command {
 			"masked secrets by default, split inspection panes, in-TUI\n" +
 			"config editing with diff preview, save/reset/defaults/scaffold\n" +
 			"flows, automatic managed-stack apply on save when it is safe,\n" +
-			"and in-TUI actions for stack lifecycle tasks. Use\n" +
+			"and in-TUI actions for stack lifecycle tasks. The Stacks pane\n" +
+			"lets you inspect saved profiles, switch the active stack, and\n" +
+			"remove profiles without leaving the dashboard. Use\n" +
 			"tab/shift+tab or h/l to\n" +
 			"change sections, use j/k or [ and ] to switch the active\n" +
-			"service inside split inspection panes, use c to copy service\n" +
-			"values, g to jump between services, : or ctrl+k for the\n" +
+			"item inside split inspection panes, use c to copy service\n" +
+			"values, g to jump between services or stack profiles, : or ctrl+k for the\n" +
 			"command palette, e for a service shell, d for the Postgres db\n" +
 			"shell, and press w from the service and health panels to open\n" +
 			"live logs for the selected compose service in the full terminal\n" +
@@ -153,6 +155,7 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config, source stacktui.C
 		LoadedAt:              time.Now(),
 		DoctorChecks:          []stacktui.DoctorCheck{},
 		Connections:           make([]stacktui.Connection, 0, len(connectionEntries(cfg))),
+		Stacks:                buildTUIStackProfiles(ctx),
 	}
 
 	runtimeReady := source == stacktui.ConfigSourceLoaded && len(issues) == 0 && !needsScaffold && strings.TrimSpace(scaffoldProblem) == ""
@@ -240,6 +243,28 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config, source stacktui.C
 	}
 
 	return snapshot
+}
+
+func buildTUIStackProfiles(ctx context.Context) []stacktui.StackProfile {
+	entries, err := discoverStackEntries(ctx)
+	if err != nil {
+		return nil
+	}
+
+	profiles := make([]stacktui.StackProfile, 0, len(entries))
+	for _, entry := range entries {
+		profiles = append(profiles, stacktui.StackProfile{
+			Name:       entry.Name,
+			ConfigPath: entry.ConfigPath,
+			Current:    entry.Current,
+			Configured: entry.Configured,
+			State:      entry.State,
+			Mode:       entry.Mode,
+			Services:   entry.Services,
+		})
+	}
+
+	return profiles
 }
 
 func validateTUIConfig(cfg configpkg.Config) []configpkg.ValidationIssue {

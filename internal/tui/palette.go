@@ -41,6 +41,7 @@ type paletteActionKind int
 const (
 	paletteActionSection paletteActionKind = iota
 	paletteActionSidebar
+	paletteActionJumpStack
 	paletteActionJumpService
 	paletteActionCopyValue
 	paletteActionWatchLogs
@@ -73,6 +74,7 @@ type paletteAction struct {
 	Search     string
 	Section    section
 	Action     ActionSpec
+	StackName  string
 	ServiceKey string
 	CopyTarget copyTargetKind
 }
@@ -217,6 +219,8 @@ func (a paletteAction) recentKey() string {
 	switch a.Kind {
 	case paletteActionSidebar:
 		return fmt.Sprintf("sidebar:%s", a.Action.ID)
+	case paletteActionJumpStack:
+		return fmt.Sprintf("stack:%s", a.StackName)
 	case paletteActionCopyValue:
 		return fmt.Sprintf("copy:%s:%s", a.ServiceKey, a.CopyTarget)
 	case paletteActionWatchLogs:
@@ -526,6 +530,32 @@ func (m Model) serviceJumpActions() []paletteAction {
 	return actions
 }
 
+func (m Model) stackJumpActions() []paletteAction {
+	actions := make([]paletteAction, 0, len(m.snapshot.Stacks))
+	for _, profile := range m.snapshot.Stacks {
+		subtitleParts := make([]string, 0, 3)
+		if profile.Current {
+			subtitleParts = append(subtitleParts, "Current")
+		}
+		if profile.Mode != "" && profile.Mode != "-" {
+			subtitleParts = append(subtitleParts, profile.Mode)
+		}
+		if profile.State != "" && profile.State != "-" {
+			subtitleParts = append(subtitleParts, profile.State)
+		}
+		subtitle := strings.Join(subtitleParts, "  •  ")
+		actions = append(actions, paletteAction{
+			Kind:      paletteActionJumpStack,
+			Title:     "Go to stack " + profile.Name,
+			Subtitle:  subtitle,
+			Search:    strings.ToLower(profile.Name + " stack " + subtitle + " " + profile.ConfigPath),
+			StackName: profile.Name,
+		})
+	}
+
+	return actions
+}
+
 func (m Model) commandPaletteActions() []paletteAction {
 	actions := make([]paletteAction, 0, 32)
 	actions = append(actions, m.recentPaletteActions()...)
@@ -603,11 +633,25 @@ func (m Model) commandPaletteActions() []paletteAction {
 			Section:  candidate,
 		})
 	}
+	actions = append(actions, m.stackJumpActions()...)
 	actions = append(actions, m.serviceJumpActions()...)
 
 	if m.runner != nil {
-		selected, hasSelected := m.selectedLifecycleService()
-		for _, action := range availableActions(m.snapshot, selected, hasSelected) {
+		if m.active != stacksSection {
+			if profile, ok := selectedStackProfile(m.snapshot, m.selectedStack); ok {
+				for _, action := range availableStackActions(profile, true) {
+					actions = append(actions, paletteAction{
+						Kind:      paletteActionSidebar,
+						Title:     action.Label,
+						Subtitle:  strings.TrimSpace(action.Group),
+						Search:    strings.ToLower(action.Label + " " + action.Group + " " + profile.Name),
+						Action:    action,
+						StackName: profile.Name,
+					})
+				}
+			}
+		}
+		for _, action := range m.availableSidebarActions() {
 			actions = append(actions, paletteAction{
 				Kind:     paletteActionSidebar,
 				Title:    action.Label,
@@ -671,6 +715,21 @@ func (m *Model) openCommandPalette() {
 }
 
 func (m *Model) openJumpPalette() tea.Cmd {
+	if m.active == stacksSection {
+		if len(m.snapshot.Stacks) == 0 {
+			bannerID := m.setBanner(output.StatusWarn, "no stack profiles are available to jump to")
+			m.palette = nil
+			return clearBannerCmd(bannerID)
+		}
+		m.palette = newPaletteState(
+			paletteModeJump,
+			"Jump to stack",
+			"Choose a stack profile",
+			m.stackJumpActions(),
+		)
+		return nil
+	}
+
 	if len(m.snapshot.Services) == 0 {
 		bannerID := m.setBanner(output.StatusWarn, "no services are available to jump to")
 		m.palette = nil
@@ -741,6 +800,12 @@ func (m *Model) executePaletteAction(action paletteAction) tea.Cmd {
 	switch action.Kind {
 	case paletteActionSection:
 		m.active = action.Section
+		m.resetViewportForActivePanel()
+		m.syncLayout()
+		return nil
+	case paletteActionJumpStack:
+		m.active = stacksSection
+		m.selectedStack = action.StackName
 		m.resetViewportForActivePanel()
 		m.syncLayout()
 		return nil
@@ -1062,7 +1127,7 @@ func (m Model) showProductivityHelp() bool {
 }
 
 func (m Model) showCopyHelp() bool {
-	if !m.activeHasSelectionList() {
+	if !m.activeHasServiceSelectionList() {
 		return false
 	}
 	service, ok := m.selectedProductivityService()
@@ -1070,7 +1135,7 @@ func (m Model) showCopyHelp() bool {
 }
 
 func (m Model) showExecShellHelp() bool {
-	if !m.activeHasSelectionList() {
+	if !m.activeHasServiceSelectionList() {
 		return false
 	}
 	service, ok := m.selectedProductivityService()
@@ -1078,7 +1143,7 @@ func (m Model) showExecShellHelp() bool {
 }
 
 func (m Model) showDBShellHelp() bool {
-	if !m.activeHasSelectionList() {
+	if !m.activeHasServiceSelectionList() {
 		return false
 	}
 	service, ok := m.selectedProductivityService()
@@ -1086,7 +1151,7 @@ func (m Model) showDBShellHelp() bool {
 }
 
 func (m Model) showPinHelp() bool {
-	if !m.activeHasSelectionList() {
+	if !m.activeHasServiceSelectionList() {
 		return false
 	}
 	_, ok := m.selectedProductivityService()

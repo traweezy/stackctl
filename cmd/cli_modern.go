@@ -21,6 +21,9 @@ const (
 	configGroupEdit      = "config-edit"
 	configGroupInspect   = "config-inspect"
 	configGroupMaintain  = "config-maintain"
+	stackGroupInspect    = "stack-inspect"
+	stackGroupSelect     = "stack-select"
+	stackGroupMaintain   = "stack-maintain"
 	dbGroupAccess        = "db-access"
 	dbGroupBackupRestore = "db-backup-restore"
 	dbGroupMaintain      = "db-maintain"
@@ -41,6 +44,14 @@ func configCommandGroups() []*cobra.Group {
 		{ID: configGroupEdit, Title: "Edit Commands"},
 		{ID: configGroupInspect, Title: "Inspect Commands"},
 		{ID: configGroupMaintain, Title: "Maintenance Commands"},
+	}
+}
+
+func stackCommandGroups() []*cobra.Group {
+	return []*cobra.Group{
+		{ID: stackGroupInspect, Title: "Inspect Commands"},
+		{ID: stackGroupSelect, Title: "Selection Commands"},
+		{ID: stackGroupMaintain, Title: "Maintenance Commands"},
 	}
 }
 

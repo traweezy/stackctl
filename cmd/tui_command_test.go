@@ -45,6 +45,9 @@ func TestLoadTUISnapshotBuildsReadOnlyDashboardState(t *testing.T) {
 	if snapshot.StackName != "dev-stack" || !snapshot.Managed {
 		t.Fatalf("unexpected snapshot metadata: %+v", snapshot)
 	}
+	if len(snapshot.Stacks) != 1 || snapshot.Stacks[0].Name != "dev-stack" || !snapshot.Stacks[0].Current {
+		t.Fatalf("expected snapshot stacks to include the current profile, got %+v", snapshot.Stacks)
+	}
 	if len(snapshot.Services) != 5 {
 		t.Fatalf("expected 5 services in snapshot, got %d", len(snapshot.Services))
 	}
@@ -69,9 +72,10 @@ func TestTUICmdHelpDocumentsInspectionPanelsAndLiveLogs(t *testing.T) {
 	}
 	collapsed := strings.Join(strings.Fields(stdout), " ")
 	for _, fragment := range []string{
-		"overview, config, services, health, and action history",
+		"overview, stacks, config, services, health, and action history",
 		"services pane includes host ports, URLs, DSNs, copy actions, shell handoff, and live-log handoff",
-		"switch the active service inside split inspection panes",
+		"Stacks pane lets you inspect saved profiles, switch the active stack, and remove profiles",
+		"switch the active item inside split inspection panes",
 		"press w from the service and health panels to open live logs",
 	} {
 		if !strings.Contains(collapsed, fragment) {

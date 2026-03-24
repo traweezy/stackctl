@@ -19,7 +19,7 @@ import (
 
 func TestDefaultCommandDepsProvidesHooks(t *testing.T) {
 	value := defaultCommandDeps()
-	if value.configDirPath == nil || value.configFilePath == nil || value.knownConfigPaths == nil || value.composeUp == nil || value.composeUpServices == nil || value.composeStopServices == nil || value.composeExec == nil || value.removeFile == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
+	if value.configDirPath == nil || value.configFilePath == nil || value.configFilePathForStack == nil || value.knownConfigPaths == nil || value.currentStackName == nil || value.setCurrentStackName == nil || value.composeUp == nil || value.composeUpServices == nil || value.composeStopServices == nil || value.composeExec == nil || value.removeFile == nil || value.removeAll == nil || value.mkdirAll == nil || value.rename == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
 		t.Fatal("default command deps should initialize function hooks")
 	}
 }

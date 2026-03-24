@@ -47,6 +47,17 @@ type Snapshot struct {
 	DoctorSummary         DoctorSummary
 	DoctorChecks          []DoctorCheck
 	Connections           []Connection
+	Stacks                []StackProfile
+}
+
+type StackProfile struct {
+	Name       string
+	ConfigPath string
+	Current    bool
+	Configured bool
+	State      string
+	Mode       string
+	Services   string
 }
 
 type Service struct {
@@ -94,6 +105,7 @@ type section int
 
 const (
 	overviewSection section = iota
+	stacksSection
 	configSection
 	servicesSection
 	healthSection
@@ -118,6 +130,7 @@ func (m layoutMode) String() string {
 
 var sections = []section{
 	overviewSection,
+	stacksSection,
 	configSection,
 	servicesSection,
 	healthSection,
@@ -128,6 +141,8 @@ func (s section) Title() string {
 	switch s {
 	case overviewSection:
 		return "Overview"
+	case stacksSection:
+		return "Stacks"
 	case configSection:
 		return "Config"
 	case servicesSection:
@@ -221,11 +236,11 @@ func defaultKeyMap() keyMap {
 		),
 		QuickJump: key.NewBinding(
 			key.WithKeys("g"),
-			key.WithHelp("g", "jump to service"),
+			key.WithHelp("g", "jump"),
 		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),
-			key.WithHelp("/", "search services"),
+			key.WithHelp("/", "search"),
 		),
 		CopyValue: key.NewBinding(
 			key.WithKeys("c"),
@@ -355,6 +370,7 @@ type Model struct {
 	history          []historyEntry
 	nextHistoryID    int
 	nextBannerID     int
+	selectedStack    string
 	selectedService  string
 	selectedHealth   string
 	pinnedServices   map[string]struct{}
@@ -542,14 +558,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncLayout()
 			return m, cmd
 		case key.Matches(msg, m.keys.CopyValue):
-			if m.active == configSection || !m.activeHasSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+			if m.active == configSection || !m.activeHasServiceSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			cmd := m.openCopyPalette()
 			m.syncLayout()
 			return m, cmd
 		case key.Matches(msg, m.keys.ExecShell):
-			if m.active == configSection || !m.activeHasSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+			if m.active == configSection || !m.activeHasServiceSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			service, ok := m.selectedProductivityService()
@@ -564,7 +580,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncLayout()
 			return m, cmd
 		case key.Matches(msg, m.keys.DBShell):
-			if m.active == configSection || !m.activeHasSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+			if m.active == configSection || !m.activeHasServiceSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			service, ok := m.selectedProductivityService()
@@ -579,7 +595,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncLayout()
 			return m, cmd
 		case key.Matches(msg, m.keys.PinService):
-			if m.active == configSection || !m.activeHasSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+			if m.active == configSection || !m.activeHasServiceSelectionList() || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
 				return m, nil
 			}
 			service, ok := m.selectedProductivityService()
@@ -597,8 +613,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !ok {
 				return m, nil
 			}
-			selected, hasSelected := m.selectedLifecycleService()
-			actions := availableActions(m.snapshot, selected, hasSelected)
+			actions := m.availableSidebarActions()
 			if index >= len(actions) {
 				return m, nil
 			}
@@ -944,9 +959,19 @@ func (m Model) refreshInterval() time.Duration {
 func (m *Model) normalizeSelections() {
 	m.selectedService = pickSelectedName(m.selectedService, selectableServiceNames(m.snapshot))
 	m.selectedHealth = pickSelectedName(m.selectedHealth, selectableServiceNames(m.snapshot))
+	m.selectedStack = pickSelectedName(m.selectedStack, selectableStackNames(m.snapshot))
 }
 
 func (m Model) activeHasSelectionList() bool {
+	switch m.active {
+	case stacksSection, servicesSection, healthSection:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m Model) activeHasServiceSelectionList() bool {
 	switch m.active {
 	case servicesSection, healthSection:
 		return true
@@ -961,6 +986,9 @@ func (m *Model) resetViewportForActivePanel() {
 
 func (m *Model) cycleActiveSelection(step int) tea.Cmd {
 	switch m.active {
+	case stacksSection:
+		m.selectedStack = cycleSelectedName(m.selectedStack, selectableStackNames(m.snapshot), step)
+		return nil
 	case servicesSection:
 		m.selectedService = cycleSelectedName(m.selectedService, selectableServiceNames(m.snapshot), step)
 		return nil
@@ -1091,6 +1119,8 @@ func (m Model) currentContent() string {
 	switch m.active {
 	case overviewSection:
 		blocks = append(blocks, renderOverview(m.snapshot, m.layout))
+	case stacksSection:
+		blocks = append(blocks, renderStacks(m.snapshot, m.selectedStack, m.layout, contentWidth))
 	case configSection:
 		if m.configManager == nil {
 			blocks = append(blocks, renderConfigUnavailable())

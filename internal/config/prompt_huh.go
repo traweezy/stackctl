@@ -287,7 +287,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 				Title("Postgres password").
 				Description("Password used in DSNs, shell helpers, and the managed Postgres environment.").
 				Value(&state.PostgresPassword).
-				Password(true).
+				EchoMode(huh.EchoModePassword).
 				Validate(nonEmpty),
 		).
 			Title("Postgres").
@@ -334,7 +334,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 				Title("Redis password").
 				Description("Optional. Leave blank to keep Redis auth disabled.").
 				Value(&state.RedisPassword).
-				Password(true),
+				EchoMode(huh.EchoModePassword),
 		).
 			Title("Redis").
 			Description("Tune local cache behavior and optional authentication for Redis.").
@@ -359,7 +359,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 				Title("NATS auth token").
 				Description("Used in the managed `nats.conf`, shown in the NATS DSN, and available through copy helpers.").
 				Value(&state.NATSToken).
-				Password(true).
+				EchoMode(huh.EchoModePassword).
 				Validate(nonEmpty),
 		).
 			Title("NATS").
@@ -399,7 +399,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 				Title("pgAdmin password").
 				Description("Login password for the managed pgAdmin instance.").
 				Value(&state.PgAdminPassword).
-				Password(true).
+				EchoMode(huh.EchoModePassword).
 				Validate(nonEmpty),
 		).
 			Title("pgAdmin").

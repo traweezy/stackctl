@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +16,15 @@ import (
 )
 
 func runTUIAction(action stacktui.ActionID) (stacktui.ActionReport, error) {
+	if verb, stackName, ok := stacktuiStackAction(action); ok {
+		switch verb {
+		case "use":
+			return runTUIUseStack(stackName)
+		case "delete":
+			return runTUIDeleteStack(stackName)
+		}
+	}
+
 	_, cfg, err := loadTUIConfig()
 	if err != nil {
 		return stacktui.ActionReport{}, err
@@ -57,6 +67,80 @@ func quietRunner() system.Runner {
 
 func stacktuiServiceAction(action stacktui.ActionID) (string, string, bool) {
 	return stacktui.ServiceActionTarget(action)
+}
+
+func stacktuiStackAction(action stacktui.ActionID) (string, string, bool) {
+	return stacktui.StackActionTarget(action)
+}
+
+func runTUIUseStack(stackName string) (stacktui.ActionReport, error) {
+	if err := deps.setCurrentStackName(stackName); err != nil {
+		return stacktui.ActionReport{}, err
+	}
+	if err := os.Setenv(configpkg.StackNameEnvVar, stackName); err != nil {
+		return stacktui.ActionReport{}, err
+	}
+
+	configPath, err := deps.configFilePathForStack(stackName)
+	if err != nil {
+		return stacktui.ActionReport{}, err
+	}
+
+	report := stacktui.ActionReport{
+		Status:  output.StatusOK,
+		Message: fmt.Sprintf("selected stack %s", stackName),
+		Details: []string{fmt.Sprintf("Config: %s", configPath)},
+		Refresh: true,
+	}
+
+	if _, exists, err := loadExistingConfig(configPath); err == nil && !exists {
+		report.Details = append(report.Details, "No config exists yet. Open Config to create it.")
+	}
+
+	return report, nil
+}
+
+func runTUIDeleteStack(stackName string) (stacktui.ActionReport, error) {
+	target, err := resolveStackTarget(stackName)
+	if err != nil {
+		return stacktui.ActionReport{}, err
+	}
+	if !target.Exists {
+		return stacktui.ActionReport{}, fmt.Errorf("stack %s does not exist", stackName)
+	}
+
+	purgeData := target.LoadErr == nil && target.Config.Stack.Managed
+	if !purgeData && target.LoadErr == nil {
+		if services, err := runningStackServices(context.Background(), target.Config); err == nil && len(services) > 0 {
+			return stacktui.ActionReport{}, fmt.Errorf("stack %s is running (%s); stop it before deleting the profile", stackName, strings.Join(services, ", "))
+		}
+	}
+
+	result, err := deleteStackTarget(context.Background(), target, purgeData)
+	if err != nil {
+		return stacktui.ActionReport{}, err
+	}
+
+	details := []string{fmt.Sprintf("Config: %s", result.ConfigPath)}
+	if result.PurgedDataDir != "" {
+		details = append(details, fmt.Sprintf("Purged managed data: %s", result.PurgedDataDir))
+	}
+	if result.ManagedDataKept != "" {
+		details = append(details, fmt.Sprintf("Managed data still exists: %s", result.ManagedDataKept))
+	}
+	if result.ResetToDefault {
+		if err := os.Setenv(configpkg.StackNameEnvVar, configpkg.DefaultStackName); err != nil {
+			return stacktui.ActionReport{}, err
+		}
+		details = append(details, fmt.Sprintf("Selected stack reset to %s", configpkg.DefaultStackName))
+	}
+
+	return stacktui.ActionReport{
+		Status:  output.StatusOK,
+		Message: fmt.Sprintf("deleted stack %s", stackName),
+		Details: details,
+		Refresh: true,
+	}, nil
 }
 
 func runTUIStart(cfg configpkg.Config, services []string) (stacktui.ActionReport, error) {

@@ -27,7 +27,7 @@ func TestTUIConfigPTYCanCreateAndScaffoldFromScratch(t *testing.T) {
 	env := cliTestEnv(t, configRoot, dataRoot)
 
 	output, err := runStackctlPTYSteps(t, binaryPath, env, []ptyStep{
-		{Delay: 250 * time.Millisecond, Input: "\t"},
+		{Delay: 250 * time.Millisecond, Input: "\t\t"},
 		{Delay: 150 * time.Millisecond, Input: "g"},
 		{Delay: 800 * time.Millisecond, Input: "\x03"},
 	}, "tui")
@@ -60,7 +60,7 @@ func TestTUIConfigPTYCanApplyFreshConfig(t *testing.T) {
 	env := cliTestEnv(t, configRoot, dataRoot)
 
 	output, err := runStackctlPTYSteps(t, binaryPath, env, []ptyStep{
-		{Delay: 250 * time.Millisecond, Input: "\t"},
+		{Delay: 250 * time.Millisecond, Input: "\t\t"},
 		{Delay: 150 * time.Millisecond, Input: "A"},
 		{Delay: 800 * time.Millisecond, Input: "\x03"},
 	}, "tui")
@@ -93,7 +93,7 @@ func TestTUIConfigPTYCanTypeNAndSave(t *testing.T) {
 	env := cliTestEnv(t, configRoot, dataRoot)
 
 	output, err := runStackctlPTYSteps(t, binaryPath, env, []ptyStep{
-		{Delay: 250 * time.Millisecond, Input: "\t"},
+		{Delay: 250 * time.Millisecond, Input: "\t\t"},
 		{Delay: 150 * time.Millisecond, Input: "\r"},
 		{Delay: 150 * time.Millisecond, Input: "n"},
 		{Delay: 150 * time.Millisecond, Input: "\r"},

@@ -23,11 +23,21 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 	testDeps.isTerminal = func() bool { return false }
 	testDeps.configDirPath = func() (string, error) { return "/tmp/stackctl", nil }
 	testDeps.configFilePath = func() (string, error) { return "/tmp/stackctl/config.yaml", nil }
+	testDeps.configFilePathForStack = func(name string) (string, error) {
+		if name == configpkg.DefaultStackName {
+			return "/tmp/stackctl/config.yaml", nil
+		}
+		return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+	}
 	testDeps.knownConfigPaths = func() ([]string, error) { return []string{"/tmp/stackctl/config.yaml"}, nil }
 	testDeps.dataDirPath = func() (string, error) { return "/tmp/stackctl-data", nil }
+	testDeps.currentStackName = func() (string, error) { return configpkg.DefaultStackName, nil }
+	testDeps.setCurrentStackName = func(string) error { return nil }
 	testDeps.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Config{}, configpkg.ErrNotFound }
 	testDeps.saveConfig = func(string, configpkg.Config) error { return nil }
 	testDeps.removeAll = func(string) error { return nil }
+	testDeps.mkdirAll = func(string, os.FileMode) error { return nil }
+	testDeps.rename = func(string, string) error { return nil }
 	testDeps.marshalConfig = func(configpkg.Config) ([]byte, error) { return []byte("test: true\n"), nil }
 	testDeps.defaultConfig = func() configpkg.Config { return configpkg.DefaultForStack(configpkg.DefaultStackName) }
 	testDeps.validateConfig = func(configpkg.Config) []configpkg.ValidationIssue { return nil }
@@ -92,6 +102,15 @@ func executeAppRoot(t *testing.T, app *App, args ...string) (string, string, err
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
 	root.SetArgs(args)
+
+	originalStack, hadStack := os.LookupEnv(configpkg.StackNameEnvVar)
+	t.Cleanup(func() {
+		if hadStack {
+			_ = os.Setenv(configpkg.StackNameEnvVar, originalStack)
+			return
+		}
+		_ = os.Unsetenv(configpkg.StackNameEnvVar)
+	})
 
 	err := root.Execute()
 	return stdout.String(), stderr.String(), err

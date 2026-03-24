@@ -67,8 +67,14 @@ func TestModelNavigatesSectionsAndRefreshes(t *testing.T) {
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
 	current = updatedModel.(Model)
+	if current.active != stacksSection {
+		t.Fatalf("expected stacks section, got %v", current.active)
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	current = updatedModel.(Model)
 	if current.active != configSection {
-		t.Fatalf("expected config section, got %v", current.active)
+		t.Fatalf("expected config section after stacks, got %v", current.active)
 	}
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
@@ -85,8 +91,14 @@ func TestModelNavigatesSectionsAndRefreshes(t *testing.T) {
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	current = updatedModel.(Model)
+	if current.active != stacksSection {
+		t.Fatalf("expected stacks section on the way back, got %v", current.active)
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	current = updatedModel.(Model)
 	if current.active != overviewSection {
-		t.Fatalf("expected overview section after config, got %v", current.active)
+		t.Fatalf("expected overview section after stacks, got %v", current.active)
 	}
 
 	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
@@ -684,10 +696,63 @@ func TestFooterViewWrapsShortHelpAcrossLines(t *testing.T) {
 	if strings.Contains(footer, "…") {
 		t.Fatalf("expected wrapped footer help instead of truncation:\n%s", footer)
 	}
-	for _, fragment := range []string{"palette", "jump to service", "copy value", "watch logs", "service shell", "db shell", "pin service"} {
+	for _, fragment := range []string{"palette", "jump", "copy value", "watch logs", "service shell", "db shell", "pin service"} {
 		if !strings.Contains(footer, fragment) {
 			t.Fatalf("expected wrapped footer to contain %q:\n%s", fragment, footer)
 		}
+	}
+}
+
+func TestStacksFooterOmitsServiceShortcutsAndIgnoresCopyKey(t *testing.T) {
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(LogWatchRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		nil,
+	).WithProductivity(
+		func(string) error { return nil },
+		func(ServiceShellRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		func(DBShellRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName: "dev-stack",
+		Stacks: []StackProfile{
+			{Name: "demo", Configured: true, Mode: "managed", State: "stopped"},
+			{Name: "dev-stack", Current: true, Configured: true, Mode: "managed", State: "stopped"},
+		},
+		Services: []Service{
+			{
+				Name:          "postgres",
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				DSN:           "postgres://app:secret@localhost:5432/app",
+			},
+		},
+	}
+	current.active = stacksSection
+	current.normalizeSelections()
+	current.syncLayout()
+
+	footer := stripANSITest(current.footerView())
+	for _, fragment := range []string{"copy value", "service shell", "db shell", "pin service", "watch logs"} {
+		if strings.Contains(footer, fragment) {
+			t.Fatalf("expected stacks footer to omit %q:\n%s", fragment, footer)
+		}
+	}
+	if !strings.Contains(footer, "g jump") {
+		t.Fatalf("expected stacks footer to retain jump help:\n%s", footer)
+	}
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	current = updatedModel.(Model)
+	if cmd != nil {
+		t.Fatalf("expected copy shortcut to be ignored from stacks section")
+	}
+	if current.palette != nil {
+		t.Fatalf("expected stacks section copy shortcut to leave palette closed")
 	}
 }
 
@@ -1195,6 +1260,100 @@ func TestOverviewExpandedLayoutShowsPathsAndManagedMode(t *testing.T) {
 		if !strings.Contains(view, fragment) {
 			t.Fatalf("expected expanded overview to contain %q:\n%s", fragment, view)
 		}
+	}
+}
+
+func TestStacksViewShowsProfilesAndContextualActions(t *testing.T) {
+	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
+		return ActionReport{}, nil
+	})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Stacks: []StackProfile{
+			{
+				Name:       "dev-stack",
+				ConfigPath: "/tmp/stackctl/config.yaml",
+				Current:    true,
+				Configured: true,
+				State:      "running",
+				Mode:       "managed",
+				Services:   "Postgres, Redis",
+			},
+			{
+				Name:       "staging",
+				ConfigPath: "/tmp/stackctl/stacks/staging.yaml",
+				Configured: true,
+				State:      "stopped",
+				Mode:       "managed",
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	current = navigateToSection(t, current, stacksSection)
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"Stacks",
+		"Stack list",
+		"dev-stack",
+		"staging",
+		"Current: yes",
+		"Running services: Postgres, Redis",
+		"Managed profiles also purge stackctl-owned local data.",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected stacks section to contain %q:\n%s", fragment, view)
+		}
+	}
+
+	sidebar := renderSidebar(current)
+	if !strings.Contains(sidebar, "[1] Delete dev-stack") {
+		t.Fatalf("expected sidebar to expose stack delete action:\n%s", sidebar)
+	}
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	current = updatedModel.(Model)
+	sidebar = renderSidebar(current)
+	for _, fragment := range []string{"[1] Use staging", "[2] Delete staging"} {
+		if !strings.Contains(sidebar, fragment) {
+			t.Fatalf("expected selected stack actions %q:\n%s", fragment, sidebar)
+		}
+	}
+}
+
+func TestOpenJumpPaletteUsesStackProfilesFromStacksSection(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Stacks: []StackProfile{
+			{Name: "dev-stack", Current: true, Configured: true, State: "running", Mode: "managed"},
+			{Name: "staging", Configured: true, State: "stopped", Mode: "managed"},
+		},
+	}
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	current = navigateToSection(t, current, stacksSection)
+
+	current.openJumpPalette()
+	if current.palette == nil {
+		t.Fatal("expected stack jump palette")
+	}
+	if current.palette.title != "Jump to stack" {
+		t.Fatalf("unexpected palette title: %+v", current.palette)
+	}
+	if len(current.palette.items) != 2 {
+		t.Fatalf("expected stack jump items, got %+v", current.palette.items)
+	}
+	if current.palette.items[0].Kind != paletteActionJumpStack {
+		t.Fatalf("expected stack jump action, got %+v", current.palette.items[0])
 	}
 }
 
@@ -2811,6 +2970,16 @@ func configSnapshot(cfg configpkg.Config, source ConfigSourceState, problem stri
 		WaitForServices:   cfg.Behavior.WaitForServicesStart,
 		StartupTimeoutSec: cfg.Behavior.StartupTimeoutSec,
 		LoadedAt:          time.Now(),
+		Stacks: []StackProfile{
+			{
+				Name:       cfg.Stack.Name,
+				ConfigPath: "/tmp/stackctl/config.yaml",
+				Current:    true,
+				Configured: true,
+				State:      "stopped",
+				Mode:       overviewModeLabel(cfg.Stack.Managed),
+			},
+		},
 	}
 }
 

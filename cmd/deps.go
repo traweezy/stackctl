@@ -17,12 +17,17 @@ type commandDeps struct {
 	isTerminal                func() bool
 	configDirPath             func() (string, error)
 	configFilePath            func() (string, error)
+	configFilePathForStack    func(string) (string, error)
 	knownConfigPaths          func() ([]string, error)
 	dataDirPath               func() (string, error)
+	currentStackName          func() (string, error)
+	setCurrentStackName       func(string) error
 	loadConfig                func(string) (configpkg.Config, error)
 	saveConfig                func(string, configpkg.Config) error
 	removeFile                func(string) error
 	removeAll                 func(string) error
+	mkdirAll                  func(string, os.FileMode) error
+	rename                    func(string, string) error
 	marshalConfig             func(configpkg.Config) ([]byte, error)
 	defaultConfig             func() configpkg.Config
 	validateConfig            func(configpkg.Config) []configpkg.ValidationIssue
@@ -58,17 +63,22 @@ type commandDeps struct {
 
 func defaultCommandDeps() commandDeps {
 	return commandDeps{
-		stdin:            os.Stdin,
-		isTerminal:       defaultTerminalInteractive,
-		configDirPath:    configpkg.ConfigDirPath,
-		configFilePath:   configpkg.ConfigFilePath,
-		knownConfigPaths: configpkg.KnownConfigPaths,
-		dataDirPath:      configpkg.DataDirPath,
-		loadConfig:       configpkg.Load,
-		saveConfig:       configpkg.Save,
-		removeFile:       os.Remove,
-		removeAll:        os.RemoveAll,
-		marshalConfig:    configpkg.Marshal,
+		stdin:                  os.Stdin,
+		isTerminal:             defaultTerminalInteractive,
+		configDirPath:          configpkg.ConfigDirPath,
+		configFilePath:         configpkg.ConfigFilePath,
+		configFilePathForStack: configpkg.ConfigFilePathForStack,
+		knownConfigPaths:       configpkg.KnownConfigPaths,
+		dataDirPath:            configpkg.DataDirPath,
+		currentStackName:       configpkg.CurrentStackName,
+		setCurrentStackName:    configpkg.SetCurrentStackName,
+		loadConfig:             configpkg.Load,
+		saveConfig:             configpkg.Save,
+		removeFile:             os.Remove,
+		removeAll:              os.RemoveAll,
+		mkdirAll:               os.MkdirAll,
+		rename:                 os.Rename,
+		marshalConfig:          configpkg.Marshal,
 		defaultConfig: func() configpkg.Config {
 			return configpkg.DefaultForStack(configpkg.SelectedStackName())
 		},

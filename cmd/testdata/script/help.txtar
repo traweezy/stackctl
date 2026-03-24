@@ -5,6 +5,7 @@ stdout 'stackctl services'
 stdout 'stackctl exec postgres -- psql -U app -d app'
 stdout 'factory-reset'
 stdout 'completion'
+stdout 'stack'
 stdout 'Lifecycle Commands'
 stdout 'Inspect Commands'
 stdout '--stack'
@@ -43,6 +44,13 @@ stdout '--verbose'
 exec stackctl config init --help
 stdout '--force'
 stdout '--non-interactive'
+
+exec stackctl stack --help
+stdout 'stack list'
+stdout 'stack current'
+stdout 'stack use staging'
+stdout 'Selection Commands'
+stdout 'Maintenance Commands'
 
 exec stackctl logs --help
 stdout '--service'

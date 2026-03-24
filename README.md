@@ -254,7 +254,7 @@ Managed service defaults also include:
 
 Change them with `stackctl config edit` or by editing the current stack config
 returned by `stackctl config path`. For named stacks, select the target first
-with `--stack <name>` or `STACKCTL_STACK=<name>`.
+with `--stack <name>`, `STACKCTL_STACK=<name>`, or `stackctl stack use <name>`.
 
 ## Where files live
 
@@ -262,6 +262,7 @@ By default, `stackctl` uses standard Linux user directories:
 
 - default stack config file: `~/.config/stackctl/config.yaml`
 - named stack config files: `~/.config/stackctl/stacks/<name>.yaml`
+- saved current stack selection: `~/.config/stackctl/current-stack`
 - managed data root: `~/.local/share/stackctl`
 - default managed stack directory: `~/.local/share/stackctl/stacks/dev-stack`
 - named managed stack directory: `~/.local/share/stackctl/stacks/<name>`
@@ -274,8 +275,9 @@ If `XDG_DATA_HOME` is set, managed stack data is stored under
 `$XDG_DATA_HOME/stackctl` instead.
 
 Use `stackctl config path` to print the exact config file for the current stack.
-Use `stackctl --stack <name> config path` or `STACKCTL_STACK=<name> stackctl
-config path` for named stacks.
+Use `stackctl --stack <name> config path`,
+`STACKCTL_STACK=<name> stackctl config path`, or `stackctl stack use <name>`
+plus `stackctl config path` for named stacks.
 
 Non-default managed stacks also derive stack-specific container and volume
 names, such as `stackctl-staging-postgres` and
@@ -331,14 +333,15 @@ stackctl health
 stackctl logs --watch
 ```
 
-If you want separate local environments, create named stacks and select them
-with `--stack` or `STACKCTL_STACK`:
+If you want separate local environments, create named stacks and either target
+them ad hoc with `--stack` or make one the saved default with `stack use`:
 
 ```bash
-stackctl --stack staging config init --non-interactive
-stackctl --stack staging start
-stackctl --stack staging services
-stackctl --stack staging stop
+stackctl stack use staging
+stackctl config init --non-interactive
+stackctl start
+stackctl services
+stackctl stop
 ```
 
 Only one local stack is allowed to run at a time. If `staging` is running,
@@ -359,13 +362,18 @@ Root flags:
 
 | Flag | Meaning |
 | --- | --- |
-| `--stack` | Select a named stack config. The default stack uses `~/.config/stackctl/config.yaml`; named stacks use `~/.config/stackctl/stacks/<name>.yaml`. |
+| `--stack` | Select a named stack config for this command only. The default stack uses `~/.config/stackctl/config.yaml`; named stacks use `~/.config/stackctl/stacks/<name>.yaml`. |
 | `-h`, `--help` | Show help for `stackctl` |
 | `-v`, `--version` | Print the short version string |
 
-`--stack` and `STACKCTL_STACK` select the same stack. If both are set, the
-flag wins. Stack names must use lowercase letters, numbers, hyphens, or
-underscores.
+Selection precedence is:
+
+1. `--stack`
+2. `STACKCTL_STACK`
+3. the saved current stack from `stackctl stack use`
+4. the default stack (`dev-stack`)
+
+Stack names must use lowercase letters, numbers, hyphens, or underscores.
 
 `stackctl --help` now groups commands into lifecycle, inspect, operate,
 setup/config, and utility sections so the command surface is easier to scan.
@@ -384,7 +392,10 @@ global stack actions. Lifecycle and config operations run in the background,
 update the header status, and write a session-local action history you can
 review inside the dashboard. The header now carries clearer section context,
 `Services` includes a quick running/stopped/attention summary, and the detail
-panes use explicit subsections so service inspection is easier to scan.
+panes use explicit subsections so service inspection is easier to scan. The
+`Stacks` section gives you a proper profile browser inside the TUI so you can
+inspect saved stacks, switch the active stack, and delete profiles without
+leaving the dashboard.
 
 Examples:
 
@@ -396,7 +407,7 @@ Keys:
 
 - `tab`, `l`, `right` to move to the next section
 - `shift+tab`, `h`, `left` to move to the previous section
-- `j`, `k`, `[`, and `]` to switch the active field, service, or health target inside the current pane
+- `j`, `k`, `[`, and `]` to switch the active field, stack profile, service, or health target inside the current pane
 - `1` through `9` to run the sidebar actions
 - `enter`, `e` to edit or toggle the selected field in `Config`
 - `esc` to cancel an in-progress field edit in `Config`
@@ -404,13 +415,13 @@ Keys:
 - `x` to reset the current config draft
 - `u` to apply derived defaults to the current config draft
 - `p` in `Config` to preview the config diff, or in `Services` and `Health` to pin or unpin the selected service
-- `g` in `Config` to save the current draft and scaffold the managed stack when managed scaffolding is enabled and relevant, or elsewhere to jump to a service
+- `g` in `Config` to save the current draft and scaffold the managed stack when managed scaffolding is enabled and relevant, or elsewhere to jump to a stack profile or service
 - `G` to save the current draft and force-refresh the managed stack scaffold when managed scaffolding is enabled and relevant
 - `y`, `enter` to confirm a stop or restart action
 - `n`, `esc` to cancel a pending confirmation
 - `r` to refresh
 - `:`, `ctrl+k` to open the command palette
-- `/` to open the service search and jump picker
+- `/` to open the search and jump picker for the current pane
 - `c` to copy a DSN, URL, port, or credential from the selected service
 - `e` to open a shell inside the selected stack service
 - `d` to open `psql` for the selected Postgres service
@@ -595,11 +606,89 @@ Named stacks:
 
 - the default stack resolves to `~/.config/stackctl/config.yaml`
 - named stacks resolve to `~/.config/stackctl/stacks/<name>.yaml`
-- `--stack <name>` and `STACKCTL_STACK=<name>` both select the current stack
+- `stackctl stack use <name>` persists the current stack for later commands
+- `--stack <name>` and `STACKCTL_STACK=<name>` both override that saved choice
 - stack names use lowercase letters, numbers, hyphens, or underscores
 - managed named stacks scaffold under `~/.local/share/stackctl/stacks/<name>`
 - only one local stack is allowed to run at a time; stop the current one
   before starting another
+
+### `stackctl stack`
+
+Manage named stack profiles and the saved current stack selection.
+
+Examples:
+
+```bash
+stackctl stack list
+stackctl stack current
+stackctl stack use staging
+stackctl stack clone dev-stack demo
+stackctl stack rename demo qa
+stackctl stack delete qa --purge-data --force
+```
+
+Subcommands:
+
+| Subcommand | What it does |
+| --- | --- |
+| `stack list` | List configured stacks and the active selection |
+| `stack current` | Print the active stack selection |
+| `stack use` | Persist a stack as the default selection |
+| `stack delete` | Delete a stack config and optionally purge managed data |
+| `stack rename` | Rename a stack profile |
+| `stack clone` | Copy a stack profile into a new stack |
+
+Use `stackctl config edit`, `stackctl config view`, `stackctl config validate`,
+or `stackctl tui` after selecting a stack when you want to modify or inspect
+that stack in depth.
+
+#### `stackctl stack list`
+
+List configured stack profiles and the active selection.
+
+The table shows which stack is active, whether each profile is managed or
+external, whether it looks running, and which config path owns it.
+
+#### `stackctl stack current`
+
+Print the active stack selection after applying the same precedence as the rest
+of the CLI.
+
+#### `stackctl stack use`
+
+Persist a stack as the default selection for later commands. Choosing
+`dev-stack` clears the saved selector file and falls back to the implicit
+default.
+
+Examples:
+
+```bash
+stackctl stack use staging
+stackctl stack use dev-stack
+```
+
+#### `stackctl stack delete`
+
+Delete a stack profile config. Add `--purge-data` to also stop and remove the
+stackctl-managed local stack directory and volumes for that profile.
+
+Without `--purge-data`, deleting a managed stack only removes the config file.
+The command warns when managed local data is still present. If the stack is
+currently running, `stack delete` refuses to continue unless you also request
+`--purge-data`.
+
+#### `stackctl stack rename`
+
+Rename a stack profile. For managed stacks, this also moves the managed stack
+directory, refreshes the generated compose files, and updates the saved current
+selection if the renamed stack was active.
+
+#### `stackctl stack clone`
+
+Clone a stack profile into a new stack. For managed stacks, the cloned profile
+gets its own managed directory, container names, and volume names so it does
+not collide with the source stack.
 
 #### `stackctl config view`
 
@@ -1137,6 +1226,8 @@ If you only remember a few commands, these are the ones most people will use:
 - `stackctl start`: bring the stack or selected services up
 - `stackctl services`: see the full runtime picture
 - `stackctl connect`: copy DSNs and URLs quickly
+- `stackctl stack list`: see every configured stack and which one is active
+- `stackctl stack use staging`: switch your saved default stack cleanly
 - `stackctl services --copy postgres`: send a ready-to-use value straight to the clipboard
 - `stackctl services --copy nats`: send the configured NATS DSN straight to the clipboard
 - `stackctl db shell`: jump straight into `psql`
@@ -1307,6 +1398,8 @@ Available today:
 - configurable pgAdmin server-mode settings
 - named stacks via `--stack` or `STACKCTL_STACK`, with stack-specific managed
   paths, container names, and volume names
+- persisted stack selection plus `stack list/current/use/delete/rename/clone`
+  for profile-level stack management
 - per-service `start`, `stop`, and `restart` in both the CLI and the TUI for
   stack-managed services
 - a one-local-stack-at-a-time safety guard when starting or restarting stacks
@@ -1340,6 +1433,7 @@ Current CLI surface:
 - `open`
 - `reset`
 - `factory-reset`
+- `stack`
 - `config`
 - `version`
 

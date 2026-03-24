@@ -55,6 +55,18 @@ func selectableServiceNames(snapshot Snapshot) []string {
 	return names
 }
 
+func selectableStackNames(snapshot Snapshot) []string {
+	names := make([]string, 0, len(snapshot.Stacks))
+	for _, profile := range snapshot.Stacks {
+		if strings.TrimSpace(profile.Name) == "" {
+			continue
+		}
+		names = append(names, profile.Name)
+	}
+
+	return names
+}
+
 func pickSelectedName(selected string, available []string) string {
 	if len(available) == 0 {
 		return ""
@@ -97,6 +109,20 @@ func selectedService(snapshot Snapshot, selected string) (Service, bool) {
 	}
 
 	return Service{}, false
+}
+
+func selectedStackProfile(snapshot Snapshot, selected string) (StackProfile, bool) {
+	name := pickSelectedName(selected, selectableStackNames(snapshot))
+	if name == "" {
+		return StackProfile{}, false
+	}
+	for _, profile := range snapshot.Stacks {
+		if profile.Name == name {
+			return profile, true
+		}
+	}
+
+	return StackProfile{}, false
 }
 
 func splitPaneWidths(width int, minListPaneWidth int, maxListPaneWidth int) (int, int, bool) {
@@ -185,6 +211,27 @@ func doctorSummaryLine(summary DoctorSummary) string {
 	}, " ")
 }
 
+func renderStacks(snapshot Snapshot, selected string, layout layoutMode, width int) string {
+	lines := []string{sectionTitleStyle().Render("Stacks"), ""}
+	if len(snapshot.Stacks) == 0 {
+		lines = append(lines, mutedStyle().Render("No stack profiles are available."))
+		return strings.Join(lines, "\n")
+	}
+
+	profile, ok := selectedStackProfile(snapshot, selected)
+	if !ok {
+		lines = append(lines, mutedStyle().Render("No stack detail is available."))
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines, renderStackSummary(snapshot.Stacks))
+	left := renderStackListPane(snapshot, profile.Name)
+	right := renderStackDetailPane(profile, layout)
+	lines = append(lines, splitPane(left, right, width, 30, 40))
+
+	return strings.Join(lines, "\n")
+}
+
 func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode, selected string, width int, pinned map[string]struct{}) string {
 	lines := []string{sectionTitleStyle().Render("Services"), ""}
 	if snapshot.ServiceError != "" {
@@ -207,6 +254,52 @@ func renderServices(snapshot Snapshot, showSecrets bool, layout layoutMode, sele
 	left := renderServiceListPane(snapshot, serviceKey(selectedService), pinned)
 	right := renderServiceDetailPane(selectedService, showSecrets, layout, pinned)
 	lines = append(lines, splitPane(left, right, width, defaultListPaneMinW, defaultListPaneMaxW))
+
+	return strings.Join(lines, "\n")
+}
+
+func renderStackListPane(snapshot Snapshot, selected string) string {
+	lines := []string{detailHeading("Stack list"), ""}
+	for _, profile := range snapshot.Stacks {
+		lines = append(lines, listItem(selected == profile.Name, stackListLabel(profile), statusChip(profile.State, profile.State)))
+	}
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle().Render("j/k or [ ] switch stack  •  g or / jump"))
+
+	return strings.Join(lines, "\n")
+}
+
+func renderStackDetailPane(profile StackProfile, layout layoutMode) string {
+	status := profile.State
+	if strings.TrimSpace(status) == "" {
+		status = "unknown"
+	}
+
+	lines := []string{
+		renderServiceHeading(status, stackHeading(profile)),
+		renderStatusLine(status),
+	}
+
+	identity := []string{
+		fmt.Sprintf("Current: %s", yesNoLabel(profile.Current)),
+		fmt.Sprintf("Configured: %s", yesNoLabel(profile.Configured)),
+	}
+	if profile.Mode != "" && profile.Mode != "-" {
+		identity = append(identity, fmt.Sprintf("Mode: %s", profile.Mode))
+	}
+
+	location := []string{
+		fmt.Sprintf("Config: %s", emptyLabel(profile.ConfigPath)),
+	}
+	if profile.Services != "" && profile.Services != "-" {
+		location = append(location, fmt.Sprintf("Running services: %s", profile.Services))
+	}
+
+	workflow := stackWorkflowLines(profile, layout)
+
+	lines = appendDetailGroup(lines, "Profile", identity)
+	lines = appendDetailGroup(lines, "Location", location)
+	lines = appendDetailGroup(lines, "Workflow", workflow)
 
 	return strings.Join(lines, "\n")
 }
@@ -253,9 +346,85 @@ func renderServiceListPane(snapshot Snapshot, selected string, pinned map[string
 		}
 	}
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render("j/k or [ ] switch service  •  g jump"))
+	lines = append(lines, mutedStyle().Render("j/k or [ ] switch service  •  g or / jump"))
 
 	return strings.Join(lines, "\n")
+}
+
+func renderStackSummary(profiles []StackProfile) string {
+	current := 0
+	configured := 0
+	running := 0
+	for _, profile := range profiles {
+		if profile.Current {
+			current++
+		}
+		if profile.Configured {
+			configured++
+		}
+		if strings.EqualFold(strings.TrimSpace(profile.State), "running") {
+			running++
+		}
+	}
+
+	return strings.Join([]string{
+		statusChip(fmt.Sprintf("Current: %d", current), output.StatusInfo),
+		statusChip(fmt.Sprintf("Configured: %d", configured), output.StatusOK),
+		statusChip(fmt.Sprintf("Running: %d", running), "running"),
+	}, "  ")
+}
+
+func stackListLabel(profile StackProfile) string {
+	label := profile.Name
+	if strings.TrimSpace(label) == "" {
+		label = "-"
+	}
+	if profile.Current {
+		label += "  " + statusChip("current", output.StatusInfo)
+	}
+
+	return label
+}
+
+func stackHeading(profile StackProfile) string {
+	if profile.Current {
+		return profile.Name + " (current)"
+	}
+
+	return profile.Name
+}
+
+func stackWorkflowLines(profile StackProfile, layout layoutMode) []string {
+	lines := make([]string, 0, 5)
+	switch {
+	case !profile.Configured:
+		lines = append(lines, "Save defaults from Config to create this stack profile.")
+	case profile.Current:
+		lines = append(lines, "Open Config to edit this stack.")
+	default:
+		lines = append(lines, "Use the action rail to switch the dashboard to this stack.")
+		lines = append(lines, "After switching, open Config to edit it.")
+	}
+
+	if profile.Configured {
+		lines = append(lines, "Delete removes the profile.")
+		if profile.Mode == "managed" {
+			lines = append(lines, "Managed profiles also purge stackctl-owned local data.")
+		}
+	}
+	if layout == expandedLayout {
+		lines = append(lines, "The command palette includes stack-profile jump targets too.")
+	}
+
+	return lines
+}
+
+func yesNoLabel(value bool) string {
+	if value {
+		return "yes"
+	}
+
+	return "no"
 }
 
 func renderServiceDetailPane(service Service, showSecrets bool, layout layoutMode, pinned map[string]struct{}) string {
@@ -361,7 +530,7 @@ func renderHealthListPane(snapshot Snapshot, selected string, pinned map[string]
 		}
 	}
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render("j/k or [ ] switch target  •  g jump"))
+	lines = append(lines, mutedStyle().Render("j/k or [ ] switch target  •  g or / jump"))
 	lines = append(lines, "")
 	lines = append(lines, detailHeading("Doctor summary"))
 	lines = append(lines, doctorSummaryLine(snapshot.DoctorSummary))

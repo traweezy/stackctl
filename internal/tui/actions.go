@@ -17,6 +17,7 @@ const (
 	ActionStart       ActionID = "start"
 	ActionStop        ActionID = "stop"
 	ActionRestart     ActionID = "restart"
+	ActionUseStack    ActionID = "use-stack"
 	ActionOpenCockpit ActionID = "open-cockpit"
 	ActionOpenPgAdmin ActionID = "open-pgadmin"
 	ActionDoctor      ActionID = "doctor"
@@ -26,6 +27,8 @@ const (
 	actionStartServicePrefix   = "start-service:"
 	actionStopServicePrefix    = "stop-service:"
 	actionRestartServicePrefix = "restart-service:"
+	actionUseStackPrefix       = "use-stack:"
+	actionDeleteStackPrefix    = "delete-stack:"
 )
 
 type ActionRunner func(ActionID) (ActionReport, error)
@@ -156,6 +159,22 @@ func selectedServiceActions(service Service) []ActionSpec {
 	}
 }
 
+func availableStackActions(profile StackProfile, hasSelected bool) []ActionSpec {
+	if !hasSelected {
+		return nil
+	}
+
+	actions := make([]ActionSpec, 0, 2)
+	if !profile.Current {
+		actions = append(actions, actionUseStackSpec(profile))
+	}
+	if profile.Configured {
+		actions = append(actions, actionDeleteStackSpec(profile))
+	}
+
+	return actions
+}
+
 func actionStartSpec() ActionSpec {
 	return ActionSpec{
 		ID:             ActionStart,
@@ -174,6 +193,39 @@ func actionStartServiceSpec(service Service) ActionSpec {
 		Group:          "Service",
 		PendingMessage: "starting " + strings.ToLower(service.DisplayName) + "...",
 		PendingStatus:  output.StatusStart,
+		DefaultStatus:  output.StatusOK,
+	}
+}
+
+func actionUseStackSpec(profile StackProfile) ActionSpec {
+	return ActionSpec{
+		ID:             ActionID(actionUseStackPrefix + profile.Name),
+		Label:          "Use " + profile.Name,
+		Group:          "Stack profile",
+		PendingMessage: "switching to " + profile.Name + "...",
+		PendingStatus:  output.StatusInfo,
+		DefaultStatus:  output.StatusOK,
+	}
+}
+
+func actionDeleteStackSpec(profile StackProfile) ActionSpec {
+	message := "Delete stack " + profile.Name + " now?"
+	switch {
+	case profile.Mode == "managed":
+		message += " This removes the config and stackctl-managed local data for that profile."
+	case profile.Current:
+		message += " The dashboard will fall back to dev-stack afterwards."
+	default:
+		message += " This removes the saved stack profile."
+	}
+
+	return ActionSpec{
+		ID:             ActionID(actionDeleteStackPrefix + profile.Name),
+		Label:          "Delete " + profile.Name,
+		Group:          "Stack profile",
+		ConfirmMessage: message,
+		PendingMessage: "deleting " + profile.Name + "...",
+		PendingStatus:  output.StatusReset,
 		DefaultStatus:  output.StatusOK,
 	}
 }
@@ -288,6 +340,22 @@ func ServiceActionTarget(action ActionID) (string, string, bool) {
 	return serviceActionTarget(action)
 }
 
+func stackActionTarget(action ActionID) (string, string, bool) {
+	value := string(action)
+	switch {
+	case strings.HasPrefix(value, actionUseStackPrefix):
+		return "use", strings.TrimPrefix(value, actionUseStackPrefix), true
+	case strings.HasPrefix(value, actionDeleteStackPrefix):
+		return "delete", strings.TrimPrefix(value, actionDeleteStackPrefix), true
+	default:
+		return "", "", false
+	}
+}
+
+func StackActionTarget(action ActionID) (string, string, bool) {
+	return stackActionTarget(action)
+}
+
 func includeOpenCockpit(services []Service) bool {
 	for _, service := range services {
 		if !strings.EqualFold(service.DisplayName, "Cockpit") {
@@ -318,8 +386,7 @@ func renderActionRail(m Model) string {
 		return ""
 	}
 
-	selected, hasSelected := m.selectedLifecycleService()
-	actions := availableActions(m.snapshot, selected, hasSelected)
+	actions := m.availableSidebarActions()
 	if len(actions) == 0 {
 		return ""
 	}
@@ -349,6 +416,16 @@ func renderActionRail(m Model) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) availableSidebarActions() []ActionSpec {
+	if m.active == stacksSection {
+		profile, ok := selectedStackProfile(m.snapshot, m.selectedStack)
+		return availableStackActions(profile, ok)
+	}
+
+	selected, hasSelected := m.selectedLifecycleService()
+	return availableActions(m.snapshot, selected, hasSelected)
 }
 
 func renderConfirmation(state *confirmationState) string {

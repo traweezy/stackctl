@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,106 @@ func TestRunTUIActionStartUsesComposeUpAndWait(t *testing.T) {
 	}
 	if !report.Refresh || report.Message != "stack started" {
 		t.Fatalf("unexpected start report: %+v", report)
+	}
+}
+
+func TestRunTUIActionUseStackPersistsSelection(t *testing.T) {
+	var selected string
+	t.Setenv(configpkg.StackNameEnvVar, configpkg.DefaultStackName)
+
+	withTestDeps(t, func(value *commandDeps) {
+		value.setCurrentStackName = func(name string) error {
+			selected = name
+			return nil
+		}
+	})
+
+	report, err := runTUIAction(stacktui.ActionID("use-stack:staging"))
+	if err != nil {
+		t.Fatalf("runTUIAction(use-stack) returned error: %v", err)
+	}
+	if selected != "staging" {
+		t.Fatalf("selected stack = %q", selected)
+	}
+	if current := os.Getenv(configpkg.StackNameEnvVar); current != "staging" {
+		t.Fatalf("expected process stack env to update, got %q", current)
+	}
+	if !report.Refresh || report.Message != "selected stack staging" {
+		t.Fatalf("unexpected use stack report: %+v", report)
+	}
+}
+
+func TestRunTUIActionDeleteManagedStackPurgesData(t *testing.T) {
+	var removedConfig string
+	var removedData string
+	var selected string
+	composeDownCalled := false
+	t.Setenv(configpkg.StackNameEnvVar, "staging")
+
+	withTestDeps(t, func(value *commandDeps) {
+		value.currentStackName = func() (string, error) { return "staging", nil }
+		value.setCurrentStackName = func(name string) error {
+			selected = name
+			return nil
+		}
+		value.configFilePathForStack = func(string) (string, error) { return "/tmp/stackctl/stacks/staging.yaml", nil }
+		value.stat = func(path string) (os.FileInfo, error) {
+			switch path {
+			case "/tmp/stackctl/stacks/staging.yaml", "/tmp/stackctl-data/stacks/staging/compose.yaml":
+				return fakeFileInfo{name: "existing"}, nil
+			default:
+				return nil, os.ErrNotExist
+			}
+		}
+		value.loadConfig = func(string) (configpkg.Config, error) {
+			cfg := configpkg.DefaultForStack("staging")
+			cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+			return cfg, nil
+		}
+		value.composePath = func(cfg configpkg.Config) string {
+			return cfg.Stack.Dir + "/compose.yaml"
+		}
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: "[]"}, nil
+		}
+		value.composeDownPath = func(_ context.Context, _ system.Runner, dir, composePath string, removeVolumes bool) error {
+			composeDownCalled = true
+			if dir != "/tmp/stackctl-data/stacks/staging" || composePath != "/tmp/stackctl-data/stacks/staging/compose.yaml" || !removeVolumes {
+				t.Fatalf("unexpected compose down args: dir=%s compose=%s removeVolumes=%v", dir, composePath, removeVolumes)
+			}
+			return nil
+		}
+		value.removeAll = func(path string) error {
+			removedData = path
+			return nil
+		}
+		value.removeFile = func(path string) error {
+			removedConfig = path
+			return nil
+		}
+	})
+
+	report, err := runTUIAction(stacktui.ActionID("delete-stack:staging"))
+	if err != nil {
+		t.Fatalf("runTUIAction(delete-stack) returned error: %v", err)
+	}
+	if !composeDownCalled {
+		t.Fatal("expected managed stack delete to stop the stack")
+	}
+	if removedConfig != "/tmp/stackctl/stacks/staging.yaml" {
+		t.Fatalf("removed config = %q", removedConfig)
+	}
+	if removedData != "/tmp/stackctl-data/stacks/staging" {
+		t.Fatalf("removed data = %q", removedData)
+	}
+	if selected != configpkg.DefaultStackName {
+		t.Fatalf("selected stack reset = %q", selected)
+	}
+	if current := os.Getenv(configpkg.StackNameEnvVar); current != configpkg.DefaultStackName {
+		t.Fatalf("expected process stack env reset, got %q", current)
+	}
+	if !report.Refresh || report.Message != "deleted stack staging" {
+		t.Fatalf("unexpected delete stack report: %+v", report)
 	}
 }
 

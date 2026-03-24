@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ const (
 	DefaultComposeFileName = "compose.yaml"
 	DefaultNATSConfigName  = "nats.conf"
 	StackNameEnvVar        = "STACKCTL_STACK"
+	CurrentStackFileName   = "current-stack"
 )
 
 func ConfigDirPath() (string, error) {
@@ -25,7 +27,12 @@ func ConfigDirPath() (string, error) {
 }
 
 func ConfigFilePath() (string, error) {
-	return ConfigFilePathForStack(SelectedStackName())
+	selected, err := ResolveSelectedStackName()
+	if err != nil {
+		return "", err
+	}
+
+	return ConfigFilePathForStack(selected)
 }
 
 func ConfigStacksDirPath() (string, error) {
@@ -61,7 +68,96 @@ func ConfigFilePathForStack(name string) (string, error) {
 }
 
 func SelectedStackName() string {
-	return normalizeStackName(os.Getenv(StackNameEnvVar))
+	selected, err := ResolveSelectedStackName()
+	if err != nil {
+		return DefaultStackName
+	}
+
+	return selected
+}
+
+func CurrentStackPath() (string, error) {
+	dir, err := ConfigDirPath()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(dir, CurrentStackFileName), nil
+}
+
+func ResolveSelectedStackName() (string, error) {
+	if value := strings.TrimSpace(os.Getenv(StackNameEnvVar)); value != "" {
+		if err := ValidateStackName(value); err != nil {
+			return "", fmt.Errorf("validate %s: %w", StackNameEnvVar, err)
+		}
+
+		return normalizeStackName(value), nil
+	}
+
+	return CurrentStackName()
+}
+
+func CurrentStackName() (string, error) {
+	configDir, err := ConfigDirPath()
+	if err != nil {
+		return "", err
+	}
+
+	root, err := os.OpenRoot(configDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return DefaultStackName, nil
+		}
+		return "", fmt.Errorf("open current stack root %q: %w", configDir, err)
+	}
+	defer root.Close()
+
+	data, err := root.ReadFile(CurrentStackFileName)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return DefaultStackName, nil
+		}
+		return "", fmt.Errorf("read current stack selection %q: %w", filepath.Join(configDir, CurrentStackFileName), err)
+	}
+
+	selected := strings.TrimSpace(string(data))
+	if selected == "" {
+		return DefaultStackName, nil
+	}
+	if err := ValidateStackName(selected); err != nil {
+		return "", fmt.Errorf("parse current stack selection %q: %w", filepath.Join(configDir, CurrentStackFileName), err)
+	}
+
+	return normalizeStackName(selected), nil
+}
+
+func SetCurrentStackName(name string) error {
+	selected := normalizeStackName(name)
+	if err := ValidateStackName(selected); err != nil {
+		return err
+	}
+
+	path, err := CurrentStackPath()
+	if err != nil {
+		return err
+	}
+
+	if selected == DefaultStackName {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("clear current stack selection %q: %w", path, err)
+		}
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("create current stack directory for %q: %w", path, err)
+	}
+
+	if err := os.WriteFile(path, []byte(selected+"\n"), 0o600); err != nil {
+		return fmt.Errorf("write current stack selection %q: %w", path, err)
+	}
+
+	return nil
 }
 
 func KnownConfigPaths() ([]string, error) {

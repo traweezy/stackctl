@@ -31,6 +31,7 @@ func NewRootCmd(app *App) *cobra.Command {
 		Example: "  stackctl setup\n" +
 			"  stackctl start\n" +
 			"  stackctl --stack staging start\n" +
+			"  stackctl stack list\n" +
 			"  stackctl tui\n" +
 			"  stackctl services\n" +
 			"  stackctl exec postgres -- psql -U app -d app",
@@ -41,7 +42,11 @@ func NewRootCmd(app *App) *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			selected := strings.TrimSpace(stackName)
 			if selected == "" {
-				selected = configpkg.SelectedStackName()
+				var err error
+				selected, err = configpkg.ResolveSelectedStackName()
+				if err != nil {
+					return err
+				}
 			}
 			if err := configpkg.ValidateStackName(selected); err != nil {
 				return err
@@ -53,7 +58,7 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.AddGroup(rootCommandGroups()...)
 	cmd.SetHelpCommandGroupID(commandGroupUtility)
 	cmd.SetCompletionCommandGroupID(commandGroupUtility)
-	cmd.PersistentFlags().StringVar(&stackName, "stack", "", "Select a named stack config (or use STACKCTL_STACK)")
+	cmd.PersistentFlags().StringVar(&stackName, "stack", "", "Select a named stack config (overrides STACKCTL_STACK and the saved current stack)")
 	mustRegisterFlagCompletion(cmd, "stack", completeConfiguredStackNames)
 
 	startCmd := newStartCmd()
@@ -93,6 +98,8 @@ func NewRootCmd(app *App) *cobra.Command {
 	setupCmd.GroupID = commandGroupConfig
 	configCmd := newConfigCmd()
 	configCmd.GroupID = commandGroupConfig
+	stackCmd := newStackCmd()
+	stackCmd.GroupID = commandGroupConfig
 	factoryResetCmd := newFactoryResetCmd()
 	factoryResetCmd.GroupID = commandGroupConfig
 
@@ -115,6 +122,7 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.AddCommand(connectCmd)
 	cmd.AddCommand(factoryResetCmd)
 	cmd.AddCommand(configCmd)
+	cmd.AddCommand(stackCmd)
 	cmd.AddCommand(doctorCmd)
 	cmd.AddCommand(setupCmd)
 	cmd.AddCommand(versionCmd)

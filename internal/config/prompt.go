@@ -12,6 +12,8 @@ import (
 	"golang.org/x/term"
 )
 
+const maxIntValue = int(^uint(0) >> 1)
+
 func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	if shouldUsePlainWizard(in, out) {
 		return runPlainWizard(in, out, base)
@@ -135,7 +137,25 @@ func shouldUsePlainWizard(in io.Reader, out io.Writer) bool {
 		return true
 	}
 
-	return !term.IsTerminal(int(inputFile.Fd())) || !term.IsTerminal(int(outputFile.Fd()))
+	inputFD, ok := terminalFD(inputFile)
+	if !ok {
+		return true
+	}
+	outputFD, ok := terminalFD(outputFile)
+	if !ok {
+		return true
+	}
+
+	return !term.IsTerminal(inputFD) || !term.IsTerminal(outputFD)
+}
+
+func terminalFD(file *os.File) (int, bool) {
+	fd := file.Fd()
+	if fd > uintptr(maxIntValue) {
+		return 0, false
+	}
+
+	return int(fd), true
 }
 
 func PromptYesNo(in io.Reader, out io.Writer, question string, defaultYes bool) (bool, error) {
