@@ -75,6 +75,7 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	cfg.Stack.Dir = stackDir
 	cfg.Services.PostgresContainer = "stackctl-it-postgres-" + suffix
 	cfg.Services.RedisContainer = "stackctl-it-redis-" + suffix
+	cfg.Services.NATSContainer = "stackctl-it-nats-" + suffix
 	cfg.Services.PgAdminContainer = "stackctl-it-pgadmin-" + suffix
 	cfg.Services.Postgres.DataVolume = "stackctl_it_postgres_data_" + suffix
 	cfg.Services.Redis.DataVolume = "stackctl_it_redis_data_" + suffix
@@ -88,10 +89,12 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	cfg.Connection.PostgresUsername = "stackuser"
 	cfg.Connection.PostgresPassword = "stackpass"
 	cfg.Connection.RedisPassword = "redispass"
+	cfg.Connection.NATSToken = "natspass"
 	cfg.Connection.PgAdminEmail = "pgadmin@example.com"
 	cfg.Connection.PgAdminPassword = "pgsecret"
 	cfg.Ports.Postgres = freePort(t)
 	cfg.Ports.Redis = freePort(t)
+	cfg.Ports.NATS = freePort(t)
 	cfg.Ports.PgAdmin = freePort(t)
 	cfg.Ports.Cockpit = freePort(t)
 	cfg.Behavior.StartupTimeoutSec = 240
@@ -155,8 +158,8 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	for _, service := range services {
 		servicesByName[service.Name] = service
 	}
-	if len(servicesByName) != 4 {
-		t.Fatalf("expected 4 services, got %d", len(servicesByName))
+	if len(servicesByName) != 5 {
+		t.Fatalf("expected 5 services, got %d", len(servicesByName))
 	}
 	if postgres := servicesByName["postgres"]; postgres.Status != "running" || postgres.DSN != "postgres://stackuser:stackpass@127.0.0.1:"+strconv.Itoa(cfg.Ports.Postgres)+"/stackdb" {
 		t.Fatalf("unexpected postgres service: %+v", postgres)
@@ -169,6 +172,9 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	}
 	if redis := servicesByName["redis"]; redis.DataVolume != cfg.Services.Redis.DataVolume || redis.AppendOnly == nil || !*redis.AppendOnly || redis.SavePolicy != cfg.Services.Redis.SavePolicy || redis.MaxMemoryPolicy != cfg.Services.Redis.MaxMemoryPolicy {
 		t.Fatalf("unexpected redis config: %+v", redis)
+	}
+	if nats := servicesByName["nats"]; nats.Status != "running" || nats.DSN != "nats://natspass@127.0.0.1:"+strconv.Itoa(cfg.Ports.NATS) {
+		t.Fatalf("unexpected nats service: %+v", nats)
 	}
 	if pgadmin := servicesByName["pgadmin"]; pgadmin.Status != "running" || pgadmin.Email != "pgadmin@example.com" || pgadmin.Password != "" {
 		t.Fatalf("unexpected pgadmin service: %+v", pgadmin)
@@ -187,6 +193,7 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	for _, fragment := range []string{
 		"postgres://stackuser:stackpass@127.0.0.1:" + strconv.Itoa(cfg.Ports.Postgres) + "/stackdb",
 		"redis://:redispass@127.0.0.1:" + strconv.Itoa(cfg.Ports.Redis),
+		"nats://natspass@127.0.0.1:" + strconv.Itoa(cfg.Ports.NATS),
 		"http://127.0.0.1:" + strconv.Itoa(cfg.Ports.PgAdmin),
 		"https://127.0.0.1:" + strconv.Itoa(cfg.Ports.Cockpit),
 	} {
@@ -203,8 +210,8 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	if err := json.Unmarshal([]byte(statusOutput), &containers); err != nil {
 		t.Fatalf("parse status json: %v\n%s", err, statusOutput)
 	}
-	if len(containers) != 3 {
-		t.Fatalf("expected 3 stack containers, got %d", len(containers))
+	if len(containers) != 4 {
+		t.Fatalf("expected 4 stack containers, got %d", len(containers))
 	}
 
 	healthOutput, err := runStackctl(binaryPath, env, "health")
@@ -214,9 +221,11 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	for _, fragment := range []string{
 		"postgres port listening",
 		"redis port listening",
+		"nats port listening",
 		"pgadmin port listening",
 		"postgres running",
 		"redis running",
+		"nats running",
 		"pgadmin running",
 	} {
 		if !strings.Contains(healthOutput, fragment) {
@@ -244,10 +253,12 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	for _, fragment := range []string{
 		"Postgres",
 		"Redis",
+		"NATS",
 		"pgAdmin",
 		"Cockpit",
 		strconv.Itoa(cfg.Ports.Postgres) + " -> 5432",
 		strconv.Itoa(cfg.Ports.Redis) + " -> 6379",
+		strconv.Itoa(cfg.Ports.NATS) + " -> 4222",
 		strconv.Itoa(cfg.Ports.PgAdmin) + " -> 80",
 		strconv.Itoa(cfg.Ports.Cockpit) + " -> 9090",
 	} {
@@ -257,8 +268,13 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	}
 
 	invalidLogsOutput, err := runStackctl(binaryPath, env, "logs", "-s", "invalid")
-	if err == nil || !strings.Contains(invalidLogsOutput, "valid values: postgres, redis, pgadmin") {
+	if err == nil || !strings.Contains(invalidLogsOutput, "valid values: postgres, redis, nats, pgadmin") {
 		t.Fatalf("expected invalid service error, got err=%v output=%s", err, invalidLogsOutput)
+	}
+
+	natsLogsOutput, err := runStackctl(binaryPath, env, "logs", "-s", "nats", "-n", "5")
+	if err != nil {
+		t.Fatalf("logs -s nats returned error: %v\n%s", err, natsLogsOutput)
 	}
 
 	assertEventuallyCommand(t, 30*time.Second, func() error {
