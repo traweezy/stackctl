@@ -216,6 +216,83 @@ func TestRunTUIActionRestartUsesDownUpAndWait(t *testing.T) {
 	}
 }
 
+func TestRunTUIActionStartNamedStackUsesSelectedProfileConfig(t *testing.T) {
+	var composeUpCalls int
+	var waitedPorts []int
+	t.Setenv(configpkg.StackNameEnvVar, configpkg.DefaultStackName)
+	t.Setenv("XDG_DATA_HOME", "/tmp/stackctl-data")
+
+	withTestDeps(t, func(value *commandDeps) {
+		value.composePath = func(cfg configpkg.Config) string {
+			return cfg.Stack.Dir + "/compose.yaml"
+		}
+		value.configFilePathForStack = func(name string) (string, error) {
+			switch name {
+			case "staging":
+				return "/tmp/stackctl/stacks/staging.yaml", nil
+			case configpkg.DefaultStackName:
+				return "/tmp/stackctl/config.yaml", nil
+			default:
+				return "", errors.New("unexpected stack name")
+			}
+		}
+		value.stat = func(path string) (os.FileInfo, error) {
+			if path == "/tmp/stackctl/stacks/staging.yaml" || path == "/tmp/stackctl-data/stackctl/stacks/staging/compose.yaml" {
+				return fakeFileInfo{name: "staging.yaml"}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+		value.loadConfig = func(path string) (configpkg.Config, error) {
+			if path != "/tmp/stackctl/stacks/staging.yaml" {
+				return configpkg.Config{}, errors.New("unexpected config path")
+			}
+			cfg := configpkg.DefaultForStack("staging")
+			cfg.Ports.Postgres = 25432
+			cfg.Ports.Redis = 26379
+			cfg.Ports.NATS = 24222
+			cfg.ApplyDerivedFields()
+			return cfg, nil
+		}
+		value.composeUp = func(_ context.Context, _ system.Runner, cfg configpkg.Config) error {
+			composeUpCalls++
+			if cfg.Stack.Name != "staging" {
+				t.Fatalf("expected staging config, got %q", cfg.Stack.Name)
+			}
+			return nil
+		}
+		value.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+			waitedPorts = append(waitedPorts, port)
+			return nil
+		}
+	})
+
+	report, err := runTUIAction(stacktui.ActionID("start-stack:staging"))
+	if err != nil {
+		t.Fatalf("runTUIAction(start-stack) returned error: %v", err)
+	}
+	if composeUpCalls != 1 {
+		t.Fatalf("expected composeUp once, got %d", composeUpCalls)
+	}
+	if len(waitedPorts) != 3 || waitedPorts[0] != 25432 || waitedPorts[1] != 26379 || waitedPorts[2] != 24222 {
+		t.Fatalf("unexpected waited ports: %v", waitedPorts)
+	}
+	if report.Message != "stack staging started" || !report.Refresh {
+		t.Fatalf("unexpected named stack start report: %+v", report)
+	}
+	for _, fragment := range []string{
+		"Config: /tmp/stackctl/stacks/staging.yaml",
+		"Selected stack remains dev-stack",
+		"Use staging to inspect its config, services, and health in the rest of the dashboard.",
+	} {
+		if !strings.Contains(strings.Join(report.Details, " "), fragment) {
+			t.Fatalf("expected report details to contain %q: %+v", fragment, report)
+		}
+	}
+	if current := os.Getenv(configpkg.StackNameEnvVar); current != configpkg.DefaultStackName {
+		t.Fatalf("expected selected stack to remain unchanged, got %q", current)
+	}
+}
+
 func TestRunTUIActionStartServiceUsesComposeUpServicesAndWait(t *testing.T) {
 	var calledServices []string
 	var forceRecreate bool

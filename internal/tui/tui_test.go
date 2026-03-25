@@ -303,6 +303,57 @@ func TestServicesViewShowsCockpitRuntimeDetails(t *testing.T) {
 	}
 }
 
+func TestServicesViewShowsSeaweedFSRuntimeDetails(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				Name:              "seaweedfs",
+				DisplayName:       "SeaweedFS",
+				Status:            "running",
+				ContainerName:     "local-seaweedfs",
+				Image:             "docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9",
+				DataVolume:        "seaweedfs_data",
+				Host:              "devbox",
+				ExternalPort:      8333,
+				InternalPort:      8333,
+				Endpoint:          "http://devbox:8333",
+				AccessKey:         "seaweed-access",
+				SecretKey:         "seaweed-secret",
+				VolumeSizeLimitMB: 2048,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	current = navigateToSection(t, current, servicesSection)
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"SeaweedFS",
+		"Container: local-seaweedfs",
+		"Data volume: seaweedfs_data",
+		"Host port: 8333",
+		"Container port: 8333",
+		"Endpoint: http://devbox:8333",
+		"Access key: seaweed-access",
+		"Secret key: ****",
+		"Volume size limit: 2048 MB",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected seaweedfs services view to contain %q:\n%s", fragment, view)
+		}
+	}
+	if strings.Contains(view, "seaweed-secret") {
+		t.Fatalf("expected seaweedfs secret key to be masked by default:\n%s", view)
+	}
+}
+
 func TestModelTogglesCompactLayout(t *testing.T) {
 	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -420,6 +471,11 @@ func TestHealthViewShowsServiceCentricSummary(t *testing.T) {
 				URL:           "http://localhost:8081",
 			},
 		},
+		DoctorSummary: DoctorSummary{OK: 5, Warn: 1},
+		DoctorChecks: []DoctorCheck{
+			{Status: output.StatusOK, Message: "podman present"},
+			{Status: output.StatusWarn, Message: "podman compose missing alias"},
+		},
 	}
 
 	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
@@ -437,10 +493,20 @@ func TestHealthViewShowsServiceCentricSummary(t *testing.T) {
 		"Redis",
 		"NOT RUNNING",
 		"pgAdmin",
+		"Doctor findings",
+		"OK 5",
+		"WARN 1",
+		"podman compose missing alias",
 	} {
 		if !collapsedContainsTest(view, fragment) {
 			t.Fatalf("expected health view to contain %q:\n%s", fragment, view)
 		}
+	}
+	if collapsedContainsTest(view, "Doctor summary") {
+		t.Fatalf("expected doctor summary to move out of the list pane and into the footer panel:\n%s", view)
+	}
+	if strings.Index(stripANSITest(view), "Actions:") > strings.Index(stripANSITest(view), "Doctor findings") {
+		t.Fatalf("expected doctor findings footer to render after the main split panes:\n%s", view)
 	}
 	for _, fragment := range []string{
 		"postgres port listening",
@@ -1312,17 +1378,77 @@ func TestStacksViewShowsProfilesAndContextualActions(t *testing.T) {
 	}
 
 	sidebar := renderSidebar(current)
-	if !strings.Contains(sidebar, "[1] Delete dev-stack") {
-		t.Fatalf("expected sidebar to expose stack delete action:\n%s", sidebar)
+	for _, fragment := range []string{
+		"[1] Restart dev-stack",
+		"[2] Stop dev-stack",
+		"[3] Delete dev-stack",
+	} {
+		if !strings.Contains(sidebar, fragment) {
+			t.Fatalf("expected sidebar to expose %q:\n%s", fragment, sidebar)
+		}
 	}
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	current = updatedModel.(Model)
 	sidebar = renderSidebar(current)
-	for _, fragment := range []string{"[1] Use staging", "[2] Delete staging"} {
+	for _, fragment := range []string{"[1] Use staging", "[2] Start staging", "[3] Delete staging"} {
 		if !strings.Contains(sidebar, fragment) {
 			t.Fatalf("expected selected stack actions %q:\n%s", fragment, sidebar)
 		}
+	}
+}
+
+func TestStacksSectionRunsSelectedStackLifecycleAction(t *testing.T) {
+	called := ""
+	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(action ActionID) (ActionReport, error) {
+		called = string(action)
+		return ActionReport{
+			Status:  output.StatusOK,
+			Message: "stack staging started",
+			Refresh: false,
+		}, nil
+	})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Stacks: []StackProfile{
+			{Name: "dev-stack", Current: true, Configured: true, State: "running", Mode: "managed"},
+			{Name: "staging", Configured: true, State: "stopped", Mode: "managed"},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	current = navigateToSection(t, current, stacksSection)
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	current = updatedModel.(Model)
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	current = updatedModel.(Model)
+	if current.runningAction == nil {
+		t.Fatalf("expected running action state")
+	}
+	if got := current.snapshot.Stacks[1].State; got != "starting" {
+		t.Fatalf("expected staging stack state to become starting, got %q", got)
+	}
+	if called != "" {
+		t.Fatalf("expected action to run asynchronously, got %q", called)
+	}
+	if cmd == nil {
+		t.Fatalf("expected async stack action command")
+	}
+
+	msg, ok := cmd().(actionMsg)
+	if !ok {
+		t.Fatalf("expected actionMsg, got %T", cmd())
+	}
+	if msg.action.ID != ActionID("start-stack:staging") {
+		t.Fatalf("unexpected action id: %+v", msg.action)
+	}
+	if called != "start-stack:staging" {
+		t.Fatalf("unexpected called action: %q", called)
 	}
 }
 
@@ -1533,6 +1659,83 @@ func TestModelRunsStartActionOptimisticallyAndRecordsHistory(t *testing.T) {
 		if !strings.Contains(view, fragment) {
 			t.Fatalf("expected history view to contain %q:\n%s", fragment, view)
 		}
+	}
+}
+
+func TestModelRunsSelectedServiceActionOptimistically(t *testing.T) {
+	called := ""
+	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(action ActionID) (ActionReport, error) {
+		called = string(action)
+		return ActionReport{
+			Status:  output.StatusOK,
+			Message: "Postgres restarted",
+			Refresh: false,
+		}, nil
+	})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				Name:          "postgres",
+				DisplayName:   "Postgres",
+				Status:        "running",
+				ContainerName: "stack-postgres",
+				Host:          "localhost",
+				ExternalPort:  5432,
+				PortListening: true,
+			},
+			{
+				Name:          "redis",
+				DisplayName:   "Redis",
+				Status:        "running",
+				ContainerName: "stack-redis",
+				Host:          "localhost",
+				ExternalPort:  6379,
+				PortListening: true,
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	current = navigateToSection(t, current, servicesSection)
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
+	current = updatedModel.(Model)
+	if current.confirmation == nil {
+		t.Fatalf("expected restart confirmation")
+	}
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if current.runningAction == nil {
+		t.Fatalf("expected running action state")
+	}
+	if called != "" {
+		t.Fatalf("expected action to run asynchronously, got %q", called)
+	}
+	if current.snapshot.Services[0].Status != "restarting" || current.snapshot.Services[0].PortListening {
+		t.Fatalf("expected optimistic restart state for postgres, got %+v", current.snapshot.Services[0])
+	}
+	if current.snapshot.Services[1].Status != "running" || !current.snapshot.Services[1].PortListening {
+		t.Fatalf("expected unrelated services to stay unchanged, got %+v", current.snapshot.Services[1])
+	}
+	if cmd == nil {
+		t.Fatalf("expected async service action command")
+	}
+
+	msg, ok := cmd().(actionMsg)
+	if !ok {
+		t.Fatalf("expected actionMsg, got %T", cmd())
+	}
+	if msg.action.ID != ActionID("restart-service:postgres") {
+		t.Fatalf("unexpected action id: %+v", msg.action)
+	}
+	if called != "restart-service:postgres" {
+		t.Fatalf("unexpected called action: %q", called)
 	}
 }
 

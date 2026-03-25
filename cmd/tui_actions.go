@@ -22,6 +22,12 @@ func runTUIAction(action stacktui.ActionID) (stacktui.ActionReport, error) {
 			return runTUIUseStack(stackName)
 		case "delete":
 			return runTUIDeleteStack(stackName)
+		case "start":
+			return runTUIStartStack(stackName)
+		case "stop":
+			return runTUIStopStack(stackName)
+		case "restart":
+			return runTUIRestartStack(stackName)
 		}
 	}
 
@@ -141,6 +147,83 @@ func runTUIDeleteStack(stackName string) (stacktui.ActionReport, error) {
 		Details: details,
 		Refresh: true,
 	}, nil
+}
+
+func loadTUIStackTargetConfig(stackName string) (stackTarget, error) {
+	target, err := resolveStackTarget(stackName)
+	if err != nil {
+		return stackTarget{}, err
+	}
+	if !target.Exists {
+		return stackTarget{}, fmt.Errorf("stack %s does not exist", stackName)
+	}
+	if target.LoadErr != nil {
+		return stackTarget{}, fmt.Errorf("stack %s has an invalid config: %w", stackName, target.LoadErr)
+	}
+	if issues := deps.validateConfig(target.Config); len(issues) > 0 {
+		return stackTarget{}, fmt.Errorf("stack %s config validation failed with %d issue(s)", stackName, len(issues))
+	}
+
+	return target, nil
+}
+
+func annotateStackLifecycleReport(stackName, configPath string, report stacktui.ActionReport) stacktui.ActionReport {
+	report.Details = append([]string{fmt.Sprintf("Config: %s", configPath)}, report.Details...)
+
+	selected := configpkg.SelectedStackName()
+	if selected != stackName {
+		report.Details = append(report.Details,
+			fmt.Sprintf("Selected stack remains %s", selected),
+			fmt.Sprintf("Use %s to inspect its config, services, and health in the rest of the dashboard.", stackName),
+		)
+	}
+
+	return report
+}
+
+func runTUIStartStack(stackName string) (stacktui.ActionReport, error) {
+	target, err := loadTUIStackTargetConfig(stackName)
+	if err != nil {
+		return stacktui.ActionReport{}, err
+	}
+
+	report, err := runTUIStart(target.Config, nil)
+	if err != nil {
+		return stacktui.ActionReport{}, err
+	}
+	report.Message = fmt.Sprintf("stack %s started", stackName)
+
+	return annotateStackLifecycleReport(stackName, target.ConfigPath, report), nil
+}
+
+func runTUIStopStack(stackName string) (stacktui.ActionReport, error) {
+	target, err := loadTUIStackTargetConfig(stackName)
+	if err != nil {
+		return stacktui.ActionReport{}, err
+	}
+
+	report, err := runTUIStop(target.Config, nil)
+	if err != nil {
+		return stacktui.ActionReport{}, err
+	}
+	report.Message = fmt.Sprintf("stack %s stopped", stackName)
+
+	return annotateStackLifecycleReport(stackName, target.ConfigPath, report), nil
+}
+
+func runTUIRestartStack(stackName string) (stacktui.ActionReport, error) {
+	target, err := loadTUIStackTargetConfig(stackName)
+	if err != nil {
+		return stacktui.ActionReport{}, err
+	}
+
+	report, err := runTUIRestart(target.Config, nil)
+	if err != nil {
+		return stacktui.ActionReport{}, err
+	}
+	report.Message = fmt.Sprintf("stack %s restarted", stackName)
+
+	return annotateStackLifecycleReport(stackName, target.ConfigPath, report), nil
 }
 
 func runTUIStart(cfg configpkg.Config, services []string) (stacktui.ActionReport, error) {

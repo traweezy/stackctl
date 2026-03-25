@@ -29,7 +29,7 @@ func newTUICmd() *cobra.Command {
 		Long: "Open the interactive stack dashboard.\n\n" +
 			"Use a full-screen operator view for overview, stacks, config, services,\n" +
 			"health, and action history. The services pane includes host\n" +
-			"ports, URLs, DSNs, copy actions, shell handoff, and live-log\n" +
+			"ports, URLs, endpoints, DSNs, copy actions, shell handoff, and live-log\n" +
 			"handoff in one place. The dashboard\n" +
 			"supports manual refresh, optional auto-refresh with a saved\n" +
 			"TUI interval, compact mode,\n" +
@@ -37,8 +37,9 @@ func newTUICmd() *cobra.Command {
 			"config editing with diff preview, save/reset/defaults/scaffold\n" +
 			"flows, automatic managed-stack apply on save when it is safe,\n" +
 			"and in-TUI actions for stack lifecycle tasks. The Stacks pane\n" +
-			"lets you inspect saved profiles, switch the active stack, and\n" +
-			"remove profiles without leaving the dashboard. Use\n" +
+			"lets you inspect saved profiles, switch the active stack,\n" +
+			"start or stop selected stack profiles, and remove profiles\n" +
+			"without leaving the dashboard. Use\n" +
 			"tab/shift+tab or h/l to\n" +
 			"change sections, use j/k or [ and ] to switch the active\n" +
 			"item inside split inspection panes, use c to copy service\n" +
@@ -173,28 +174,32 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config, source stacktui.C
 
 		for _, service := range services {
 			snapshot.Services = append(snapshot.Services, stacktui.Service{
-				Name:            service.Name,
-				DisplayName:     service.DisplayName,
-				Status:          service.Status,
-				ContainerName:   service.ContainerName,
-				Image:           service.Image,
-				DataVolume:      service.DataVolume,
-				Host:            service.Host,
-				ExternalPort:    service.ExternalPort,
-				InternalPort:    service.InternalPort,
-				PortListening:   service.ExternalPort > 0 && deps.portListening(service.ExternalPort),
-				Database:        service.Database,
-				MaintenanceDB:   service.MaintenanceDB,
-				Email:           service.Email,
-				Token:           service.Token,
-				Username:        service.Username,
-				Password:        service.Password,
-				AppendOnly:      service.AppendOnly,
-				SavePolicy:      service.SavePolicy,
-				MaxMemoryPolicy: service.MaxMemoryPolicy,
-				ServerMode:      service.ServerMode,
-				URL:             service.URL,
-				DSN:             service.DSN,
+				Name:              service.Name,
+				DisplayName:       service.DisplayName,
+				Status:            service.Status,
+				ContainerName:     service.ContainerName,
+				Image:             service.Image,
+				DataVolume:        service.DataVolume,
+				Host:              service.Host,
+				ExternalPort:      service.ExternalPort,
+				InternalPort:      service.InternalPort,
+				PortListening:     service.ExternalPort > 0 && deps.portListening(service.ExternalPort),
+				Database:          service.Database,
+				MaintenanceDB:     service.MaintenanceDB,
+				Email:             service.Email,
+				Token:             service.Token,
+				AccessKey:         service.AccessKey,
+				SecretKey:         service.SecretKey,
+				Username:          service.Username,
+				Password:          service.Password,
+				AppendOnly:        service.AppendOnly,
+				SavePolicy:        service.SavePolicy,
+				MaxMemoryPolicy:   service.MaxMemoryPolicy,
+				VolumeSizeLimitMB: service.VolumeSizeLimitMB,
+				ServerMode:        service.ServerMode,
+				Endpoint:          service.Endpoint,
+				URL:               service.URL,
+				DSN:               service.DSN,
 			})
 		}
 

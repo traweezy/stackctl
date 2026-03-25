@@ -1629,6 +1629,9 @@ func redactConfigSecrets(cfg configpkg.Config) configpkg.Config {
 	if strings.TrimSpace(cfg.Connection.NATSToken) != "" {
 		cfg.Connection.NATSToken = maskedSecret
 	}
+	if strings.TrimSpace(cfg.Connection.SeaweedFSSecretKey) != "" {
+		cfg.Connection.SeaweedFSSecretKey = maskedSecret
+	}
 	if strings.TrimSpace(cfg.Connection.PgAdminPassword) != "" {
 		cfg.Connection.PgAdminPassword = maskedSecret
 	}
@@ -1640,6 +1643,7 @@ var configFieldGroupOrder = []string{
 	"Postgres",
 	"Redis",
 	"NATS",
+	"SeaweedFS",
 	"pgAdmin",
 	"Cockpit",
 	"Behavior",
@@ -1671,6 +1675,8 @@ func configFieldGroup(spec configFieldSpec) string {
 		return "Redis"
 	case spec.Key == "setup.include_nats", strings.HasPrefix(spec.Key, "services.nats"), strings.HasPrefix(spec.Key, "ports.nats"), strings.HasPrefix(spec.Key, "connection.nats_"):
 		return "NATS"
+	case spec.Key == "setup.include_seaweedfs", strings.HasPrefix(spec.Key, "services.seaweedfs"), strings.HasPrefix(spec.Key, "ports.seaweedfs"), strings.HasPrefix(spec.Key, "connection.seaweedfs_"):
+		return "SeaweedFS"
 	case spec.Key == "setup.include_pgadmin", strings.HasPrefix(spec.Key, "services.pgadmin"), strings.HasPrefix(spec.Key, "ports.pgadmin"), strings.HasPrefix(spec.Key, "connection.pgadmin_"):
 		return "pgAdmin"
 	case spec.Key == "setup.include_cockpit", spec.Key == "setup.install_cockpit", strings.HasPrefix(spec.Key, "ports.cockpit"):
@@ -1704,6 +1710,8 @@ func configFieldLabel(spec configFieldSpec) string {
 		return "Enabled"
 	case "setup.include_nats":
 		return "Enabled"
+	case "setup.include_seaweedfs":
+		return "Enabled"
 	case "setup.include_pgadmin":
 		return "Enabled"
 	case "setup.include_cockpit":
@@ -1723,6 +1731,8 @@ func configFieldLabel(spec configFieldSpec) string {
 		return titleCaseLabel(strings.TrimPrefix(spec.Label, "Redis "))
 	case "NATS":
 		return titleCaseLabel(strings.TrimPrefix(spec.Label, "NATS "))
+	case "SeaweedFS":
+		return titleCaseLabel(strings.TrimPrefix(spec.Label, "SeaweedFS "))
 	case "pgAdmin":
 		return titleCaseLabel(strings.TrimPrefix(spec.Label, "pgAdmin "))
 	case "Cockpit":
@@ -2276,6 +2286,62 @@ var configFieldSpecs = []configFieldSpec{
 		InputValidate: requiredText,
 	},
 	{
+		Key:         "setup.include_seaweedfs",
+		Group:       "Services",
+		Label:       "Include SeaweedFS",
+		Description: "Enable the SeaweedFS S3-compatible object storage service in the managed stack.",
+		Kind:        configFieldBool,
+		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.IncludeSeaweedFS },
+		SetBool: func(cfg *configpkg.Config, value bool) error {
+			cfg.Setup.IncludeSeaweedFS = value
+			return nil
+		},
+	},
+	{
+		Key:           "services.seaweedfs_container",
+		Group:         "Services",
+		Label:         "SeaweedFS container",
+		Description:   "The compose service and container name used for SeaweedFS.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.SeaweedFSContainer },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.SeaweedFSContainer }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:           "services.seaweedfs.image",
+		Group:         "Services",
+		Label:         "SeaweedFS image",
+		Description:   "The container image used for the SeaweedFS S3 service.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.SeaweedFS.Image },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.SeaweedFS.Image }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:           "services.seaweedfs.data_volume",
+		Group:         "Services",
+		Label:         "SeaweedFS data volume",
+		Description:   "The named volume used for SeaweedFS filer and object data.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.SeaweedFS.DataVolume },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.SeaweedFS.DataVolume }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:             "services.seaweedfs.volume_size_limit_mb",
+		Group:           "Services",
+		Label:           "SeaweedFS volume size limit",
+		Description:     "The per-volume size cap, in MB, passed to the local SeaweedFS server.",
+		SuggestionTitle: "Common values",
+		Kind:            configFieldInt,
+		GetString:       func(cfg configpkg.Config) string { return strconv.Itoa(cfg.Services.SeaweedFS.VolumeSizeLimitMB) },
+		SetString:       intSetter(func(cfg *configpkg.Config) *int { return &cfg.Services.SeaweedFS.VolumeSizeLimitMB }),
+		InputValidate:   positiveIntText,
+		Suggestions: func(configpkg.Config) []string {
+			return []string{"512", "1024", "2048"}
+		},
+	},
+	{
 		Key:         "setup.include_pgadmin",
 		Group:       "Services",
 		Label:       "Include pgAdmin",
@@ -2360,6 +2426,16 @@ var configFieldSpecs = []configFieldSpec{
 		InputValidate: validPortText,
 	},
 	{
+		Key:           "ports.seaweedfs",
+		Group:         "Ports",
+		Label:         "SeaweedFS port",
+		Description:   "The host port exposed for the SeaweedFS S3 endpoint.",
+		Kind:          configFieldInt,
+		GetString:     func(cfg configpkg.Config) string { return strconv.Itoa(cfg.Ports.SeaweedFS) },
+		SetString:     intSetter(func(cfg *configpkg.Config) *int { return &cfg.Ports.SeaweedFS }),
+		InputValidate: validPortText,
+	},
+	{
 		Key:           "ports.pgadmin",
 		Group:         "Ports",
 		Label:         "pgAdmin port",
@@ -2439,6 +2515,27 @@ var configFieldSpecs = []configFieldSpec{
 		Secret:        true,
 		GetString:     func(cfg configpkg.Config) string { return cfg.Connection.NATSToken },
 		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.NATSToken }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:           "connection.seaweedfs_access_key",
+		Group:         "Connections",
+		Label:         "SeaweedFS access key",
+		Description:   "The S3 access key used by SeaweedFS clients.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Connection.SeaweedFSAccessKey },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.SeaweedFSAccessKey }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:           "connection.seaweedfs_secret_key",
+		Group:         "Connections",
+		Label:         "SeaweedFS secret key",
+		Description:   "The S3 secret key used by SeaweedFS clients.",
+		Kind:          configFieldString,
+		Secret:        true,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Connection.SeaweedFSSecretKey },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.SeaweedFSSecretKey }),
 		InputValidate: requiredText,
 	},
 	{

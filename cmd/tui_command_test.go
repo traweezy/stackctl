@@ -73,8 +73,8 @@ func TestTUICmdHelpDocumentsInspectionPanelsAndLiveLogs(t *testing.T) {
 	collapsed := strings.Join(strings.Fields(stdout), " ")
 	for _, fragment := range []string{
 		"overview, stacks, config, services, health, and action history",
-		"services pane includes host ports, URLs, DSNs, copy actions, shell handoff, and live-log handoff",
-		"Stacks pane lets you inspect saved profiles, switch the active stack, and remove profiles",
+		"services pane includes host ports, URLs, endpoints, DSNs, copy actions, shell handoff, and live-log handoff",
+		"Stacks pane lets you inspect saved profiles, switch the active stack, start or stop selected stack profiles, and remove profiles",
 		"switch the active item inside split inspection panes",
 		"press w from the service and health panels to open live logs",
 	} {

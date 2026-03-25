@@ -395,15 +395,22 @@ func stackHeading(profile StackProfile) string {
 }
 
 func stackWorkflowLines(profile StackProfile, layout layoutMode) []string {
-	lines := make([]string, 0, 5)
+	lines := make([]string, 0, 6)
 	switch {
 	case !profile.Configured:
 		lines = append(lines, "Save defaults from Config to create this stack profile.")
 	case profile.Current:
 		lines = append(lines, "Open Config to edit this stack.")
+		lines = append(lines, "Use the action rail to manage this stack directly.")
 	default:
 		lines = append(lines, "Use the action rail to switch the dashboard to this stack.")
-		lines = append(lines, "After switching, open Config to edit it.")
+		switch normalizedStackState(profile.State) {
+		case "running", "stopped":
+			lines = append(lines, "You can also start, stop, or restart this stack here without switching first.")
+			lines = append(lines, "Use it first if you want the rest of the dashboard to follow this stack.")
+		default:
+			lines = append(lines, "After switching, open Config to edit it.")
+		}
 	}
 
 	if profile.Configured {
@@ -457,19 +464,9 @@ func renderHealth(snapshot Snapshot, selected string, width int, pinned map[stri
 		for _, line := range snapshot.Health {
 			lines = append(lines, healthLineStyle(line.Status).Render(fmt.Sprintf("%s %s", healthStatusIcon(line.Status), line.Message)))
 		}
-		findings := make([]DoctorCheck, 0, len(snapshot.DoctorChecks))
-		for _, check := range snapshot.DoctorChecks {
-			if check.Status == output.StatusOK {
-				continue
-			}
-			findings = append(findings, check)
-		}
-		if len(findings) > 0 {
+		if footer := renderHealthDoctorFooter(snapshot, width); footer != "" {
 			lines = append(lines, "")
-			lines = append(lines, detailHeading("Doctor findings"))
-			for _, check := range findings {
-				lines = append(lines, fmt.Sprintf("%s  %s", statusChip(strings.ToLower(check.Status), check.Status), check.Message))
-			}
+			lines = append(lines, footer)
 		}
 		return strings.Join(lines, "\n")
 	}
@@ -485,6 +482,10 @@ func renderHealth(snapshot Snapshot, selected string, width int, pinned map[stri
 	left := renderHealthListPane(snapshot, serviceKey(selectedService), pinned)
 	right := renderHealthDetailPane(snapshot, selectedService, pinned)
 	lines = append(lines, splitPane(left, right, width, defaultListPaneMinW, defaultListPaneMaxW))
+	if footer := renderHealthDoctorFooter(snapshot, width); footer != "" {
+		lines = append(lines, "")
+		lines = append(lines, footer)
+	}
 
 	return strings.Join(lines, "\n")
 }
@@ -531,37 +532,65 @@ func renderHealthListPane(snapshot Snapshot, selected string, pinned map[string]
 	}
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle().Render("j/k or [ ] switch target  •  g or / jump"))
-	lines = append(lines, "")
-	lines = append(lines, detailHeading("Doctor summary"))
-	lines = append(lines, doctorSummaryLine(snapshot.DoctorSummary))
 
 	return strings.Join(lines, "\n")
 }
 
-func renderHealthDetailPane(snapshot Snapshot, service Service, pinned map[string]struct{}) string {
+func renderHealthDetailPane(_ Snapshot, service Service, pinned map[string]struct{}) string {
 	lines := []string{detailHeading("Health detail"), ""}
 	lines = append(lines, renderHealthBlock(service)...)
 	lines = append(lines, "")
 	lines = append(lines, renderProductivityHint(service, pinned))
-	lines = append(lines, "")
-	lines = append(lines, detailHeading("Doctor findings"))
-	findings := make([]DoctorCheck, 0, len(snapshot.DoctorChecks))
-	for _, check := range snapshot.DoctorChecks {
+
+	return strings.Join(lines, "\n")
+}
+
+func renderHealthDoctorFooter(snapshot Snapshot, width int) string {
+	if len(snapshot.DoctorChecks) == 0 && snapshot.DoctorSummary == (DoctorSummary{}) {
+		return ""
+	}
+
+	lines := []string{
+		detailHeading("Doctor findings"),
+		"",
+		doctorSummaryLine(snapshot.DoctorSummary),
+	}
+
+	findings := doctorFindings(snapshot.DoctorChecks)
+	if len(findings) == 0 {
+		lines = append(lines, "", mutedStyle().Render("No doctor findings recorded."))
+	} else {
+		lines = append(lines, "")
+		for _, check := range findings {
+			lines = append(lines, fmt.Sprintf("%s  %s", statusChip(strings.ToLower(check.Status), check.Status), check.Message))
+		}
+	}
+
+	panelWidth := maxInt(24, width)
+	return subPaneStyle(doctorFooterColor(snapshot.DoctorSummary)).Width(panelWidth).Render(strings.Join(lines, "\n"))
+}
+
+func doctorFindings(checks []DoctorCheck) []DoctorCheck {
+	findings := make([]DoctorCheck, 0, len(checks))
+	for _, check := range checks {
 		if check.Status == output.StatusOK {
 			continue
 		}
 		findings = append(findings, check)
 	}
-	if len(findings) == 0 {
-		lines = append(lines, mutedStyle().Render("No doctor findings recorded."))
-		return strings.Join(lines, "\n")
-	}
 
-	for _, check := range findings {
-		lines = append(lines, fmt.Sprintf("%s  %s", statusChip(strings.ToLower(check.Status), check.Status), check.Message))
-	}
+	return findings
+}
 
-	return strings.Join(lines, "\n")
+func doctorFooterColor(summary DoctorSummary) string {
+	switch {
+	case summary.Fail > 0 || summary.Miss > 0:
+		return "160"
+	case summary.Warn > 0:
+		return "221"
+	default:
+		return "28"
+	}
 }
 
 func renderProductivityHint(service Service, pinned map[string]struct{}) string {

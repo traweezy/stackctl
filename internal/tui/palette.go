@@ -56,15 +56,17 @@ const (
 type copyTargetKind string
 
 const (
-	copyTargetDSN      copyTargetKind = "dsn"
-	copyTargetURL      copyTargetKind = "url"
-	copyTargetEndpoint copyTargetKind = "endpoint"
-	copyTargetHostPort copyTargetKind = "host-port"
-	copyTargetUsername copyTargetKind = "username"
-	copyTargetPassword copyTargetKind = "password"
-	copyTargetToken    copyTargetKind = "token"
-	copyTargetDatabase copyTargetKind = "database"
-	copyTargetEmail    copyTargetKind = "email"
+	copyTargetDSN       copyTargetKind = "dsn"
+	copyTargetURL       copyTargetKind = "url"
+	copyTargetEndpoint  copyTargetKind = "endpoint"
+	copyTargetHostPort  copyTargetKind = "host-port"
+	copyTargetUsername  copyTargetKind = "username"
+	copyTargetPassword  copyTargetKind = "password"
+	copyTargetToken     copyTargetKind = "token"
+	copyTargetAccessKey copyTargetKind = "access-key"
+	copyTargetSecretKey copyTargetKind = "secret-key"
+	copyTargetDatabase  copyTargetKind = "database"
+	copyTargetEmail     copyTargetKind = "email"
 )
 
 type paletteAction struct {
@@ -429,12 +431,20 @@ func serviceCopyTargets(service Service, showSecrets bool) []copyTarget {
 	if service.URL != "" {
 		add(copyTargetURL, service.DisplayName+" URL", service.URL, service.URL)
 	}
-	if endpoint := serviceEndpointValue(service); endpoint != "" {
+	if endpoint := strings.TrimSpace(service.Endpoint); endpoint != "" {
+		add(copyTargetEndpoint, service.DisplayName+" endpoint", endpoint, endpoint)
+	} else if endpoint := serviceEndpointValue(service); endpoint != "" {
 		add(copyTargetEndpoint, service.DisplayName+" endpoint", endpoint, endpoint)
 	}
 	if service.ExternalPort > 0 {
 		port := strconv.Itoa(service.ExternalPort)
 		add(copyTargetHostPort, service.DisplayName+" host port", port, port)
+	}
+	if service.AccessKey != "" {
+		add(copyTargetAccessKey, service.DisplayName+" access key", service.AccessKey, service.AccessKey)
+	}
+	if service.SecretKey != "" {
+		add(copyTargetSecretKey, service.DisplayName+" secret key", service.SecretKey, maskSecret(service.SecretKey, showSecrets))
 	}
 	if service.Username != "" {
 		add(copyTargetUsername, service.DisplayName+" username", service.Username, service.Username)

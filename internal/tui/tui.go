@@ -61,28 +61,32 @@ type StackProfile struct {
 }
 
 type Service struct {
-	Name            string
-	DisplayName     string
-	Status          string
-	ContainerName   string
-	Image           string
-	DataVolume      string
-	Host            string
-	ExternalPort    int
-	InternalPort    int
-	PortListening   bool
-	Database        string
-	MaintenanceDB   string
-	Email           string
-	Token           string
-	Username        string
-	Password        string
-	AppendOnly      *bool
-	SavePolicy      string
-	MaxMemoryPolicy string
-	ServerMode      string
-	URL             string
-	DSN             string
+	Name              string
+	DisplayName       string
+	Status            string
+	ContainerName     string
+	Image             string
+	DataVolume        string
+	Host              string
+	ExternalPort      int
+	InternalPort      int
+	PortListening     bool
+	Database          string
+	MaintenanceDB     string
+	Email             string
+	Token             string
+	AccessKey         string
+	SecretKey         string
+	Username          string
+	Password          string
+	AppendOnly        *bool
+	SavePolicy        string
+	MaxMemoryPolicy   string
+	VolumeSizeLimitMB int
+	ServerMode        string
+	Endpoint          string
+	URL               string
+	DSN               string
 }
 
 type HealthLine struct {
@@ -1575,6 +1579,9 @@ func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, ho
 		endpointGroup = append(endpointGroup, fmt.Sprintf("Host: %s", service.Host))
 	}
 	endpointGroup = append(endpointGroup, servicePortLines(service)...)
+	if service.Endpoint != "" {
+		endpointGroup = append(endpointGroup, fmt.Sprintf("Endpoint: %s", service.Endpoint))
+	}
 	if service.URL != "" {
 		endpointGroup = append(endpointGroup, fmt.Sprintf("URL: %s", service.URL))
 	}
@@ -1595,6 +1602,12 @@ func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, ho
 	if layout == expandedLayout && service.Token != "" {
 		accessGroup = append(accessGroup, fmt.Sprintf("Token: %s", maskSecret(service.Token, showSecrets)))
 	}
+	if service.AccessKey != "" {
+		accessGroup = append(accessGroup, fmt.Sprintf("Access key: %s", service.AccessKey))
+	}
+	if layout == expandedLayout && service.SecretKey != "" {
+		accessGroup = append(accessGroup, fmt.Sprintf("Secret key: %s", maskSecret(service.SecretKey, showSecrets)))
+	}
 	if service.Username != "" {
 		accessGroup = append(accessGroup, fmt.Sprintf("Username: %s", service.Username))
 	}
@@ -1611,6 +1624,9 @@ func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, ho
 	}
 	if layout == expandedLayout && service.MaxMemoryPolicy != "" {
 		settingGroup = append(settingGroup, fmt.Sprintf("Maxmemory policy: %s", service.MaxMemoryPolicy))
+	}
+	if layout == expandedLayout && service.VolumeSizeLimitMB > 0 {
+		settingGroup = append(settingGroup, fmt.Sprintf("Volume size limit: %d MB", service.VolumeSizeLimitMB))
 	}
 	if layout == expandedLayout && service.ServerMode != "" {
 		settingGroup = append(settingGroup, fmt.Sprintf("Server mode: %s", service.ServerMode))

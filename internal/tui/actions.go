@@ -27,6 +27,9 @@ const (
 	actionStartServicePrefix   = "start-service:"
 	actionStopServicePrefix    = "stop-service:"
 	actionRestartServicePrefix = "restart-service:"
+	actionStartStackPrefix     = "start-stack:"
+	actionStopStackPrefix      = "stop-stack:"
+	actionRestartStackPrefix   = "restart-stack:"
 	actionUseStackPrefix       = "use-stack:"
 	actionDeleteStackPrefix    = "delete-stack:"
 )
@@ -164,15 +167,30 @@ func availableStackActions(profile StackProfile, hasSelected bool) []ActionSpec 
 		return nil
 	}
 
-	actions := make([]ActionSpec, 0, 2)
+	actions := make([]ActionSpec, 0, 4)
 	if !profile.Current {
 		actions = append(actions, actionUseStackSpec(profile))
 	}
 	if profile.Configured {
+		actions = append(actions, stackLifecycleActions(profile)...)
 		actions = append(actions, actionDeleteStackSpec(profile))
 	}
 
 	return actions
+}
+
+func stackLifecycleActions(profile StackProfile) []ActionSpec {
+	switch normalizedStackState(profile.State) {
+	case "running":
+		return []ActionSpec{
+			actionRestartStackSpec(profile),
+			actionStopStackSpec(profile),
+		}
+	case "stopped":
+		return []ActionSpec{actionStartStackSpec(profile)}
+	default:
+		return nil
+	}
 }
 
 func actionStartSpec() ActionSpec {
@@ -192,6 +210,17 @@ func actionStartServiceSpec(service Service) ActionSpec {
 		Label:          "Start " + service.DisplayName,
 		Group:          "Service",
 		PendingMessage: "starting " + strings.ToLower(service.DisplayName) + "...",
+		PendingStatus:  output.StatusStart,
+		DefaultStatus:  output.StatusOK,
+	}
+}
+
+func actionStartStackSpec(profile StackProfile) ActionSpec {
+	return ActionSpec{
+		ID:             ActionID(actionStartStackPrefix + profile.Name),
+		Label:          "Start " + profile.Name,
+		Group:          "Stack profile",
+		PendingMessage: "starting " + profile.Name + "...",
 		PendingStatus:  output.StatusStart,
 		DefaultStatus:  output.StatusOK,
 	}
@@ -254,6 +283,18 @@ func actionStopServiceSpec(service Service) ActionSpec {
 	}
 }
 
+func actionStopStackSpec(profile StackProfile) ActionSpec {
+	return ActionSpec{
+		ID:             ActionID(actionStopStackPrefix + profile.Name),
+		Label:          "Stop " + profile.Name,
+		Group:          "Stack profile",
+		ConfirmMessage: "Stop stack " + profile.Name + " now? Running services will be interrupted.",
+		PendingMessage: "stopping " + profile.Name + "...",
+		PendingStatus:  output.StatusStop,
+		DefaultStatus:  output.StatusOK,
+	}
+}
+
 func actionRestartSpec() ActionSpec {
 	return ActionSpec{
 		ID:             ActionRestart,
@@ -273,6 +314,18 @@ func actionRestartServiceSpec(service Service) ActionSpec {
 		Group:          "Service",
 		ConfirmMessage: "Restart " + service.DisplayName + " now? Running work on that service will be interrupted.",
 		PendingMessage: "restarting " + strings.ToLower(service.DisplayName) + "...",
+		PendingStatus:  output.StatusRestart,
+		DefaultStatus:  output.StatusOK,
+	}
+}
+
+func actionRestartStackSpec(profile StackProfile) ActionSpec {
+	return ActionSpec{
+		ID:             ActionID(actionRestartStackPrefix + profile.Name),
+		Label:          "Restart " + profile.Name,
+		Group:          "Stack profile",
+		ConfirmMessage: "Restart stack " + profile.Name + " now? Running services will be interrupted.",
+		PendingMessage: "restarting " + profile.Name + "...",
 		PendingStatus:  output.StatusRestart,
 		DefaultStatus:  output.StatusOK,
 	}
@@ -318,7 +371,10 @@ func lifecycleAction(action ActionID) bool {
 	default:
 		return strings.HasPrefix(string(action), actionStartServicePrefix) ||
 			strings.HasPrefix(string(action), actionStopServicePrefix) ||
-			strings.HasPrefix(string(action), actionRestartServicePrefix)
+			strings.HasPrefix(string(action), actionRestartServicePrefix) ||
+			strings.HasPrefix(string(action), actionStartStackPrefix) ||
+			strings.HasPrefix(string(action), actionStopStackPrefix) ||
+			strings.HasPrefix(string(action), actionRestartStackPrefix)
 	}
 }
 
@@ -347,6 +403,12 @@ func stackActionTarget(action ActionID) (string, string, bool) {
 		return "use", strings.TrimPrefix(value, actionUseStackPrefix), true
 	case strings.HasPrefix(value, actionDeleteStackPrefix):
 		return "delete", strings.TrimPrefix(value, actionDeleteStackPrefix), true
+	case strings.HasPrefix(value, actionStartStackPrefix):
+		return "start", strings.TrimPrefix(value, actionStartStackPrefix), true
+	case strings.HasPrefix(value, actionStopStackPrefix):
+		return "stop", strings.TrimPrefix(value, actionStopStackPrefix), true
+	case strings.HasPrefix(value, actionRestartStackPrefix):
+		return "restart", strings.TrimPrefix(value, actionRestartStackPrefix), true
 	default:
 		return "", "", false
 	}
@@ -654,24 +716,118 @@ func (m *Model) setBanner(status, message string) int {
 func applyOptimisticUpdate(snapshot Snapshot, action ActionID) Snapshot {
 	updated := snapshot
 	updated.Services = append([]Service(nil), snapshot.Services...)
-	for idx, service := range updated.Services {
-		if !isStackService(service) {
-			continue
-		}
+	updated.Stacks = append([]StackProfile(nil), snapshot.Stacks...)
 
+	if verb, stackName, ok := stackActionTarget(action); ok {
+		switch verb {
+		case "start":
+			optimisticStackState(&updated, stackName, "starting")
+		case "stop":
+			optimisticStackState(&updated, stackName, "stopping")
+		case "restart":
+			optimisticStackState(&updated, stackName, "restarting")
+		}
+		if currentStackProfile(updated.Stacks, stackName) {
+			applyOptimisticServiceLifecycle(&updated, verb)
+		}
+		return updated
+	}
+
+	if verb, serviceName, ok := serviceActionTarget(action); ok {
+		optimisticServiceState(&updated, serviceName, verb)
+		return updated
+	}
+
+	applyOptimisticServiceLifecycle(&updated, string(action))
+	if action == ActionStart || action == ActionStop || action == ActionRestart {
 		switch action {
 		case ActionStart:
-			updated.Services[idx].Status = "starting"
+			optimisticCurrentStackState(&updated, "starting")
 		case ActionStop:
-			updated.Services[idx].Status = "stopping"
-			updated.Services[idx].PortListening = false
+			optimisticCurrentStackState(&updated, "stopping")
 		case ActionRestart:
-			updated.Services[idx].Status = "restarting"
-			updated.Services[idx].PortListening = false
+			optimisticCurrentStackState(&updated, "restarting")
 		}
 	}
 
 	return updated
+}
+
+func applyOptimisticServiceLifecycle(snapshot *Snapshot, verb string) {
+	for idx, service := range snapshot.Services {
+		if !isStackService(service) {
+			continue
+		}
+
+		switch verb {
+		case "start":
+			snapshot.Services[idx].Status = "starting"
+		case "stop":
+			snapshot.Services[idx].Status = "stopping"
+			snapshot.Services[idx].PortListening = false
+		case "restart":
+			snapshot.Services[idx].Status = "restarting"
+			snapshot.Services[idx].PortListening = false
+		}
+	}
+}
+
+func optimisticServiceState(snapshot *Snapshot, serviceName, verb string) {
+	for idx, service := range snapshot.Services {
+		if !strings.EqualFold(service.Name, serviceName) {
+			continue
+		}
+		switch verb {
+		case "start":
+			snapshot.Services[idx].Status = "starting"
+		case "stop":
+			snapshot.Services[idx].Status = "stopping"
+			snapshot.Services[idx].PortListening = false
+		case "restart":
+			snapshot.Services[idx].Status = "restarting"
+			snapshot.Services[idx].PortListening = false
+		}
+		return
+	}
+}
+
+func optimisticCurrentStackState(snapshot *Snapshot, state string) {
+	for idx := range snapshot.Stacks {
+		if snapshot.Stacks[idx].Current {
+			snapshot.Stacks[idx].State = state
+			return
+		}
+	}
+}
+
+func optimisticStackState(snapshot *Snapshot, stackName, state string) {
+	for idx := range snapshot.Stacks {
+		if strings.EqualFold(snapshot.Stacks[idx].Name, stackName) {
+			snapshot.Stacks[idx].State = state
+			return
+		}
+	}
+}
+
+func currentStackProfile(profiles []StackProfile, stackName string) bool {
+	for _, profile := range profiles {
+		if profile.Current && strings.EqualFold(profile.Name, stackName) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func normalizedStackState(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "running":
+		return "running"
+	case "stopped", "not running":
+		return "stopped"
+	default:
+		return strings.ToLower(strings.TrimSpace(state))
+	}
 }
 
 func newActionConfirmation(action ActionSpec) *confirmationState {

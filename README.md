@@ -15,6 +15,10 @@ This gives you:
 - pgAdmin
 - ready-to-use connection strings
 
+You can also opt into:
+
+- SeaweedFS for S3-compatible local object storage
+
 No manual configuration required. The setup wizard and config editor also let
 you enable or disable each service explicitly.
 
@@ -64,9 +68,10 @@ stackctl is useful if you:
 
 The runtime inspection commands are intentionally split:
 
-- `stackctl connect` prints minimal connection strings and URLs
+- `stackctl connect` prints minimal connection strings, URLs, and enabled
+  object-storage endpoint credentials
 - `stackctl services` prints the full service report with status, ports,
-  container names, URLs, and DSNs
+  container names, endpoints, URLs, and DSNs
 - `stackctl status` prints raw container state
 - `stackctl doctor` checks the environment and expected ports
 - `stackctl health` checks whether the configured endpoints are reachable
@@ -218,9 +223,12 @@ config:
 - Postgres password: `app`
 - Redis password: disabled by default
 - NATS token: `stackctl`
+- SeaweedFS access key: `stackctl`
+- SeaweedFS secret key: `stackctlsecret`
 - Postgres port: `5432`
 - Redis port: `6379`
 - NATS port: `4222`
+- SeaweedFS endpoint: `http://localhost:8333`
 - pgAdmin URL: `http://localhost:8081`
 - Cockpit URL: `https://localhost:9090`
 
@@ -231,6 +239,10 @@ Service toggles default to enabled for:
 - NATS
 - pgAdmin
 - Cockpit helpers
+
+Disabled by default:
+
+- SeaweedFS
 
 The managed pgAdmin service also ships with these default credentials:
 
@@ -248,6 +260,10 @@ Managed service defaults also include:
 - Redis save policy: `3600 1 300 100 60 10000`
 - Redis maxmemory policy: `noeviction`
 - NATS image: `docker.io/library/nats:2.12.5`
+- SeaweedFS image:
+  `docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9`
+- SeaweedFS data volume: `seaweedfs_data`
+- SeaweedFS volume size limit: `1024 MB`
 - pgAdmin image: `docker.io/dpage/pgadmin4:latest`
 - pgAdmin data volume: `pgadmin_data`
 - pgAdmin server mode: disabled
@@ -295,8 +311,8 @@ In managed mode:
 - `stackctl` owns the stack directory
 - `stackctl config scaffold` can create or refresh the managed stack files
 - the managed compose file is rendered from your config values, including
-  Postgres credentials, optional Redis auth, the NATS token, and pgAdmin login
-  details
+  Postgres credentials, optional Redis auth, the NATS token, optional
+  SeaweedFS S3 credentials, and pgAdmin login details
 
 This is the default and the easiest way to get started.
 
@@ -394,8 +410,8 @@ review inside the dashboard. The header now carries clearer section context,
 `Services` includes a quick running/stopped/attention summary, and the detail
 panes use explicit subsections so service inspection is easier to scan. The
 `Stacks` section gives you a proper profile browser inside the TUI so you can
-inspect saved stacks, switch the active stack, and delete profiles without
-leaving the dashboard.
+inspect saved stacks, switch the active stack, start or stop selected stack
+profiles, and delete profiles without leaving the dashboard.
 
 Examples:
 
@@ -438,6 +454,7 @@ Sections:
 - `Config`: a grouped stack-and-service editor with stack, service, and TUI settings, a slim status strip, a field detail pane, inline validation, allowed-value hints for finite-choice settings, diff preview, save/reset/defaults actions, a key strip under the detail pane, and managed-stack scaffolding
 - `Services`: a split service list and detail pane with runtime metadata, lifecycle status, host ports, DSNs, URLs, host-tool handling, pinned-service grouping, real copy actions, shell shortcuts, and a live-log shortcut
 - `Health`: a split service-by-service health summary with runtime, reachability, doctor detail rendering, pinned-service grouping, and the same service shortcuts for stack services
+- `Stacks`: a split stack-profile browser with per-profile lifecycle, switch, and delete actions
 - `History`: the current session’s action log, including cancellations, warnings, and doctor summaries
 
 Notes:
@@ -721,13 +738,14 @@ Flags: `-h`, `--help` only.
 Edit the current config using the interactive wizard.
 
 This is the easiest way to change service credentials, optional Redis auth,
-the managed NATS token, managed-stack ports, Postgres maintenance-db behavior,
-Redis persistence and memory settings, pgAdmin server mode, and service
-image/data-volume settings without editing compose files manually. All managed
-services can also be enabled or disabled here. The wizard now starts with stack
-mode and a checkbox-style service picker, then only shows configuration pages
-for the services you selected. Each page includes inline hints so the common
-fields read more like the TUI than raw YAML keys.
+the managed NATS token, optional SeaweedFS S3 credentials, managed-stack
+ports, Postgres maintenance-db behavior, Redis persistence and memory settings,
+SeaweedFS volume sizing, pgAdmin server mode, and service image/data-volume
+settings without editing compose files manually. All managed services can also
+be enabled or disabled here. The wizard now starts with stack mode and a
+checkbox-style service picker, then only shows configuration pages for the
+services you selected. Each page includes inline hints so the common fields
+read more like the TUI than raw YAML keys.
 
 If you want a full-screen workflow with diff preview, save/reset, and managed
 stack scaffolding in one place, use the `Config` section inside `stackctl tui`.
@@ -754,6 +772,8 @@ Service settings available in the config and wizard:
 - Redis: enabled flag, image, data volume, password, appendonly persistence,
   save policy, maxmemory policy, container name, and host port
 - NATS: enabled flag, image, auth token, container name, and host port
+- SeaweedFS: enabled flag, image, data volume, volume size limit, access key,
+  secret key, container name, and host port
 - pgAdmin: enabled flag, image, data volume, email, password, server mode,
   container name, and host port
 - Cockpit: enabled flag, install-on-setup flag, and host port
@@ -814,12 +834,12 @@ Flags:
 
 Start the local development stack or selected stack services. If
 `wait_for_services_on_start` is enabled in config, `stackctl` waits for the
-core app-facing services (`postgres`, `redis`, and `nats`) that are part of
-the requested start operation before returning. Disabled services are skipped
-automatically.
+core app-facing services (`postgres`, `redis`, `nats`, and `seaweedfs` when
+enabled) that are part of the requested start operation before returning.
+Disabled services are skipped automatically.
 
 Valid service targets are the enabled stack-managed services: `postgres`,
-`redis`, `nats`, and `pgadmin`. Cockpit is a host helper, not a compose
+`redis`, `nats`, `seaweedfs`, and `pgadmin`. Cockpit is a host helper, not a compose
 service, so it is never a lifecycle target. `start` also refuses to run when
 another local stack is already running and tells you which stack to stop first.
 
@@ -899,6 +919,7 @@ This is the command to use when you want to answer all of these at once:
 - what container is backing it
 - what host and port it is using
 - how to connect to it
+- which credentials go with it
 
 Examples:
 
@@ -907,6 +928,8 @@ stackctl services
 stackctl services --json
 stackctl services --copy postgres
 stackctl services --copy nats
+stackctl services --copy seaweedfs
+stackctl services --copy seaweedfs-secret-key
 ```
 
 Flags:
@@ -916,8 +939,9 @@ Flags:
 | `--copy <target>` | Copy a common DSN, URL, or credential to the clipboard |
 | `-j`, `--json` | Print service details as JSON |
 
-Plaintext password fields are intentionally omitted from JSON output. Use the
-DSNs, URLs, or the human-readable `stackctl services` output when you need the
+Plaintext secret fields are intentionally omitted from JSON output. Passwords,
+tokens, and secret keys stay out of the JSON payload; use the DSNs, URLs,
+endpoints, or the human-readable `stackctl services` output when you need the
 configured credentials directly.
 
 Supported copy targets:
@@ -925,6 +949,7 @@ Supported copy targets:
 - `postgres`
 - `redis`
 - `nats`
+- `seaweedfs`
 - `pgadmin`
 - `cockpit`
 - `postgres-user`
@@ -932,6 +957,8 @@ Supported copy targets:
 - `postgres-database`
 - `redis-password`
 - `nats-token`
+- `seaweedfs-access-key`
+- `seaweedfs-secret-key`
 - `pgadmin-email`
 - `pgadmin-password`
 
@@ -945,6 +972,7 @@ Examples:
 ```bash
 stackctl exec postgres -- psql -U app -d app
 stackctl exec redis -- redis-cli -a secret PING
+stackctl exec seaweedfs -- weed shell
 stackctl exec pgadmin -- printenv PGADMIN_DEFAULT_EMAIL
 ```
 
@@ -953,6 +981,7 @@ Supported service targets:
 - `postgres` or `pg`
 - `redis` or `rd`
 - `nats`
+- `seaweedfs` or `seaweed`
 - `pgadmin`
 
 Flags:
@@ -1046,8 +1075,9 @@ Flags: `-h`, `--help` only.
 
 ### `stackctl connect`
 
-Print minimal connection strings and URLs. This is intentionally smaller than
-`stackctl services` and is meant for copy/paste.
+Print minimal connection strings, URLs, and object-storage endpoint
+credentials. This is intentionally smaller than `stackctl services` and is
+meant for copy/paste.
 
 Examples:
 
@@ -1067,7 +1097,7 @@ Examples:
 stackctl logs
 stackctl logs --watch
 stackctl logs --service postgres
-stackctl logs --service pg --tail 200 --watch
+stackctl logs --service seaweedfs --tail 200 --watch
 ```
 
 Supported service filters:
@@ -1075,6 +1105,7 @@ Supported service filters:
 - `postgres` or `pg`
 - `redis` or `rd`
 - `nats`
+- `seaweedfs` or `seaweed`
 - `pgadmin`
 
 Flags:
@@ -1225,11 +1256,12 @@ If you only remember a few commands, these are the ones most people will use:
 - `stackctl setup`: create config and prepare the machine
 - `stackctl start`: bring the stack or selected services up
 - `stackctl services`: see the full runtime picture
-- `stackctl connect`: copy DSNs and URLs quickly
+- `stackctl connect`: copy DSNs, URLs, and endpoint credentials quickly
 - `stackctl stack list`: see every configured stack and which one is active
 - `stackctl stack use staging`: switch your saved default stack cleanly
 - `stackctl services --copy postgres`: send a ready-to-use value straight to the clipboard
 - `stackctl services --copy nats`: send the configured NATS DSN straight to the clipboard
+- `stackctl services --copy seaweedfs`: send the configured S3 endpoint straight to the clipboard
 - `stackctl db shell`: jump straight into `psql`
 - `stackctl db dump`: export the local database as SQL
 - `stackctl db restore`: replay a SQL dump into the local database
@@ -1383,15 +1415,19 @@ Available today:
 - PostgreSQL
 - Redis
 - NATS
+- SeaweedFS (optional, disabled by default)
 - pgAdmin
 - Cockpit
 - configurable Postgres database, username, password, and ports
 - optional Redis auth that flows through generated compose and DSNs
 - configurable NATS auth token and port that flow through managed scaffolding,
   DSNs, and helper commands
+- optional SeaweedFS S3 endpoint with access key, secret key, volume sizing,
+  managed scaffolding, helper output, and TUI coverage
 - configurable pgAdmin login details that stay in sync with the managed stack
-- explicit enable/disable toggles for Postgres, Redis, NATS, pgAdmin, and
-  Cockpit helpers in setup, `config edit`, and the TUI config editor
+- explicit enable/disable toggles for Postgres, Redis, NATS, SeaweedFS,
+  pgAdmin, and Cockpit helpers in setup, `config edit`, and the TUI config
+  editor
 - service-level image, data-volume, and tuning settings in `stackctl config`
 - configurable Postgres maintenance-database settings for admin helpers
 - configurable Redis persistence and maxmemory policy settings
@@ -1443,8 +1479,6 @@ These are the highest-value additions after the current release line.
 
 #### More local services
 
-- `MinIO`
-  Why: S3-compatible object storage for uploads and cloud-like local dev
 - `Meilisearch`
   Why: fast, lightweight search and autocomplete without Elasticsearch
 
@@ -1453,7 +1487,7 @@ Resulting target stack:
 - PostgreSQL
 - Redis
 - NATS
-- MinIO
+- SeaweedFS
 - Meilisearch
 - pgAdmin
 - Cockpit
