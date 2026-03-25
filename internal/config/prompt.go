@@ -79,6 +79,9 @@ func runPlainWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	if err := session.configureNATS(&cfg); err != nil {
 		return Config{}, err
 	}
+	if err := session.configureSeaweedFS(&cfg); err != nil {
+		return Config{}, err
+	}
 	if err := session.configurePgAdmin(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -344,6 +347,65 @@ func (p promptSession) configureNATS(cfg *Config) error {
 		return err
 	}
 	cfg.Connection.NATSToken = natsToken
+
+	return nil
+}
+
+func (p promptSession) configureSeaweedFS(cfg *Config) error {
+	includeSeaweedFS, err := p.askBool("Include SeaweedFS in the stack", cfg.Setup.IncludeSeaweedFS)
+	if err != nil {
+		return err
+	}
+	cfg.Setup.IncludeSeaweedFS = includeSeaweedFS
+	if !cfg.Setup.IncludeSeaweedFS {
+		return nil
+	}
+
+	if err := p.printSection("SeaweedFS"); err != nil {
+		return err
+	}
+
+	seaweedContainer, err := p.askString("SeaweedFS container name", cfg.Services.SeaweedFSContainer, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.SeaweedFSContainer = seaweedContainer
+
+	seaweedImage, err := p.askString("SeaweedFS image", cfg.Services.SeaweedFS.Image, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.SeaweedFS.Image = seaweedImage
+
+	seaweedDataVolume, err := p.askString("SeaweedFS data volume", cfg.Services.SeaweedFS.DataVolume, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.SeaweedFS.DataVolume = seaweedDataVolume
+
+	volumeLimit, err := p.askInt("SeaweedFS volume size limit in MB", cfg.Services.SeaweedFS.VolumeSizeLimitMB, positiveInt)
+	if err != nil {
+		return err
+	}
+	cfg.Services.SeaweedFS.VolumeSizeLimitMB = volumeLimit
+
+	seaweedPort, err := p.askPort("SeaweedFS S3 port", cfg.Ports.SeaweedFS)
+	if err != nil {
+		return err
+	}
+	cfg.Ports.SeaweedFS = seaweedPort
+
+	accessKey, err := p.askString("SeaweedFS access key", cfg.Connection.SeaweedFSAccessKey, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Connection.SeaweedFSAccessKey = accessKey
+
+	secretKey, err := p.askString("SeaweedFS secret key", cfg.Connection.SeaweedFSSecretKey, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Connection.SeaweedFSSecretKey = secretKey
 
 	return nil
 }

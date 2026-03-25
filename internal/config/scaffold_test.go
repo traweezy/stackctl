@@ -216,6 +216,76 @@ func TestScaffoldManagedStackOmitsNATSWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestScaffoldManagedStackAddsSeaweedFSWhenEnabled(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	cfg.Setup.IncludeSeaweedFS = true
+	cfg.Services.SeaweedFS.Image = "docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9"
+	cfg.Services.SeaweedFS.DataVolume = "stack_seaweedfs_data"
+	cfg.Services.SeaweedFS.VolumeSizeLimitMB = 2048
+	cfg.Connection.SeaweedFSAccessKey = "seaweed-access"
+	cfg.Connection.SeaweedFSSecretKey = "seaweed-secret"
+	cfg.Ports.SeaweedFS = 18333
+
+	result, err := ScaffoldManagedStack(cfg, false)
+	if err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(result.ComposePath)
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	if !strings.Contains(string(data), "seaweedfs:") {
+		t.Fatalf("expected seaweedfs service to be rendered, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "image: \"docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9\"") {
+		t.Fatalf("expected rendered seaweedfs image, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "container_name: \"local-seaweedfs\"") {
+		t.Fatalf("expected rendered seaweedfs container, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "AWS_ACCESS_KEY_ID: \"seaweed-access\"") {
+		t.Fatalf("expected rendered seaweedfs access key, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "AWS_SECRET_ACCESS_KEY: \"seaweed-secret\"") {
+		t.Fatalf("expected rendered seaweedfs secret key, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "- -volumeSizeLimitMB=2048") {
+		t.Fatalf("expected rendered seaweedfs volume limit, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "\"18333:8333\"") {
+		t.Fatalf("expected rendered seaweedfs port mapping, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "stack_seaweedfs_data:/data") {
+		t.Fatalf("expected rendered seaweedfs data volume, got: %s", string(data))
+	}
+}
+
+func TestScaffoldManagedStackOmitsSeaweedFSWhenDisabled(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	cfg.Setup.IncludeSeaweedFS = false
+
+	result, err := ScaffoldManagedStack(cfg, false)
+	if err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(result.ComposePath)
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	if strings.Contains(string(data), "seaweedfs:") {
+		t.Fatalf("expected seaweedfs service to be omitted, got: %s", string(data))
+	}
+	if strings.Contains(string(data), "seaweedfs_data") {
+		t.Fatalf("expected seaweedfs volume to be omitted, got: %s", string(data))
+	}
+}
+
 func TestScaffoldManagedStackOmitsPostgresWhenDisabled(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 

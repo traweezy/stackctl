@@ -57,6 +57,25 @@ services:
       - ./nats.conf:/etc/nats/nats.conf:ro
 {{- end }}
 
+{{- if .Setup.IncludeSeaweedFS }}
+  seaweedfs:
+    image: {{ printf "%q" .Services.SeaweedFS.Image }}
+    container_name: {{ printf "%q" .Services.SeaweedFSContainer }}
+    restart: unless-stopped
+    environment:
+      AWS_ACCESS_KEY_ID: {{ printf "%q" .Connection.SeaweedFSAccessKey }}
+      AWS_SECRET_ACCESS_KEY: {{ printf "%q" .Connection.SeaweedFSSecretKey }}
+    command:
+      - server
+      - -dir=/data
+      - -s3
+      - -volumeSizeLimitMB={{ .Services.SeaweedFS.VolumeSizeLimitMB }}
+    ports:
+      - "{{ .Ports.SeaweedFS }}:8333"
+    volumes:
+      - {{ .Services.SeaweedFS.DataVolume }}:/data
+{{- end }}
+
 {{- if .Setup.IncludePgAdmin }}
   pgadmin:
     image: {{ printf "%q" .Services.PgAdmin.Image }}
@@ -86,6 +105,9 @@ volumes:
 {{- end }}
 {{- if .Setup.IncludeRedis }}
   {{ .Services.Redis.DataVolume }}:
+{{- end }}
+{{- if .Setup.IncludeSeaweedFS }}
+  {{ .Services.SeaweedFS.DataVolume }}:
 {{- end }}
 {{- if .Setup.IncludePgAdmin }}
   {{ .Services.PgAdmin.DataVolume }}:

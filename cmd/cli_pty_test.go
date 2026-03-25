@@ -52,6 +52,7 @@ func TestConfigInitInteractivePTYCustomizesConfig(t *testing.T) {
 		"", // nats image
 		"14222",
 		"natssecret",
+		"", // include seaweedfs
 		"", // include pgadmin
 		"", // pgadmin container
 		"", // pgadmin image
@@ -167,6 +168,7 @@ func TestConfigEditInteractivePTYUpdatesExistingConfig(t *testing.T) {
 		"", // nats image
 		"24222",
 		"editedtoken",
+		"", // include seaweedfs
 		"", // include pgadmin
 		"", // pgadmin container
 		"", // pgadmin image

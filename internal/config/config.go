@@ -34,14 +34,16 @@ type StackConfig struct {
 }
 
 type ServicesConfig struct {
-	PostgresContainer string                `yaml:"postgres_container"`
-	RedisContainer    string                `yaml:"redis_container"`
-	NATSContainer     string                `yaml:"nats_container"`
-	PgAdminContainer  string                `yaml:"pgadmin_container"`
-	Postgres          PostgresServiceConfig `yaml:"postgres"`
-	Redis             RedisServiceConfig    `yaml:"redis"`
-	NATS              NATSServiceConfig     `yaml:"nats"`
-	PgAdmin           PgAdminServiceConfig  `yaml:"pgadmin"`
+	PostgresContainer  string                 `yaml:"postgres_container"`
+	RedisContainer     string                 `yaml:"redis_container"`
+	NATSContainer      string                 `yaml:"nats_container"`
+	SeaweedFSContainer string                 `yaml:"seaweedfs_container"`
+	PgAdminContainer   string                 `yaml:"pgadmin_container"`
+	Postgres           PostgresServiceConfig  `yaml:"postgres"`
+	Redis              RedisServiceConfig     `yaml:"redis"`
+	NATS               NATSServiceConfig      `yaml:"nats"`
+	SeaweedFS          SeaweedFSServiceConfig `yaml:"seaweedfs"`
+	PgAdmin            PgAdminServiceConfig   `yaml:"pgadmin"`
 }
 
 type PostgresServiceConfig struct {
@@ -62,6 +64,12 @@ type NATSServiceConfig struct {
 	Image string `yaml:"image"`
 }
 
+type SeaweedFSServiceConfig struct {
+	Image             string `yaml:"image"`
+	DataVolume        string `yaml:"data_volume"`
+	VolumeSizeLimitMB int    `yaml:"volume_size_limit_mb"`
+}
+
 type PgAdminServiceConfig struct {
 	Image      string `yaml:"image"`
 	DataVolume string `yaml:"data_volume"`
@@ -69,27 +77,31 @@ type PgAdminServiceConfig struct {
 }
 
 type ConnectionConfig struct {
-	Host             string `yaml:"host"`
-	PostgresDatabase string `yaml:"postgres_database"`
-	PostgresUsername string `yaml:"postgres_username"`
-	PostgresPassword string `yaml:"postgres_password"`
-	RedisPassword    string `yaml:"redis_password"`
-	NATSToken        string `yaml:"nats_token"`
-	PgAdminEmail     string `yaml:"pgadmin_email"`
-	PgAdminPassword  string `yaml:"pgadmin_password"`
+	Host               string `yaml:"host"`
+	PostgresDatabase   string `yaml:"postgres_database"`
+	PostgresUsername   string `yaml:"postgres_username"`
+	PostgresPassword   string `yaml:"postgres_password"`
+	RedisPassword      string `yaml:"redis_password"`
+	NATSToken          string `yaml:"nats_token"`
+	SeaweedFSAccessKey string `yaml:"seaweedfs_access_key"`
+	SeaweedFSSecretKey string `yaml:"seaweedfs_secret_key"`
+	PgAdminEmail       string `yaml:"pgadmin_email"`
+	PgAdminPassword    string `yaml:"pgadmin_password"`
 }
 
 type PortsConfig struct {
-	Postgres int `yaml:"postgres"`
-	Redis    int `yaml:"redis"`
-	NATS     int `yaml:"nats"`
-	PgAdmin  int `yaml:"pgadmin"`
-	Cockpit  int `yaml:"cockpit"`
+	Postgres  int `yaml:"postgres"`
+	Redis     int `yaml:"redis"`
+	NATS      int `yaml:"nats"`
+	SeaweedFS int `yaml:"seaweedfs"`
+	PgAdmin   int `yaml:"pgadmin"`
+	Cockpit   int `yaml:"cockpit"`
 }
 
 type URLsConfig struct {
-	Cockpit string `yaml:"cockpit"`
-	PgAdmin string `yaml:"pgadmin"`
+	SeaweedFS string `yaml:"seaweedfs"`
+	Cockpit   string `yaml:"cockpit"`
+	PgAdmin   string `yaml:"pgadmin"`
 }
 
 type BehaviorConfig struct {
@@ -103,6 +115,7 @@ type SetupConfig struct {
 	IncludeCockpit       bool `yaml:"include_cockpit"`
 	InstallCockpit       bool `yaml:"install_cockpit"`
 	IncludeNATS          bool `yaml:"include_nats"`
+	IncludeSeaweedFS     bool `yaml:"include_seaweedfs"`
 	IncludePgAdmin       bool `yaml:"include_pgadmin"`
 	ScaffoldDefaultStack bool `yaml:"scaffold_default_stack"`
 }
@@ -201,6 +214,12 @@ func (c *Config) ApplyDerivedFields() {
 	if c.Connection.NATSToken == "" {
 		c.Connection.NATSToken = "stackctl"
 	}
+	if c.Connection.SeaweedFSAccessKey == "" {
+		c.Connection.SeaweedFSAccessKey = "stackctl"
+	}
+	if c.Connection.SeaweedFSSecretKey == "" {
+		c.Connection.SeaweedFSSecretKey = "stackctlsecret"
+	}
 	if c.Connection.PgAdminEmail == "" {
 		c.Connection.PgAdminEmail = "admin@example.com"
 	}
@@ -243,6 +262,19 @@ func (c *Config) ApplyDerivedFields() {
 		c.Services.NATSContainer = defaultNATSContainerName(c.Stack.Name)
 	}
 
+	if c.Services.SeaweedFS.Image == "" {
+		c.Services.SeaweedFS.Image = "docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9"
+	}
+	if c.Services.SeaweedFSContainer == "" {
+		c.Services.SeaweedFSContainer = defaultSeaweedFSContainerName(c.Stack.Name)
+	}
+	if c.Services.SeaweedFS.DataVolume == "" {
+		c.Services.SeaweedFS.DataVolume = defaultSeaweedFSVolumeName(c.Stack.Name)
+	}
+	if c.Services.SeaweedFS.VolumeSizeLimitMB <= 0 {
+		c.Services.SeaweedFS.VolumeSizeLimitMB = 1024
+	}
+
 	if c.Services.PgAdmin.Image == "" {
 		c.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:latest"
 	}
@@ -255,6 +287,9 @@ func (c *Config) ApplyDerivedFields() {
 
 	if c.Ports.Cockpit > 0 {
 		c.URLs.Cockpit = fmt.Sprintf("https://%s:%d", c.Connection.Host, c.Ports.Cockpit)
+	}
+	if c.Ports.SeaweedFS > 0 {
+		c.URLs.SeaweedFS = fmt.Sprintf("http://%s:%d", c.Connection.Host, c.Ports.SeaweedFS)
 	}
 	if c.Ports.PgAdmin > 0 {
 		c.URLs.PgAdmin = fmt.Sprintf("http://%s:%d", c.Connection.Host, c.Ports.PgAdmin)
@@ -276,6 +311,10 @@ func (c Config) NATSEnabled() bool {
 	return c.Setup.IncludeNATS
 }
 
+func (c Config) SeaweedFSEnabled() bool {
+	return c.Setup.IncludeSeaweedFS
+}
+
 func (c Config) PgAdminEnabled() bool {
 	return c.Setup.IncludePgAdmin
 }
@@ -293,6 +332,9 @@ func (c Config) EnabledStackServiceCount() int {
 		count++
 	}
 	if c.NATSEnabled() {
+		count++
+	}
+	if c.SeaweedFSEnabled() {
 		count++
 	}
 	if c.PgAdminEnabled() {

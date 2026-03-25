@@ -44,6 +44,13 @@ func defaultPgAdminContainerName(stackName string) string {
 	return "stackctl-" + normalizeStackName(stackName) + "-pgadmin"
 }
 
+func defaultSeaweedFSContainerName(stackName string) string {
+	if normalizeStackName(stackName) == DefaultStackName {
+		return "local-seaweedfs"
+	}
+	return "stackctl-" + normalizeStackName(stackName) + "-seaweedfs"
+}
+
 func defaultPostgresVolumeName(stackName string) string {
 	if normalizeStackName(stackName) == DefaultStackName {
 		return "postgres_data"
@@ -63,4 +70,11 @@ func defaultPgAdminVolumeName(stackName string) string {
 		return "pgadmin_data"
 	}
 	return "stackctl-" + normalizeStackName(stackName) + "-pgadmin-data"
+}
+
+func defaultSeaweedFSVolumeName(stackName string) string {
+	if normalizeStackName(stackName) == DefaultStackName {
+		return "seaweedfs_data"
+	}
+	return "stackctl-" + normalizeStackName(stackName) + "-seaweedfs-data"
 }

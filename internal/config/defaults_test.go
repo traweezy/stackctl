@@ -8,6 +8,9 @@ import (
 func TestDefaultConfigHasDerivedURLs(t *testing.T) {
 	cfg := Default()
 
+	if cfg.URLs.SeaweedFS != "http://localhost:8333" {
+		t.Fatalf("unexpected seaweedfs URL: %s", cfg.URLs.SeaweedFS)
+	}
 	if cfg.URLs.Cockpit != "https://localhost:9090" {
 		t.Fatalf("unexpected cockpit URL: %s", cfg.URLs.Cockpit)
 	}
@@ -30,11 +33,23 @@ func TestDefaultConfigHasDerivedURLs(t *testing.T) {
 	if cfg.Connection.NATSToken != "stackctl" {
 		t.Fatalf("unexpected nats token: %s", cfg.Connection.NATSToken)
 	}
+	if cfg.Connection.SeaweedFSAccessKey != "stackctl" {
+		t.Fatalf("unexpected seaweedfs access key: %s", cfg.Connection.SeaweedFSAccessKey)
+	}
+	if cfg.Connection.SeaweedFSSecretKey != "stackctlsecret" {
+		t.Fatalf("unexpected seaweedfs secret key: %s", cfg.Connection.SeaweedFSSecretKey)
+	}
 	if cfg.Ports.NATS != 4222 {
 		t.Fatalf("unexpected nats port: %d", cfg.Ports.NATS)
 	}
+	if cfg.Ports.SeaweedFS != 8333 {
+		t.Fatalf("unexpected seaweedfs port: %d", cfg.Ports.SeaweedFS)
+	}
 	if !cfg.Setup.IncludeNATS {
 		t.Fatal("expected nats to be enabled by default")
+	}
+	if cfg.Setup.IncludeSeaweedFS {
+		t.Fatal("expected seaweedfs to be disabled by default")
 	}
 	if cfg.Connection.PgAdminEmail != "admin@example.com" {
 		t.Fatalf("unexpected pgadmin email: %s", cfg.Connection.PgAdminEmail)
@@ -67,7 +82,13 @@ func TestDefaultForNamedStackUsesStackSpecificManagedDefaults(t *testing.T) {
 	if cfg.Services.NATSContainer != "stackctl-staging-nats" {
 		t.Fatalf("unexpected nats container: %s", cfg.Services.NATSContainer)
 	}
+	if cfg.Services.SeaweedFSContainer != "stackctl-staging-seaweedfs" {
+		t.Fatalf("unexpected seaweedfs container: %s", cfg.Services.SeaweedFSContainer)
+	}
 	if cfg.Services.PgAdminContainer != "stackctl-staging-pgadmin" {
 		t.Fatalf("unexpected pgadmin container: %s", cfg.Services.PgAdminContainer)
+	}
+	if cfg.Services.SeaweedFS.DataVolume != "stackctl-staging-seaweedfs-data" {
+		t.Fatalf("unexpected seaweedfs data volume: %s", cfg.Services.SeaweedFS.DataVolume)
 	}
 }

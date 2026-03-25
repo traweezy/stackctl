@@ -264,6 +264,33 @@ func TestConnectUsesConfigWithoutRuntimeInspection(t *testing.T) {
 	}
 }
 
+func TestConnectIncludesSeaweedFSEndpointAndCredentialsWhenEnabled(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Setup.IncludeSeaweedFS = true
+		cfg.Connection.SeaweedFSAccessKey = "seaweed-access"
+		cfg.Connection.SeaweedFSSecretKey = "seaweed-secret"
+		cfg.Ports.SeaweedFS = 18333
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+	})
+
+	stdout, _, err := executeRoot(t, "connect")
+	if err != nil {
+		t.Fatalf("connect returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "SeaweedFS S3 endpoint\n  http://devbox:18333") {
+		t.Fatalf("expected seaweedfs endpoint in connect output: %s", stdout)
+	}
+	if !strings.Contains(stdout, "SeaweedFS access key\n  seaweed-access") {
+		t.Fatalf("expected seaweedfs access key in connect output: %s", stdout)
+	}
+	if !strings.Contains(stdout, "SeaweedFS secret key\n  seaweed-secret") {
+		t.Fatalf("expected seaweedfs secret key in connect output: %s", stdout)
+	}
+}
+
 func TestConnectAllowsExternalStackWithoutComposeFile(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()

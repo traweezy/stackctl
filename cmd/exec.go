@@ -19,7 +19,7 @@ func newExecCmd() *cobra.Command {
 			"Use -- before the target command so stackctl stops parsing flags.",
 		Example: "  stackctl exec postgres -- psql -U app -d app\n" +
 			"  stackctl exec redis -- redis-cli -a secret PING\n" +
-			"  stackctl exec pgadmin -- printenv PGADMIN_DEFAULT_EMAIL",
+			"  stackctl exec seaweedfs -- weed shell",
 		ValidArgsFunction: completeExecArgs,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) < 2 {

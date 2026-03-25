@@ -487,6 +487,7 @@ func TestRunWizardCanCustomizeServiceCredentials(t *testing.T) {
 		"", // nats image
 		"", // nats port
 		"natssecret",
+		"", // include seaweedfs
 		"", // include pgadmin
 		"", // pgadmin container
 		"", // pgadmin image
@@ -560,6 +561,7 @@ func TestRunWizardCanCustomizeServiceRuntimeSettings(t *testing.T) {
 		"", // nats image
 		"", // nats port
 		"", // nats token
+		"", // include seaweedfs
 		"", // include pgadmin
 		"", // pgadmin container
 		"docker.io/dpage/pgadmin4:9",
@@ -615,6 +617,84 @@ func TestRunWizardCanCustomizeServiceRuntimeSettings(t *testing.T) {
 	}
 }
 
+func TestRunWizardCanEnableAndCustomizeSeaweedFS(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	input := strings.Join([]string{
+		"", // stack name
+		"", // managed stack
+		"", // include postgres
+		"", // postgres container
+		"", // postgres image
+		"", // postgres volume
+		"", // postgres maintenance db
+		"", // postgres port
+		"", // postgres database
+		"", // postgres username
+		"", // postgres password
+		"", // include redis
+		"", // redis container
+		"", // redis image
+		"", // redis volume
+		"", // redis appendonly
+		"", // redis save policy
+		"", // redis maxmemory policy
+		"", // redis port
+		"", // redis password
+		"", // include nats
+		"", // nats container
+		"", // nats image
+		"", // nats port
+		"", // nats token
+		"y",
+		"", // seaweedfs container
+		"", // seaweedfs image
+		"stack_seaweedfs_data",
+		"2048",
+		"18333",
+		"seaweed-access",
+		"seaweed-secret",
+		"", // include pgadmin
+		"", // pgadmin container
+		"", // pgadmin image
+		"", // pgadmin volume
+		"", // pgadmin server mode
+		"", // pgadmin port
+		"", // pgadmin email
+		"", // pgadmin password
+		"", // include cockpit
+		"", // cockpit port
+		"", // install cockpit
+		"", // wait for services
+		"", // startup timeout
+		"", // package manager
+	}, "\n") + "\n"
+
+	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
+	if err != nil {
+		t.Fatalf("RunWizard returned error: %v", err)
+	}
+	if !got.Setup.IncludeSeaweedFS {
+		t.Fatalf("expected seaweedfs to be enabled: %+v", got.Setup)
+	}
+	if got.Services.SeaweedFS.DataVolume != "stack_seaweedfs_data" {
+		t.Fatalf("unexpected seaweedfs data volume: %q", got.Services.SeaweedFS.DataVolume)
+	}
+	if got.Services.SeaweedFS.VolumeSizeLimitMB != 2048 {
+		t.Fatalf("unexpected seaweedfs volume size limit: %d", got.Services.SeaweedFS.VolumeSizeLimitMB)
+	}
+	if got.Ports.SeaweedFS != 18333 {
+		t.Fatalf("unexpected seaweedfs port: %d", got.Ports.SeaweedFS)
+	}
+	if got.Connection.SeaweedFSAccessKey != "seaweed-access" {
+		t.Fatalf("unexpected seaweedfs access key: %q", got.Connection.SeaweedFSAccessKey)
+	}
+	if got.Connection.SeaweedFSSecretKey != "seaweed-secret" {
+		t.Fatalf("unexpected seaweedfs secret key: %q", got.Connection.SeaweedFSSecretKey)
+	}
+}
+
 func TestRunWizardRejectsDisablingEveryStackService(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
@@ -623,6 +703,7 @@ func TestRunWizardRejectsDisablingEveryStackService(t *testing.T) {
 	input := strings.Join([]string{
 		"",
 		"",
+		"n",
 		"n",
 		"n",
 		"n",

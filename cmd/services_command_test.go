@@ -124,6 +124,16 @@ func TestServicesHandlesMissingContainersCleanly(t *testing.T) {
 	if strings.Count(stdout, "Status: missing") < 4 {
 		t.Fatalf("expected missing services to be reported clearly: %s", stdout)
 	}
+	for _, fragment := range []string{
+		"Port: 5432 -> 5432",
+		"Port: 6379 -> 6379",
+		"Port: 4222 -> 4222",
+		"Port: 8081 -> 80",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("expected missing services to keep configured ports %q:\n%s", fragment, stdout)
+		}
+	}
 }
 
 func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
@@ -276,5 +286,189 @@ func TestServicesCopyRejectsInvalidTarget(t *testing.T) {
 	_, _, err := executeRoot(t, "services", "--copy", "not-a-target")
 	if err == nil || !strings.Contains(err.Error(), "invalid copy target") {
 		t.Fatalf("expected invalid copy target error, got %v", err)
+	}
+}
+
+func TestServicesIncludeSeaweedFSDetailsWhenEnabled(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Setup.IncludeSeaweedFS = true
+		cfg.Services.SeaweedFS.Image = "docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9"
+		cfg.Services.SeaweedFS.DataVolume = "stack_seaweedfs_data"
+		cfg.Services.SeaweedFS.VolumeSizeLimitMB = 2048
+		cfg.Connection.SeaweedFSAccessKey = "seaweed-access"
+		cfg.Connection.SeaweedFSSecretKey = "seaweed-secret"
+		cfg.Ports.SeaweedFS = 18333
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{
+				Stdout: `[{"Id":"seaweed123456","Names":["local-seaweedfs"],"Image":"chrislusf/seaweedfs:4.17","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":18333,"container_port":8333,"protocol":"tcp"}],"CreatedAt":"now"}]`,
+			}, nil
+		}
+		d.cockpitStatus = func(context.Context) system.CockpitState {
+			return system.CockpitState{State: "not installed"}
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "services")
+	if err != nil {
+		t.Fatalf("services returned error: %v", err)
+	}
+
+	for _, fragment := range []string{
+		"🪣 SeaweedFS",
+		"Container: local-seaweedfs",
+		"Image: docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9",
+		"Data volume: stack_seaweedfs_data",
+		"Port: 18333 -> 8333",
+		"Endpoint: http://devbox:18333",
+		"Access key: seaweed-access",
+		"Secret key: seaweed-secret",
+		"Volume size limit: 2048 MB",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("services output missing %q:\n%s", fragment, stdout)
+		}
+	}
+}
+
+func TestServicesJSONIncludesSeaweedFSWhenEnabled(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Setup.IncludeSeaweedFS = true
+		cfg.Services.SeaweedFS.DataVolume = "stack_seaweedfs_data"
+		cfg.Services.SeaweedFS.VolumeSizeLimitMB = 2048
+		cfg.Connection.SeaweedFSAccessKey = "seaweed-access"
+		cfg.Connection.SeaweedFSSecretKey = "seaweed-secret"
+		cfg.Ports.SeaweedFS = 18333
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{
+				Stdout: `[{"Id":"seaweed123456","Names":["local-seaweedfs"],"Image":"chrislusf/seaweedfs:4.17","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":18333,"container_port":8333,"protocol":"tcp"}],"CreatedAt":"now"}]`,
+			}, nil
+		}
+		d.cockpitStatus = func(context.Context) system.CockpitState {
+			return system.CockpitState{State: "not installed"}
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "services", "--json")
+	if err != nil {
+		t.Fatalf("services --json returned error: %v", err)
+	}
+
+	var services []runtimeService
+	if err := json.Unmarshal([]byte(stdout), &services); err != nil {
+		t.Fatalf("parse services json: %v\n%s", err, stdout)
+	}
+	if len(services) != 6 {
+		t.Fatalf("expected 6 runtime services, got %d", len(services))
+	}
+
+	seaweed := services[3]
+	if seaweed.Name != "seaweedfs" || seaweed.Endpoint != "http://devbox:18333" {
+		t.Fatalf("unexpected seaweedfs runtime service: %+v", seaweed)
+	}
+	if seaweed.AccessKey != "seaweed-access" || seaweed.VolumeSizeLimitMB != 2048 {
+		t.Fatalf("unexpected seaweedfs access config: %+v", seaweed)
+	}
+	if seaweed.DataVolume != "stack_seaweedfs_data" || seaweed.ExternalPort != 18333 || seaweed.InternalPort != 8333 {
+		t.Fatalf("unexpected seaweedfs port config: %+v", seaweed)
+	}
+}
+
+func TestServicesJSONKeepsDefaultInternalPortsWhenContainersAreMissing(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Setup.IncludeSeaweedFS = true
+		cfg.Ports.Postgres = 15432
+		cfg.Ports.Redis = 16379
+		cfg.Ports.NATS = 14222
+		cfg.Ports.SeaweedFS = 18333
+		cfg.Ports.PgAdmin = 18081
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: `[]`}, nil
+		}
+		d.cockpitStatus = func(context.Context) system.CockpitState {
+			return system.CockpitState{State: "not installed"}
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "services", "--json")
+	if err != nil {
+		t.Fatalf("services --json returned error: %v", err)
+	}
+
+	var services []runtimeService
+	if err := json.Unmarshal([]byte(stdout), &services); err != nil {
+		t.Fatalf("parse services json: %v\n%s", err, stdout)
+	}
+
+	portsByService := map[string]int{}
+	for _, service := range services {
+		portsByService[service.Name] = service.InternalPort
+	}
+
+	for serviceName, want := range map[string]int{
+		"postgres":  5432,
+		"redis":     6379,
+		"nats":      4222,
+		"seaweedfs": 8333,
+		"pgadmin":   80,
+	} {
+		if got := portsByService[serviceName]; got != want {
+			t.Fatalf("expected %s internal port %d, got %d", serviceName, want, got)
+		}
+	}
+}
+
+func TestServicesCopyUsesClipboardForSeaweedFSTargets(t *testing.T) {
+	var copied []string
+
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Setup.IncludeSeaweedFS = true
+		cfg.Connection.SeaweedFSAccessKey = "seaweed-access"
+		cfg.Connection.SeaweedFSSecretKey = "seaweed-secret"
+		cfg.Ports.SeaweedFS = 18333
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.copyToClipboard = func(_ context.Context, _ system.Runner, value string) error {
+			copied = append(copied, value)
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "services", "--copy", "seaweedfs")
+	if err != nil {
+		t.Fatalf("services --copy seaweedfs returned error: %v", err)
+	}
+	if len(copied) != 1 || copied[0] != "http://devbox:18333" {
+		t.Fatalf("unexpected copied endpoint: %v", copied)
+	}
+	if !strings.Contains(stdout, "copied SeaweedFS endpoint to clipboard") {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+
+	stdout, _, err = executeRoot(t, "services", "--copy", "seaweedfs-secret-key")
+	if err != nil {
+		t.Fatalf("services --copy seaweedfs-secret-key returned error: %v", err)
+	}
+	if len(copied) != 2 || copied[1] != "seaweed-secret" {
+		t.Fatalf("unexpected copied secret key: %v", copied)
+	}
+	if !strings.Contains(stdout, "copied SeaweedFS secret key to clipboard") {
+		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }

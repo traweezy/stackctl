@@ -125,6 +125,23 @@ func Validate(cfg Config) []ValidationIssue {
 		}
 	}
 
+	if cfg.SeaweedFSEnabled() {
+		for field, value := range map[string]string{
+			"services.seaweedfs_container":    cfg.Services.SeaweedFSContainer,
+			"services.seaweedfs.image":        cfg.Services.SeaweedFS.Image,
+			"services.seaweedfs.data_volume":  cfg.Services.SeaweedFS.DataVolume,
+			"connection.seaweedfs_access_key": cfg.Connection.SeaweedFSAccessKey,
+			"connection.seaweedfs_secret_key": cfg.Connection.SeaweedFSSecretKey,
+		} {
+			if strings.TrimSpace(value) == "" {
+				issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
+			}
+		}
+		if cfg.Services.SeaweedFS.VolumeSizeLimitMB <= 0 {
+			issues = append(issues, ValidationIssue{Field: "services.seaweedfs.volume_size_limit_mb", Message: "must be greater than zero"})
+		}
+	}
+
 	if cfg.PgAdminEnabled() {
 		for field, value := range map[string]string{
 			"services.pgadmin_container":   cfg.Services.PgAdminContainer,
@@ -147,6 +164,9 @@ func Validate(cfg Config) []ValidationIssue {
 	}
 	if cfg.NATSEnabled() && (cfg.Ports.NATS < 1 || cfg.Ports.NATS > 65535) {
 		issues = append(issues, ValidationIssue{Field: "ports.nats", Message: "must be between 1 and 65535"})
+	}
+	if cfg.SeaweedFSEnabled() && (cfg.Ports.SeaweedFS < 1 || cfg.Ports.SeaweedFS > 65535) {
+		issues = append(issues, ValidationIssue{Field: "ports.seaweedfs", Message: "must be between 1 and 65535"})
 	}
 	if cfg.PgAdminEnabled() && (cfg.Ports.PgAdmin < 1 || cfg.Ports.PgAdmin > 65535) {
 		issues = append(issues, ValidationIssue{Field: "ports.pgadmin", Message: "must be between 1 and 65535"})

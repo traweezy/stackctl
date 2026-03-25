@@ -254,28 +254,32 @@ type configuredService struct {
 }
 
 type runtimeService struct {
-	Name            string `json:"name"`
-	Icon            string `json:"-"`
-	DisplayName     string `json:"display_name"`
-	Status          string `json:"status"`
-	ContainerName   string `json:"container_name,omitempty"`
-	Image           string `json:"image,omitempty"`
-	DataVolume      string `json:"data_volume,omitempty"`
-	Host            string `json:"host,omitempty"`
-	ExternalPort    int    `json:"external_port,omitempty"`
-	InternalPort    int    `json:"internal_port,omitempty"`
-	Database        string `json:"database,omitempty"`
-	MaintenanceDB   string `json:"maintenance_database,omitempty"`
-	Email           string `json:"email,omitempty"`
-	Token           string `json:"-"`
-	Username        string `json:"username,omitempty"`
-	Password        string `json:"-"`
-	AppendOnly      *bool  `json:"appendonly,omitempty"`
-	SavePolicy      string `json:"save_policy,omitempty"`
-	MaxMemoryPolicy string `json:"maxmemory_policy,omitempty"`
-	ServerMode      string `json:"server_mode,omitempty"`
-	URL             string `json:"url,omitempty"`
-	DSN             string `json:"dsn,omitempty"`
+	Name              string `json:"name"`
+	Icon              string `json:"-"`
+	DisplayName       string `json:"display_name"`
+	Status            string `json:"status"`
+	ContainerName     string `json:"container_name,omitempty"`
+	Image             string `json:"image,omitempty"`
+	DataVolume        string `json:"data_volume,omitempty"`
+	Host              string `json:"host,omitempty"`
+	ExternalPort      int    `json:"external_port,omitempty"`
+	InternalPort      int    `json:"internal_port,omitempty"`
+	Database          string `json:"database,omitempty"`
+	MaintenanceDB     string `json:"maintenance_database,omitempty"`
+	Email             string `json:"email,omitempty"`
+	Token             string `json:"-"`
+	AccessKey         string `json:"access_key,omitempty"`
+	SecretKey         string `json:"-"`
+	Username          string `json:"username,omitempty"`
+	Password          string `json:"-"`
+	AppendOnly        *bool  `json:"appendonly,omitempty"`
+	SavePolicy        string `json:"save_policy,omitempty"`
+	MaxMemoryPolicy   string `json:"maxmemory_policy,omitempty"`
+	VolumeSizeLimitMB int    `json:"volume_size_limit_mb,omitempty"`
+	ServerMode        string `json:"server_mode,omitempty"`
+	Endpoint          string `json:"endpoint,omitempty"`
+	URL               string `json:"url,omitempty"`
+	DSN               string `json:"dsn,omitempty"`
 }
 
 type connectionEntry struct {
@@ -326,6 +330,8 @@ func printServicesJSON(cmd *cobra.Command, cfg configpkg.Config) error {
 		return err
 	}
 
+	// #nosec G117 -- JSON output intentionally keeps non-secret access keys while
+	// omitting passwords, tokens, and secret keys from the payload.
 	data, err := json.MarshalIndent(services, "", "  ")
 	if err != nil {
 		return err
@@ -373,6 +379,11 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 				return err
 			}
 		}
+		if service.Endpoint != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Endpoint: %s\n", service.Endpoint); err != nil {
+				return err
+			}
+		}
 		if service.Database != "" {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Database: %s\n", service.Database); err != nil {
 				return err
@@ -390,6 +401,16 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 		}
 		if service.Token != "" {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Token: %s\n", service.Token); err != nil {
+				return err
+			}
+		}
+		if service.AccessKey != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Access key: %s\n", service.AccessKey); err != nil {
+				return err
+			}
+		}
+		if service.SecretKey != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Secret key: %s\n", service.SecretKey); err != nil {
 				return err
 			}
 		}
@@ -419,6 +440,11 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 		}
 		if service.MaxMemoryPolicy != "" {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Maxmemory policy: %s\n", service.MaxMemoryPolicy); err != nil {
+				return err
+			}
+		}
+		if service.VolumeSizeLimitMB > 0 {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Volume size limit: %d MB\n", service.VolumeSizeLimitMB); err != nil {
 				return err
 			}
 		}
@@ -555,6 +581,14 @@ func natsDSN(cfg configpkg.Config) string {
 	return target.String()
 }
 
+func seaweedFSEndpoint(cfg configpkg.Config) string {
+	if strings.TrimSpace(cfg.URLs.SeaweedFS) != "" {
+		return cfg.URLs.SeaweedFS
+	}
+
+	return fmt.Sprintf("http://%s:%d", cfg.Connection.Host, cfg.Ports.SeaweedFS)
+}
+
 func containerStatus(containerByName map[string]system.Container, containerName string) string {
 	container, ok := containerByName[containerName]
 	if !ok {
@@ -601,6 +635,14 @@ func containerInternalPort(containerByName map[string]system.Container, containe
 	}
 
 	return container.Ports[0].ContainerPort
+}
+
+func resolvedContainerInternalPort(containerByName map[string]system.Container, containerName string, hostPort, defaultInternalPort int) int {
+	if port := containerInternalPort(containerByName, containerName, hostPort); port > 0 {
+		return port
+	}
+
+	return defaultInternalPort
 }
 
 func formatServicePort(externalPort, internalPort int) string {

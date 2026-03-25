@@ -38,6 +38,48 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidSeaweedFSValues(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	if err := validateWithDir(cfg.Stack.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ComposePath(cfg), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.Setup.IncludeSeaweedFS = true
+	cfg.Services.SeaweedFS.Image = ""
+	cfg.Services.SeaweedFS.DataVolume = ""
+	cfg.Services.SeaweedFS.VolumeSizeLimitMB = 0
+	cfg.Connection.SeaweedFSAccessKey = ""
+	cfg.Connection.SeaweedFSSecretKey = ""
+	cfg.Ports.SeaweedFS = 70000
+
+	issues := Validate(cfg)
+	if len(issues) == 0 {
+		t.Fatal("expected seaweedfs validation issues")
+	}
+
+	fields := map[string]bool{}
+	for _, issue := range issues {
+		fields[issue.Field] = true
+	}
+	for _, field := range []string{
+		"services.seaweedfs.image",
+		"services.seaweedfs.data_volume",
+		"services.seaweedfs.volume_size_limit_mb",
+		"connection.seaweedfs_access_key",
+		"connection.seaweedfs_secret_key",
+		"ports.seaweedfs",
+	} {
+		if !fields[field] {
+			t.Fatalf("expected validation issue for %s, got %v", field, issues)
+		}
+	}
+}
+
 func TestValidateAllowsExternalStackWithoutComposeFile(t *testing.T) {
 	cfg := Default()
 	cfg.Stack.Managed = false

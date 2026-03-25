@@ -33,7 +33,7 @@ exec stackctl connect
 cmp stdout expected-connect.txt
 
 ! exec stackctl logs -s invalid
-stderr 'invalid service "invalid"; valid values: postgres, redis, nats, pgadmin'
+stderr 'invalid service "invalid"; valid values: postgres, redis, nats, seaweedfs, pgadmin'
 
 exec stackctl config reset --force
 stdout 'Reset config at '

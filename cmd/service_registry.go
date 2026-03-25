@@ -65,7 +65,7 @@ func serviceDefinitions() []serviceDefinition {
 					DataVolume:    cfg.Services.Postgres.DataVolume,
 					Host:          cfg.Connection.Host,
 					ExternalPort:  cfg.Ports.Postgres,
-					InternalPort:  containerInternalPort(containerByName, cfg.Services.PostgresContainer, cfg.Ports.Postgres),
+					InternalPort:  resolvedContainerInternalPort(containerByName, cfg.Services.PostgresContainer, cfg.Ports.Postgres, 5432),
 					Database:      cfg.Connection.PostgresDatabase,
 					MaintenanceDB: cfg.Services.Postgres.MaintenanceDatabase,
 					Username:      cfg.Connection.PostgresUsername,
@@ -148,7 +148,7 @@ func serviceDefinitions() []serviceDefinition {
 					DataVolume:      cfg.Services.Redis.DataVolume,
 					Host:            cfg.Connection.Host,
 					ExternalPort:    cfg.Ports.Redis,
-					InternalPort:    containerInternalPort(containerByName, cfg.Services.RedisContainer, cfg.Ports.Redis),
+					InternalPort:    resolvedContainerInternalPort(containerByName, cfg.Services.RedisContainer, cfg.Ports.Redis, 6379),
 					Password:        cfg.Connection.RedisPassword,
 					AppendOnly:      boolPointer(cfg.Services.Redis.AppendOnly),
 					SavePolicy:      cfg.Services.Redis.SavePolicy,
@@ -208,7 +208,7 @@ func serviceDefinitions() []serviceDefinition {
 					Image:         cfg.Services.NATS.Image,
 					Host:          cfg.Connection.Host,
 					ExternalPort:  cfg.Ports.NATS,
-					InternalPort:  containerInternalPort(containerByName, cfg.Services.NATSContainer, cfg.Ports.NATS),
+					InternalPort:  resolvedContainerInternalPort(containerByName, cfg.Services.NATSContainer, cfg.Ports.NATS, 4222),
 					Token:         cfg.Connection.NATSToken,
 					DSN:           natsDSN(cfg),
 				}
@@ -247,6 +247,84 @@ func serviceDefinitions() []serviceDefinition {
 			},
 		},
 		{
+			Key:                 "seaweedfs",
+			DisplayName:         "SeaweedFS",
+			Icon:                "🪣",
+			Aliases:             []string{"seaweedfs", "seaweed"},
+			Kind:                serviceKindStack,
+			Enabled:             func(cfg configpkg.Config) bool { return cfg.SeaweedFSEnabled() },
+			ContainerName:       func(cfg configpkg.Config) string { return cfg.Services.SeaweedFSContainer },
+			PrimaryPort:         func(cfg configpkg.Config) int { return cfg.Ports.SeaweedFS },
+			PrimaryPortLabel:    "seaweedfs s3 port listening",
+			DefaultInternalPort: 8333,
+			WaitOnStart:         true,
+			BuildRuntime: func(_ context.Context, cfg configpkg.Config, containerByName map[string]system.Container) runtimeService {
+				return runtimeService{
+					Name:              "seaweedfs",
+					Icon:              "🪣",
+					DisplayName:       "SeaweedFS",
+					Status:            containerStatus(containerByName, cfg.Services.SeaweedFSContainer),
+					ContainerName:     cfg.Services.SeaweedFSContainer,
+					Image:             cfg.Services.SeaweedFS.Image,
+					DataVolume:        cfg.Services.SeaweedFS.DataVolume,
+					Host:              cfg.Connection.Host,
+					ExternalPort:      cfg.Ports.SeaweedFS,
+					InternalPort:      resolvedContainerInternalPort(containerByName, cfg.Services.SeaweedFSContainer, cfg.Ports.SeaweedFS, 8333),
+					AccessKey:         cfg.Connection.SeaweedFSAccessKey,
+					SecretKey:         cfg.Connection.SeaweedFSSecretKey,
+					VolumeSizeLimitMB: cfg.Services.SeaweedFS.VolumeSizeLimitMB,
+					Endpoint:          seaweedFSEndpoint(cfg),
+				}
+			},
+			ConnectionEntries: func(cfg configpkg.Config) []connectionEntry {
+				if !cfg.SeaweedFSEnabled() {
+					return nil
+				}
+				return []connectionEntry{
+					{Name: "SeaweedFS S3 endpoint", Value: seaweedFSEndpoint(cfg)},
+					{Name: "SeaweedFS access key", Value: cfg.Connection.SeaweedFSAccessKey},
+					{Name: "SeaweedFS secret key", Value: cfg.Connection.SeaweedFSSecretKey},
+				}
+			},
+			CopyTargets: func() []serviceCopySpec {
+				return []serviceCopySpec{
+					{
+						PrimaryAlias: "seaweedfs",
+						Aliases:      []string{"seaweed", "seaweedendpoint", "seaweedfsendpoint"},
+						Label:        "SeaweedFS endpoint",
+						Resolve: func(cfg configpkg.Config) (string, error) {
+							if !cfg.SeaweedFSEnabled() {
+								return "", errors.New("seaweedfs is not enabled in this stack")
+							}
+							return seaweedFSEndpoint(cfg), nil
+						},
+					},
+					{
+						PrimaryAlias: "seaweedfs-access-key",
+						Aliases:      []string{"seaweedaccesskey", "seaweedfsaccesskey"},
+						Label:        "SeaweedFS access key",
+						Resolve: func(cfg configpkg.Config) (string, error) {
+							if !cfg.SeaweedFSEnabled() {
+								return "", errors.New("seaweedfs is not enabled in this stack")
+							}
+							return cfg.Connection.SeaweedFSAccessKey, nil
+						},
+					},
+					{
+						PrimaryAlias: "seaweedfs-secret-key",
+						Aliases:      []string{"seaweedsecretkey", "seaweedfssecretkey"},
+						Label:        "SeaweedFS secret key",
+						Resolve: func(cfg configpkg.Config) (string, error) {
+							if !cfg.SeaweedFSEnabled() {
+								return "", errors.New("seaweedfs is not enabled in this stack")
+							}
+							return cfg.Connection.SeaweedFSSecretKey, nil
+						},
+					},
+				}
+			},
+		},
+		{
 			Key:                 "pgadmin",
 			DisplayName:         "pgAdmin",
 			Icon:                "🌐",
@@ -269,7 +347,7 @@ func serviceDefinitions() []serviceDefinition {
 					DataVolume:    cfg.Services.PgAdmin.DataVolume,
 					Host:          cfg.Connection.Host,
 					ExternalPort:  cfg.Ports.PgAdmin,
-					InternalPort:  containerInternalPort(containerByName, cfg.Services.PgAdminContainer, cfg.Ports.PgAdmin),
+					InternalPort:  resolvedContainerInternalPort(containerByName, cfg.Services.PgAdminContainer, cfg.Ports.PgAdmin, 80),
 					Email:         cfg.Connection.PgAdminEmail,
 					Password:      cfg.Connection.PgAdminPassword,
 					ServerMode:    pgAdminModeLabel(cfg.Services.PgAdmin.ServerMode),

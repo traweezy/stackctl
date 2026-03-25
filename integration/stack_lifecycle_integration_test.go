@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -513,6 +514,367 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	}
 }
 
+func TestNamedStackSelectionAndPathResolution(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("integration tests require Linux")
+	}
+
+	binaryPath := testutil.BuildStackctlBinary(t)
+	configRoot := t.TempDir()
+	dataRoot, err := os.MkdirTemp("", "stackctl-itest-data-*")
+	if err != nil {
+		t.Fatalf("create integration data dir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	requirePodmanCompose(t)
+
+	env := []string{
+		"XDG_CONFIG_HOME=" + configRoot,
+		"XDG_DATA_HOME=" + dataRoot,
+	}
+
+	suffix := strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
+	alphaName := "alpha-" + suffix
+	betaName := "beta-" + suffix
+
+	alphaCfg := integrationNATSOnlyStackConfig(t, alphaName, "alpha-token-"+suffix)
+	betaCfg := integrationNATSOnlyStackConfig(t, betaName, "beta-token-"+suffix)
+
+	alphaPath, err := configpkg.ConfigFilePathForStack(alphaName)
+	if err != nil {
+		t.Fatalf("resolve alpha config path: %v", err)
+	}
+	betaPath, err := configpkg.ConfigFilePathForStack(betaName)
+	if err != nil {
+		t.Fatalf("resolve beta config path: %v", err)
+	}
+
+	if err := configpkg.Save(alphaPath, alphaCfg); err != nil {
+		t.Fatalf("save alpha config: %v", err)
+	}
+	if err := configpkg.Save(betaPath, betaCfg); err != nil {
+		t.Fatalf("save beta config: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = runStackctl(binaryPath, env, "--stack", alphaName, "reset", "--volumes", "--force")
+		_, _ = runStackctl(binaryPath, env, "--stack", betaName, "reset", "--volumes", "--force")
+		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		_ = os.RemoveAll(dataRoot)
+	})
+
+	listOutput, err := runStackctl(binaryPath, env, "stack", "list")
+	if err != nil {
+		t.Fatalf("stack list returned error: %v\n%s", err, listOutput)
+	}
+	for _, fragment := range []string{alphaName, betaName} {
+		if !strings.Contains(listOutput, fragment) {
+			t.Fatalf("stack list missing %q:\n%s", fragment, listOutput)
+		}
+	}
+
+	useOutput, err := runStackctl(binaryPath, env, "stack", "use", alphaName)
+	if err != nil {
+		t.Fatalf("stack use returned error: %v\n%s", err, useOutput)
+	}
+	if !strings.Contains(useOutput, "selected stack "+alphaName) {
+		t.Fatalf("unexpected stack use output:\n%s", useOutput)
+	}
+
+	currentOutput, err := runStackctl(binaryPath, env, "stack", "current")
+	if err != nil {
+		t.Fatalf("stack current returned error: %v\n%s", err, currentOutput)
+	}
+	if strings.TrimSpace(currentOutput) != alphaName {
+		t.Fatalf("expected current stack %q, got %q", alphaName, strings.TrimSpace(currentOutput))
+	}
+
+	pathOutput, err := runStackctl(binaryPath, env, "config", "path")
+	if err != nil {
+		t.Fatalf("config path returned error: %v\n%s", err, pathOutput)
+	}
+	if strings.TrimSpace(pathOutput) != alphaPath {
+		t.Fatalf("expected alpha config path %q, got %q", alphaPath, strings.TrimSpace(pathOutput))
+	}
+
+	overridePathOutput, err := runStackctl(binaryPath, env, "--stack", betaName, "config", "path")
+	if err != nil {
+		t.Fatalf("--stack config path returned error: %v\n%s", err, overridePathOutput)
+	}
+	if strings.TrimSpace(overridePathOutput) != betaPath {
+		t.Fatalf("expected beta config path %q, got %q", betaPath, strings.TrimSpace(overridePathOutput))
+	}
+
+	currentAfterOverride, err := runStackctl(binaryPath, env, "stack", "current")
+	if err != nil {
+		t.Fatalf("stack current after override returned error: %v\n%s", err, currentAfterOverride)
+	}
+	if strings.TrimSpace(currentAfterOverride) != alphaName {
+		t.Fatalf("expected saved selection to remain %q, got %q", alphaName, strings.TrimSpace(currentAfterOverride))
+	}
+}
+
+func TestNamedStackSingleRunningStackGuard(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("integration tests require Linux")
+	}
+
+	binaryPath := testutil.BuildStackctlBinary(t)
+	configRoot := t.TempDir()
+	dataRoot, err := os.MkdirTemp("", "stackctl-itest-data-*")
+	if err != nil {
+		t.Fatalf("create integration data dir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	requirePodmanCompose(t)
+
+	env := []string{
+		"XDG_CONFIG_HOME=" + configRoot,
+		"XDG_DATA_HOME=" + dataRoot,
+	}
+
+	suffix := strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
+	alphaName := "alpha-" + suffix
+	betaName := "beta-" + suffix
+
+	alphaCfg := integrationNATSOnlyStackConfig(t, alphaName, "alpha-token-"+suffix)
+	betaCfg := integrationNATSOnlyStackConfig(t, betaName, "beta-token-"+suffix)
+
+	alphaPath, err := configpkg.ConfigFilePathForStack(alphaName)
+	if err != nil {
+		t.Fatalf("resolve alpha config path: %v", err)
+	}
+	betaPath, err := configpkg.ConfigFilePathForStack(betaName)
+	if err != nil {
+		t.Fatalf("resolve beta config path: %v", err)
+	}
+
+	if err := configpkg.Save(alphaPath, alphaCfg); err != nil {
+		t.Fatalf("save alpha config: %v", err)
+	}
+	if err := configpkg.Save(betaPath, betaCfg); err != nil {
+		t.Fatalf("save beta config: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = runStackctl(binaryPath, env, "--stack", alphaName, "reset", "--volumes", "--force")
+		_, _ = runStackctl(binaryPath, env, "--stack", betaName, "reset", "--volumes", "--force")
+		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		_ = os.RemoveAll(dataRoot)
+	})
+
+	startAlphaOutput, err := runStackctl(binaryPath, env, "--stack", alphaName, "start")
+	if err != nil {
+		t.Fatalf("alpha start returned error: %v\n%s", err, startAlphaOutput)
+	}
+	alphaDSN := "nats://alpha-token-" + suffix + "@127.0.0.1:" + strconv.Itoa(alphaCfg.Ports.NATS)
+	if !strings.Contains(startAlphaOutput, alphaDSN) {
+		t.Fatalf("alpha start output missing DSN %q:\n%s", alphaDSN, startAlphaOutput)
+	}
+
+	startBetaWhileAlphaRunning, err := runStackctl(binaryPath, env, "--stack", betaName, "start")
+	if err == nil {
+		t.Fatalf("expected beta start to fail while alpha is running:\n%s", startBetaWhileAlphaRunning)
+	}
+	if !strings.Contains(startBetaWhileAlphaRunning, "another local stack is already running: "+alphaName) {
+		t.Fatalf("expected running-stack guard in output:\n%s", startBetaWhileAlphaRunning)
+	}
+	if !strings.Contains(startBetaWhileAlphaRunning, "`stackctl --stack "+alphaName+" stop`") {
+		t.Fatalf("expected actionable stop guidance in output:\n%s", startBetaWhileAlphaRunning)
+	}
+
+	stopAlphaOutput, err := runStackctl(binaryPath, env, "--stack", alphaName, "stop")
+	if err != nil {
+		t.Fatalf("alpha stop returned error: %v\n%s", err, stopAlphaOutput)
+	}
+	if !strings.Contains(stopAlphaOutput, "stack stopped") {
+		t.Fatalf("unexpected alpha stop output:\n%s", stopAlphaOutput)
+	}
+
+	startBetaOutput, err := runStackctl(binaryPath, env, "--stack", betaName, "start")
+	if err != nil {
+		t.Fatalf("beta start returned error: %v\n%s", err, startBetaOutput)
+	}
+	betaDSN := "nats://beta-token-" + suffix + "@127.0.0.1:" + strconv.Itoa(betaCfg.Ports.NATS)
+	if !strings.Contains(startBetaOutput, betaDSN) {
+		t.Fatalf("beta start output missing DSN %q:\n%s", betaDSN, startBetaOutput)
+	}
+}
+
+func TestNamedStackCloneRenameUseAndDeleteLifecycle(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("integration tests require Linux")
+	}
+
+	binaryPath := testutil.BuildStackctlBinary(t)
+	configRoot := t.TempDir()
+	dataRoot, err := os.MkdirTemp("", "stackctl-itest-data-*")
+	if err != nil {
+		t.Fatalf("create integration data dir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	requirePodmanCompose(t)
+
+	env := []string{
+		"XDG_CONFIG_HOME=" + configRoot,
+		"XDG_DATA_HOME=" + dataRoot,
+	}
+
+	suffix := strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
+	sourceName := "source-" + suffix
+	clonedName := "cloned-" + suffix
+	renamedName := "renamed-" + suffix
+
+	sourceCfg := integrationNATSOnlyStackConfig(t, sourceName, "clone-token-"+suffix)
+
+	sourcePath, err := configpkg.ConfigFilePathForStack(sourceName)
+	if err != nil {
+		t.Fatalf("resolve source config path: %v", err)
+	}
+	clonedPath, err := configpkg.ConfigFilePathForStack(clonedName)
+	if err != nil {
+		t.Fatalf("resolve cloned config path: %v", err)
+	}
+	renamedPath, err := configpkg.ConfigFilePathForStack(renamedName)
+	if err != nil {
+		t.Fatalf("resolve renamed config path: %v", err)
+	}
+	clonedDir, err := configpkg.ManagedStackDir(clonedName)
+	if err != nil {
+		t.Fatalf("resolve cloned stack dir: %v", err)
+	}
+	renamedDir, err := configpkg.ManagedStackDir(renamedName)
+	if err != nil {
+		t.Fatalf("resolve renamed stack dir: %v", err)
+	}
+
+	if err := configpkg.Save(sourcePath, sourceCfg); err != nil {
+		t.Fatalf("save source config: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = runStackctl(binaryPath, env, "--stack", sourceName, "reset", "--volumes", "--force")
+		_, _ = runStackctl(binaryPath, env, "--stack", clonedName, "reset", "--volumes", "--force")
+		_, _ = runStackctl(binaryPath, env, "--stack", renamedName, "reset", "--volumes", "--force")
+		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		_ = os.RemoveAll(dataRoot)
+	})
+
+	cloneOutput, err := runStackctl(binaryPath, env, "stack", "clone", sourceName, clonedName)
+	if err != nil {
+		t.Fatalf("stack clone returned error: %v\n%s", err, cloneOutput)
+	}
+	if !strings.Contains(cloneOutput, "cloned stack "+sourceName+" to "+clonedName) {
+		t.Fatalf("unexpected stack clone output:\n%s", cloneOutput)
+	}
+	if !strings.Contains(cloneOutput, "new config written to "+clonedPath) {
+		t.Fatalf("stack clone output missing config path:\n%s", cloneOutput)
+	}
+
+	clonedCfg, err := configpkg.Load(clonedPath)
+	if err != nil {
+		t.Fatalf("load cloned config: %v", err)
+	}
+	if clonedCfg.Stack.Name != clonedName {
+		t.Fatalf("expected cloned stack name %q, got %q", clonedName, clonedCfg.Stack.Name)
+	}
+	if clonedCfg.Connection.NATSToken != sourceCfg.Connection.NATSToken {
+		t.Fatalf("expected cloned NATS token %q, got %q", sourceCfg.Connection.NATSToken, clonedCfg.Connection.NATSToken)
+	}
+	if clonedCfg.Stack.Dir != clonedDir {
+		t.Fatalf("expected cloned stack dir %q, got %q", clonedDir, clonedCfg.Stack.Dir)
+	}
+	if _, err := os.Stat(configpkg.ComposePath(clonedCfg)); err != nil {
+		t.Fatalf("stat cloned compose file: %v", err)
+	}
+
+	renameOutput, err := runStackctl(binaryPath, env, "stack", "rename", clonedName, renamedName)
+	if err != nil {
+		t.Fatalf("stack rename returned error: %v\n%s", err, renameOutput)
+	}
+	if !strings.Contains(renameOutput, "renamed stack "+clonedName+" to "+renamedName) {
+		t.Fatalf("unexpected stack rename output:\n%s", renameOutput)
+	}
+	if !strings.Contains(renameOutput, "wrote managed compose file "+filepath.Join(renamedDir, configpkg.DefaultComposeFileName)) {
+		t.Fatalf("stack rename output missing scaffold refresh:\n%s", renameOutput)
+	}
+
+	if _, err := os.Stat(clonedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected cloned config path %s to be removed, got err=%v", clonedPath, err)
+	}
+	if _, err := os.Stat(clonedDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected cloned managed dir %s to be moved, got err=%v", clonedDir, err)
+	}
+
+	renamedCfg, err := configpkg.Load(renamedPath)
+	if err != nil {
+		t.Fatalf("load renamed config: %v", err)
+	}
+	if renamedCfg.Stack.Name != renamedName {
+		t.Fatalf("expected renamed stack name %q, got %q", renamedName, renamedCfg.Stack.Name)
+	}
+	if renamedCfg.Connection.NATSToken != sourceCfg.Connection.NATSToken {
+		t.Fatalf("expected renamed NATS token %q, got %q", sourceCfg.Connection.NATSToken, renamedCfg.Connection.NATSToken)
+	}
+	if renamedCfg.Stack.Dir != renamedDir {
+		t.Fatalf("expected renamed stack dir %q, got %q", renamedDir, renamedCfg.Stack.Dir)
+	}
+	if _, err := os.Stat(configpkg.ComposePath(renamedCfg)); err != nil {
+		t.Fatalf("stat renamed compose file: %v", err)
+	}
+
+	useOutput, err := runStackctl(binaryPath, env, "stack", "use", renamedName)
+	if err != nil {
+		t.Fatalf("stack use returned error: %v\n%s", err, useOutput)
+	}
+	if !strings.Contains(useOutput, "selected stack "+renamedName) {
+		t.Fatalf("unexpected stack use output:\n%s", useOutput)
+	}
+
+	currentOutput, err := runStackctl(binaryPath, env, "stack", "current")
+	if err != nil {
+		t.Fatalf("stack current returned error: %v\n%s", err, currentOutput)
+	}
+	if strings.TrimSpace(currentOutput) != renamedName {
+		t.Fatalf("expected current stack %q, got %q", renamedName, strings.TrimSpace(currentOutput))
+	}
+
+	deleteOutput, err := runStackctl(binaryPath, env, "stack", "delete", renamedName, "--purge-data", "--force")
+	if err != nil {
+		t.Fatalf("stack delete returned error: %v\n%s", err, deleteOutput)
+	}
+	for _, fragment := range []string{
+		"deleted managed stack data " + renamedDir,
+		"deleted stack config " + renamedPath,
+		"selected stack reset to " + configpkg.DefaultStackName,
+	} {
+		if !strings.Contains(deleteOutput, fragment) {
+			t.Fatalf("stack delete output missing %q:\n%s", fragment, deleteOutput)
+		}
+	}
+
+	if _, err := os.Stat(renamedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected renamed config path %s to be removed, got err=%v", renamedPath, err)
+	}
+	if _, err := os.Stat(renamedDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected renamed managed dir %s to be removed, got err=%v", renamedDir, err)
+	}
+
+	currentAfterDelete, err := runStackctl(binaryPath, env, "stack", "current")
+	if err != nil {
+		t.Fatalf("stack current after delete returned error: %v\n%s", err, currentAfterDelete)
+	}
+	if strings.TrimSpace(currentAfterDelete) != configpkg.DefaultStackName {
+		t.Fatalf("expected current stack to reset to %q, got %q", configpkg.DefaultStackName, strings.TrimSpace(currentAfterDelete))
+	}
+}
+
 func requirePodmanCompose(t *testing.T) {
 	t.Helper()
 
@@ -522,6 +884,29 @@ func requirePodmanCompose(t *testing.T) {
 	if _, err := runCommand("podman", "compose", "version"); err != nil {
 		t.Skipf("podman compose is not available: %v", err)
 	}
+}
+
+func integrationNATSOnlyStackConfig(t *testing.T, stackName string, token string) configpkg.Config {
+	t.Helper()
+
+	cfg := configpkg.DefaultForStack(stackName)
+	cfg.Connection.Host = "127.0.0.1"
+	cfg.Connection.NATSToken = token
+	cfg.Ports.NATS = freePort(t)
+	cfg.Behavior.StartupTimeoutSec = 180
+	cfg.Setup.IncludePostgres = false
+	cfg.Setup.IncludeRedis = false
+	cfg.Setup.IncludePgAdmin = false
+	cfg.Setup.IncludeCockpit = false
+	cfg.Setup.InstallCockpit = false
+	cfg.Setup.IncludeNATS = true
+	cfg.ApplyDerivedFields()
+
+	if _, err := configpkg.ScaffoldManagedStack(cfg, true); err != nil {
+		t.Fatalf("scaffold managed stack %s: %v", stackName, err)
+	}
+
+	return cfg
 }
 
 func freePort(t *testing.T) int {

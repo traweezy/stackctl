@@ -20,10 +20,11 @@ const (
 
 var (
 	wizardServiceLabels = map[string]string{
-		"postgres": "Postgres",
-		"redis":    "Redis",
-		"nats":     "NATS",
-		"pgadmin":  "pgAdmin",
+		"postgres":  "Postgres",
+		"redis":     "Redis",
+		"nats":      "NATS",
+		"seaweedfs": "SeaweedFS",
+		"pgadmin":   "pgAdmin",
 	}
 	packageManagerSuggestions  = []string{"apt", "dnf", "yum", "pacman", "zypper", "apk", "brew"}
 	redisSavePolicySuggestions = []string{
@@ -73,6 +74,13 @@ type wizardState struct {
 	NATSImage             string
 	NATSPort              string
 	NATSToken             string
+	SeaweedFSContainer    string
+	SeaweedFSImage        string
+	SeaweedFSDataVolume   string
+	SeaweedFSVolumeSizeMB string
+	SeaweedFSPort         string
+	SeaweedFSAccessKey    string
+	SeaweedFSSecretKey    string
 	PgAdminContainer      string
 	PgAdminImage          string
 	PgAdminDataVolume     string
@@ -119,6 +127,13 @@ func newWizardState(cfg Config) wizardState {
 		NATSImage:             cfg.Services.NATS.Image,
 		NATSPort:              strconv.Itoa(cfg.Ports.NATS),
 		NATSToken:             cfg.Connection.NATSToken,
+		SeaweedFSContainer:    cfg.Services.SeaweedFSContainer,
+		SeaweedFSImage:        cfg.Services.SeaweedFS.Image,
+		SeaweedFSDataVolume:   cfg.Services.SeaweedFS.DataVolume,
+		SeaweedFSVolumeSizeMB: strconv.Itoa(cfg.Services.SeaweedFS.VolumeSizeLimitMB),
+		SeaweedFSPort:         strconv.Itoa(cfg.Ports.SeaweedFS),
+		SeaweedFSAccessKey:    cfg.Connection.SeaweedFSAccessKey,
+		SeaweedFSSecretKey:    cfg.Connection.SeaweedFSSecretKey,
 		PgAdminContainer:      cfg.Services.PgAdminContainer,
 		PgAdminImage:          cfg.Services.PgAdmin.Image,
 		PgAdminDataVolume:     cfg.Services.PgAdmin.DataVolume,
@@ -137,6 +152,9 @@ func newWizardState(cfg Config) wizardState {
 	}
 	if cfg.Setup.IncludeNATS {
 		state.Services = append(state.Services, "nats")
+	}
+	if cfg.Setup.IncludeSeaweedFS {
+		state.Services = append(state.Services, "seaweedfs")
 	}
 	if cfg.Setup.IncludePgAdmin {
 		state.Services = append(state.Services, "pgadmin")
@@ -367,6 +385,47 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			WithHideFunc(func() bool { return !state.includesService("nats") }),
 		huh.NewGroup(
 			huh.NewInput().
+				Title("SeaweedFS container name").
+				Description("Used by stackctl runtime, logs, and exec helpers.").
+				Value(&state.SeaweedFSContainer).
+				Validate(nonEmpty),
+			huh.NewInput().
+				Title("SeaweedFS image").
+				Description("Container image for the managed SeaweedFS S3 service.").
+				Value(&state.SeaweedFSImage).
+				Validate(nonEmpty),
+			huh.NewInput().
+				Title("SeaweedFS data volume").
+				Description("Named volume for SeaweedFS filer and object data.").
+				Value(&state.SeaweedFSDataVolume).
+				Validate(nonEmpty),
+			huh.NewInput().
+				Title("SeaweedFS volume size limit (MB)").
+				Description("Per-volume growth cap for local development. Keep this modest unless you need large buckets locally.").
+				Value(&state.SeaweedFSVolumeSizeMB).
+				Validate(validPositiveIntText),
+			huh.NewInput().
+				Title("SeaweedFS S3 port").
+				Description("Host port exposed for the S3-compatible endpoint.").
+				Value(&state.SeaweedFSPort).
+				Validate(validPortText),
+			huh.NewInput().
+				Title("SeaweedFS access key").
+				Description("S3 access key shown in copy helpers and passed into the managed container environment.").
+				Value(&state.SeaweedFSAccessKey).
+				Validate(nonEmpty),
+			huh.NewInput().
+				Title("SeaweedFS secret key").
+				Description("S3 secret key used for the managed SeaweedFS endpoint.").
+				Value(&state.SeaweedFSSecretKey).
+				EchoMode(huh.EchoModePassword).
+				Validate(nonEmpty),
+		).
+			Title("SeaweedFS").
+			Description("Configure optional S3-compatible object storage with a single-container local SeaweedFS setup.").
+			WithHideFunc(func() bool { return !state.includesService("seaweedfs") }),
+		huh.NewGroup(
+			huh.NewInput().
 				Title("pgAdmin container name").
 				Description("Used by stackctl runtime inspection and log helpers.").
 				Value(&state.PgAdminContainer).
@@ -534,6 +593,7 @@ func (s wizardState) toConfig(base Config) (Config, error) {
 	cfg.Setup.IncludePostgres = s.includesService("postgres")
 	cfg.Setup.IncludeRedis = s.includesService("redis")
 	cfg.Setup.IncludeNATS = s.includesService("nats")
+	cfg.Setup.IncludeSeaweedFS = s.includesService("seaweedfs")
 	cfg.Setup.IncludePgAdmin = s.includesService("pgadmin")
 	cfg.Setup.IncludeCockpit = s.IncludeCockpit
 	cfg.Setup.InstallCockpit = s.InstallCockpit
@@ -579,6 +639,20 @@ func (s wizardState) toConfig(base Config) (Config, error) {
 		return Config{}, fmt.Errorf("nats port: %w", err)
 	}
 
+	cfg.Services.SeaweedFSContainer = strings.TrimSpace(s.SeaweedFSContainer)
+	cfg.Services.SeaweedFS.Image = strings.TrimSpace(s.SeaweedFSImage)
+	cfg.Services.SeaweedFS.DataVolume = strings.TrimSpace(s.SeaweedFSDataVolume)
+	cfg.Services.SeaweedFS.VolumeSizeLimitMB, err = parsePositiveInt(s.SeaweedFSVolumeSizeMB)
+	if err != nil {
+		return Config{}, fmt.Errorf("seaweedfs volume size limit: %w", err)
+	}
+	cfg.Connection.SeaweedFSAccessKey = strings.TrimSpace(s.SeaweedFSAccessKey)
+	cfg.Connection.SeaweedFSSecretKey = strings.TrimSpace(s.SeaweedFSSecretKey)
+	cfg.Ports.SeaweedFS, err = parsePort(s.SeaweedFSPort)
+	if err != nil {
+		return Config{}, fmt.Errorf("seaweedfs port: %w", err)
+	}
+
 	cfg.Services.PgAdminContainer = strings.TrimSpace(s.PgAdminContainer)
 	cfg.Services.PgAdmin.Image = strings.TrimSpace(s.PgAdminImage)
 	cfg.Services.PgAdmin.DataVolume = strings.TrimSpace(s.PgAdminDataVolume)
@@ -616,6 +690,9 @@ func (s wizardState) reviewSummary() string {
 	}
 	if s.includesService("nats") {
 		lines = append(lines, fmt.Sprintf("  - NATS: %s", s.NATSPort))
+	}
+	if s.includesService("seaweedfs") {
+		lines = append(lines, fmt.Sprintf("  - SeaweedFS: %s", s.SeaweedFSPort))
 	}
 	if s.includesService("pgadmin") {
 		lines = append(lines, fmt.Sprintf("  - pgAdmin: %s", s.PgAdminPort))
@@ -665,6 +742,7 @@ func serviceOptions(state *wizardState) []huh.Option[string] {
 		huh.NewOption("Postgres", "postgres").Selected(state.includesService("postgres")),
 		huh.NewOption("Redis", "redis").Selected(state.includesService("redis")),
 		huh.NewOption("NATS", "nats").Selected(state.includesService("nats")),
+		huh.NewOption("SeaweedFS (S3)", "seaweedfs").Selected(state.includesService("seaweedfs")),
 		huh.NewOption("pgAdmin", "pgadmin").Selected(state.includesService("pgadmin")),
 	}
 }
