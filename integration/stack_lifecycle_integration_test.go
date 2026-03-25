@@ -269,7 +269,7 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	}
 
 	invalidLogsOutput, err := runStackctl(binaryPath, env, "logs", "-s", "invalid")
-	if err == nil || !strings.Contains(invalidLogsOutput, "valid values: postgres, redis, nats, pgadmin") {
+	if err == nil || !strings.Contains(invalidLogsOutput, "valid values: postgres, redis, nats, seaweedfs, pgadmin") {
 		t.Fatalf("expected invalid service error, got err=%v output=%s", err, invalidLogsOutput)
 	}
 
