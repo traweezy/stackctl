@@ -70,6 +70,8 @@ The runtime inspection commands are intentionally split:
 
 - `stackctl connect` prints minimal connection strings, URLs, and enabled
   object-storage endpoint credentials
+- `stackctl env` prints app-ready environment variables, with shell-export and
+  JSON modes
 - `stackctl services` prints the full service report with status, ports,
   container names, endpoints, URLs, and DSNs
 - `stackctl status` prints raw container state
@@ -77,8 +79,6 @@ The runtime inspection commands are intentionally split:
 - `stackctl health` checks whether the configured endpoints are reachable
 
 ## Install
-
-### Quick install (recommended)
 
 ### Quick install from GitHub Releases
 
@@ -102,6 +102,9 @@ curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/in
   bash -s -- --version v0.16.0
 ```
 
+The installer downloads the release archive plus `checksums.txt` and verifies
+the archive checksum before extracting it.
+
 If `~/.local/bin` is not already on your `PATH`, add it:
 
 ```bash
@@ -114,13 +117,16 @@ Download release artifacts directly from:
 
 https://github.com/traweezy/stackctl/releases/latest
 
+If you install manually, verify the archive against the release `checksums.txt`
+before extracting it.
+
 ### Build from source
 
 ```bash
 git clone https://github.com/traweezy/stackctl.git
 cd stackctl
-go build ./...
-go run . --help
+go build -trimpath -o dist/stackctl .
+./dist/stackctl --help
 ```
 
 ## Requirements
@@ -152,6 +158,7 @@ stack:
 stackctl setup
 stackctl start
 stackctl services
+stackctl env --export
 stackctl logs --watch
 ```
 
@@ -333,8 +340,12 @@ when they need to talk to containers.
 Use external mode if you already have a custom Podman Compose setup and want
 `stackctl` to be the operator CLI on top of it.
 
-The example config is in
-[`examples/config.example.yaml`](examples/config.example.yaml).
+Example configs:
+
+- managed-stack example:
+  [`examples/config.example.yaml`](examples/config.example.yaml)
+- external-stack example:
+  [`examples/external-stack.example.yaml`](examples/external-stack.example.yaml)
 
 ## Typical workflow
 
@@ -345,6 +356,7 @@ stackctl start
 stackctl tui
 stackctl services
 stackctl connect
+stackctl env --export
 stackctl health
 stackctl logs --watch
 ```
@@ -1087,6 +1099,36 @@ stackctl connect
 
 Flags: `-h`, `--help` only.
 
+### `stackctl env`
+
+Print app-ready environment variables from the current stack config. By default
+this prints shell-safe `KEY=value` assignments. Use `--export` when you want
+`export KEY=value` lines for `eval` or `source` workflows, or `--json` for
+tooling.
+
+Examples:
+
+```bash
+stackctl env
+stackctl env --export
+stackctl env postgres redis
+stackctl env --json
+```
+
+Useful patterns:
+
+```bash
+eval "$(stackctl env --export)"
+stackctl env postgres > .env.stackctl-postgres
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--export` | Prefix each assignment with `export` |
+| `-j`, `--json` | Print environment variables as a JSON object |
+
 ### `stackctl logs`
 
 Show recent logs or follow them live.
@@ -1257,6 +1299,7 @@ If you only remember a few commands, these are the ones most people will use:
 - `stackctl start`: bring the stack or selected services up
 - `stackctl services`: see the full runtime picture
 - `stackctl connect`: copy DSNs, URLs, and endpoint credentials quickly
+- `stackctl env`: print shell-ready env vars or JSON for app wiring
 - `stackctl stack list`: see every configured stack and which one is active
 - `stackctl stack use staging`: switch your saved default stack cleanly
 - `stackctl services --copy postgres`: send a ready-to-use value straight to the clipboard
@@ -1443,6 +1486,8 @@ Available today:
   compose file is present
 - machine-readable service output with `stackctl services --json`
 - clipboard-friendly service helpers with `stackctl services --copy <target>`
+- `stackctl env` for app-ready environment variables with shell-export and JSON
+  output modes
 - `stackctl exec <service> -- <command...>` for in-container workflows
 - `stackctl db shell` for one-step Postgres access
 - `stackctl db dump`, `stackctl db restore`, and `stackctl db reset`
@@ -1460,6 +1505,7 @@ Current CLI surface:
 - `start`, `stop`, `restart`
 - `status`
 - `services`
+- `env`
 - `ports`
 - `db`
 - `exec`
@@ -1499,7 +1545,6 @@ commands are in place.
 
 - deeper service controls such as Redis ACL users, richer Postgres tuning,
   and pgAdmin server bootstrap helpers
-- `stackctl env` to print app-ready environment variables
 - `stackctl run ...` to launch an app with stack-aware context
 - snapshot save and restore commands for dev-state workflows
 - broader installer support beyond `apt`-based systems

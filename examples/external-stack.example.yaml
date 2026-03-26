@@ -1,15 +1,19 @@
+# Example external-stack config.
+# Adjust stack.dir, container names, ports, and enabled services to match your
+# own compose project before using it.
+
 stack:
   name: dev-stack
-  dir: /home/user/.local/share/stackctl/stacks/dev-stack
+  dir: /home/user/dev/my-compose-stack
   compose_file: compose.yaml
-  managed: true
+  managed: false
 
 services:
-  postgres_container: local-postgres
-  redis_container: local-redis
-  nats_container: local-nats
-  seaweedfs_container: local-seaweedfs
-  pgadmin_container: local-pgadmin
+  postgres_container: my-postgres
+  redis_container: my-redis
+  nats_container: my-nats
+  seaweedfs_container: my-seaweedfs
+  pgadmin_container: my-pgadmin
   postgres:
     image: docker.io/library/postgres:16
     data_volume: postgres_data
@@ -64,11 +68,11 @@ setup:
   include_postgres: true
   include_redis: true
   include_cockpit: true
-  install_cockpit: true
+  install_cockpit: false
   include_nats: true
   include_seaweedfs: false
   include_pgadmin: true
-  scaffold_default_stack: true
+  scaffold_default_stack: false
 
 tui:
   auto_refresh_interval_seconds: 30
