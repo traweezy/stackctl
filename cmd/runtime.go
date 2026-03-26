@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -287,6 +288,16 @@ type connectionEntry struct {
 	Value string
 }
 
+type envEntry struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type envGroup struct {
+	Title   string
+	Entries []envEntry
+}
+
 func configuredStackServices(cfg configpkg.Config) []configuredService {
 	services := make([]configuredService, 0, len(serviceDefinitions()))
 	for _, definition := range enabledStackServiceDefinitions(cfg) {
@@ -498,6 +509,138 @@ func connectionEntries(cfg configpkg.Config) []connectionEntry {
 		entries = append(entries, definition.ConnectionEntries(cfg)...)
 	}
 	return entries
+}
+
+func envGroups(cfg configpkg.Config, services []string) ([]envGroup, error) {
+	groups := []envGroup{
+		{
+			Title: "stackctl",
+			Entries: []envEntry{
+				{Name: "STACKCTL_STACK", Value: cfg.Stack.Name},
+			},
+		},
+	}
+
+	if len(services) == 0 {
+		for _, definition := range enabledServiceDefinitions(cfg) {
+			group := envGroupForDefinition(cfg, definition)
+			if len(group.Entries) == 0 {
+				continue
+			}
+			groups = append(groups, group)
+		}
+		return groups, nil
+	}
+
+	selected := make([]serviceDefinition, 0, len(services))
+	seen := make([]string, 0, len(services))
+	for _, service := range services {
+		definition, ok := serviceDefinitionByAlias(service)
+		if !ok {
+			return nil, fmt.Errorf("invalid env target %q; valid values: %s", service, validEnvTargetNames())
+		}
+		if !definition.Enabled(cfg) {
+			return nil, fmt.Errorf("%s is not enabled in this stack", definition.Key)
+		}
+		if slices.Contains(seen, definition.Key) {
+			continue
+		}
+		seen = append(seen, definition.Key)
+		selected = append(selected, definition)
+	}
+
+	for _, definition := range selected {
+		group := envGroupForDefinition(cfg, definition)
+		if len(group.Entries) == 0 {
+			continue
+		}
+		groups = append(groups, group)
+	}
+
+	return groups, nil
+}
+
+func envGroupForDefinition(cfg configpkg.Config, definition serviceDefinition) envGroup {
+	if definition.EnvEntries == nil {
+		return envGroup{}
+	}
+	entries := definition.EnvEntries(cfg)
+	if len(entries) == 0 {
+		return envGroup{}
+	}
+	return envGroup{
+		Title:   definition.DisplayName,
+		Entries: entries,
+	}
+}
+
+func flattenEnvGroups(groups []envGroup) map[string]string {
+	values := make(map[string]string)
+	for _, group := range groups {
+		for _, entry := range group.Entries {
+			values[entry.Name] = entry.Value
+		}
+	}
+	return values
+}
+
+func printEnvInfo(cmd *cobra.Command, cfg configpkg.Config, services []string, export bool) error {
+	groups, err := envGroups(cfg, services)
+	if err != nil {
+		return err
+	}
+	return printEnvGroups(cmd, groups, export)
+}
+
+func printEnvJSON(cmd *cobra.Command, cfg configpkg.Config, services []string) error {
+	groups, err := envGroups(cfg, services)
+	if err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(flattenEnvGroups(groups), "", "  ")
+	if err != nil {
+		return err
+	}
+	if _, err := cmd.OutOrStdout().Write(data); err != nil {
+		return err
+	}
+	_, err = cmd.OutOrStdout().Write([]byte("\n"))
+	return err
+}
+
+func printEnvGroups(cmd *cobra.Command, groups []envGroup, export bool) error {
+	for groupIndex, group := range groups {
+		if len(group.Entries) == 0 {
+			continue
+		}
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "# %s\n", group.Title); err != nil {
+			return err
+		}
+		for _, entry := range group.Entries {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s%s=%s\n", envAssignmentPrefix(export), entry.Name, quoteShellValue(entry.Value)); err != nil {
+				return err
+			}
+		}
+		if groupIndex < len(groups)-1 {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func envAssignmentPrefix(export bool) string {
+	if export {
+		return "export "
+	}
+	return ""
+}
+
+func quoteShellValue(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func selectedConnectionEntries(cfg configpkg.Config, services []string) []connectionEntry {

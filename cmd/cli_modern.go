@@ -156,6 +156,30 @@ func completeLogsServiceFlag(_ *cobra.Command, _ []string, toComplete string) ([
 	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
+func completeEnvArgs(_ *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	seen := make(map[string]struct{}, len(args))
+	for _, arg := range args {
+		if definition, ok := serviceDefinitionByAlias(arg); ok {
+			seen[definition.Key] = struct{}{}
+		}
+	}
+
+	completions := make([]cobra.Completion, 0, len(serviceDefinitions()))
+	for _, definition := range completionServiceDefinitions() {
+		if _, ok := seen[definition.Key]; ok {
+			continue
+		}
+
+		description := definition.DisplayName
+		if len(definition.Aliases) > 1 {
+			description += " (aliases: " + strings.Join(definition.Aliases[1:], ", ") + ")"
+		}
+		completions = append(completions, cobra.CompletionWithDesc(definition.Key, description))
+	}
+
+	return filterCompletions(completions, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
 func completeServiceCopyTargets(_ *cobra.Command, _ []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 	completions := make([]cobra.Completion, 0, 12)
 	for _, definition := range completionServiceDefinitions() {

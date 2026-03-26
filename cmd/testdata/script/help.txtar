@@ -2,6 +2,7 @@
 exec stackctl --help
 stdout 'stackctl setup'
 stdout 'stackctl services'
+stdout 'env'
 stdout 'stackctl exec postgres -- psql -U app -d app'
 stdout 'factory-reset'
 stdout 'completion'
@@ -25,6 +26,11 @@ stdout 'stackctl restart postgres'
 exec stackctl services --help
 stdout '--json'
 stdout 'stackctl services --json'
+
+exec stackctl env --help
+stdout '--export'
+stdout '--json'
+stdout 'stackctl env postgres redis'
 
 exec stackctl exec --help
 stdout '--no-tty'

@@ -21,6 +21,7 @@ func TestRootHelpGroupsCommands(t *testing.T) {
 		"Operate Commands",
 		"Setup & Config Commands",
 		"Utility Commands",
+		"env",
 		"completion",
 	} {
 		if !strings.Contains(stdout, fragment) {
@@ -132,6 +133,31 @@ func TestCompleteServiceCopyTargetsUsesEnabledServicesFromConfig(t *testing.T) {
 		if !containsChoice(choices, expected) {
 			t.Fatalf("expected copy target %q in %v", expected, choices)
 		}
+	}
+}
+
+func TestCompleteEnvArgsUsesEnabledServicesFromConfig(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Setup.IncludeSeaweedFS = true
+		cfg.Setup.IncludePgAdmin = false
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+	})
+
+	completions, _ := completeEnvArgs(nil, []string{"postgres"}, "")
+	choices := completionChoices(completions)
+
+	if containsChoice(choices, "postgres") {
+		t.Fatalf("did not expect already-selected env target in completions: %v", choices)
+	}
+	for _, expected := range []string{"redis", "nats", "seaweedfs", "cockpit"} {
+		if !containsChoice(choices, expected) {
+			t.Fatalf("expected env target %q in %v", expected, choices)
+		}
+	}
+	if containsChoice(choices, "pgadmin") {
+		t.Fatalf("did not expect disabled pgadmin in completions: %v", choices)
 	}
 }
 

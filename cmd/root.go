@@ -86,6 +86,8 @@ func NewRootCmd(app *App) *cobra.Command {
 	healthCmd.GroupID = commandGroupInspect
 	connectCmd := newConnectCmd()
 	connectCmd.GroupID = commandGroupInspect
+	envCmd := newEnvCmd()
+	envCmd.GroupID = commandGroupInspect
 	doctorCmd := newDoctorCmd()
 	doctorCmd.GroupID = commandGroupInspect
 
@@ -120,6 +122,7 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.AddCommand(openCmd)
 	cmd.AddCommand(healthCmd)
 	cmd.AddCommand(connectCmd)
+	cmd.AddCommand(envCmd)
 	cmd.AddCommand(factoryResetCmd)
 	cmd.AddCommand(configCmd)
 	cmd.AddCommand(stackCmd)

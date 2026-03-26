@@ -32,6 +32,9 @@ stdout '/.config/stackctl/config.yaml'
 exec stackctl connect
 cmp stdout expected-connect.txt
 
+exec stackctl env postgres
+cmp stdout expected-env.txt
+
 ! exec stackctl logs -s invalid
 stderr 'invalid service "invalid"; valid values: postgres, redis, nats, seaweedfs, pgadmin'
 
@@ -129,3 +132,20 @@ pgAdmin
 
 Cockpit
   https://localhost:9090
+-- expected-env.txt --
+# stackctl
+STACKCTL_STACK='dev-stack'
+
+# Postgres
+DATABASE_URL='postgres://app:app@localhost:5432/app'
+POSTGRES_URL='postgres://app:app@localhost:5432/app'
+PGHOST='localhost'
+PGPORT='5432'
+PGDATABASE='app'
+PGUSER='app'
+PGPASSWORD='app'
+POSTGRES_HOST='localhost'
+POSTGRES_PORT='5432'
+POSTGRES_DB='app'
+POSTGRES_USER='app'
+POSTGRES_PASSWORD='app'

@@ -37,6 +37,7 @@ type serviceDefinition struct {
 	WaitOnStart         bool
 	BuildRuntime        func(context.Context, configpkg.Config, map[string]system.Container) runtimeService
 	ConnectionEntries   func(configpkg.Config) []connectionEntry
+	EnvEntries          func(configpkg.Config) []envEntry
 	CopyTargets         func() []serviceCopySpec
 }
 
@@ -75,6 +76,22 @@ func serviceDefinitions() []serviceDefinition {
 			},
 			ConnectionEntries: func(cfg configpkg.Config) []connectionEntry {
 				return []connectionEntry{{Name: "Postgres", Value: postgresDSN(cfg)}}
+			},
+			EnvEntries: func(cfg configpkg.Config) []envEntry {
+				return []envEntry{
+					{Name: "DATABASE_URL", Value: postgresDSN(cfg)},
+					{Name: "POSTGRES_URL", Value: postgresDSN(cfg)},
+					{Name: "PGHOST", Value: cfg.Connection.Host},
+					{Name: "PGPORT", Value: fmt.Sprintf("%d", cfg.Ports.Postgres)},
+					{Name: "PGDATABASE", Value: cfg.Connection.PostgresDatabase},
+					{Name: "PGUSER", Value: cfg.Connection.PostgresUsername},
+					{Name: "PGPASSWORD", Value: cfg.Connection.PostgresPassword},
+					{Name: "POSTGRES_HOST", Value: cfg.Connection.Host},
+					{Name: "POSTGRES_PORT", Value: fmt.Sprintf("%d", cfg.Ports.Postgres)},
+					{Name: "POSTGRES_DB", Value: cfg.Connection.PostgresDatabase},
+					{Name: "POSTGRES_USER", Value: cfg.Connection.PostgresUsername},
+					{Name: "POSTGRES_PASSWORD", Value: cfg.Connection.PostgresPassword},
+				}
 			},
 			CopyTargets: func() []serviceCopySpec {
 				return []serviceCopySpec{
@@ -159,6 +176,14 @@ func serviceDefinitions() []serviceDefinition {
 			ConnectionEntries: func(cfg configpkg.Config) []connectionEntry {
 				return []connectionEntry{{Name: "Redis", Value: redisDSN(cfg)}}
 			},
+			EnvEntries: func(cfg configpkg.Config) []envEntry {
+				return []envEntry{
+					{Name: "REDIS_URL", Value: redisDSN(cfg)},
+					{Name: "REDIS_HOST", Value: cfg.Connection.Host},
+					{Name: "REDIS_PORT", Value: fmt.Sprintf("%d", cfg.Ports.Redis)},
+					{Name: "REDIS_PASSWORD", Value: cfg.Connection.RedisPassword},
+				}
+			},
 			CopyTargets: func() []serviceCopySpec {
 				return []serviceCopySpec{
 					{
@@ -218,6 +243,14 @@ func serviceDefinitions() []serviceDefinition {
 					return nil
 				}
 				return []connectionEntry{{Name: "NATS", Value: natsDSN(cfg)}}
+			},
+			EnvEntries: func(cfg configpkg.Config) []envEntry {
+				return []envEntry{
+					{Name: "NATS_URL", Value: natsDSN(cfg)},
+					{Name: "NATS_HOST", Value: cfg.Connection.Host},
+					{Name: "NATS_PORT", Value: fmt.Sprintf("%d", cfg.Ports.NATS)},
+					{Name: "NATS_TOKEN", Value: cfg.Connection.NATSToken},
+				}
 			},
 			CopyTargets: func() []serviceCopySpec {
 				return []serviceCopySpec{
@@ -284,6 +317,17 @@ func serviceDefinitions() []serviceDefinition {
 					{Name: "SeaweedFS S3 endpoint", Value: seaweedFSEndpoint(cfg)},
 					{Name: "SeaweedFS access key", Value: cfg.Connection.SeaweedFSAccessKey},
 					{Name: "SeaweedFS secret key", Value: cfg.Connection.SeaweedFSSecretKey},
+				}
+			},
+			EnvEntries: func(cfg configpkg.Config) []envEntry {
+				endpoint := seaweedFSEndpoint(cfg)
+				return []envEntry{
+					{Name: "S3_ENDPOINT", Value: endpoint},
+					{Name: "AWS_ACCESS_KEY_ID", Value: cfg.Connection.SeaweedFSAccessKey},
+					{Name: "AWS_SECRET_ACCESS_KEY", Value: cfg.Connection.SeaweedFSSecretKey},
+					{Name: "SEAWEEDFS_ENDPOINT", Value: endpoint},
+					{Name: "SEAWEEDFS_ACCESS_KEY", Value: cfg.Connection.SeaweedFSAccessKey},
+					{Name: "SEAWEEDFS_SECRET_KEY", Value: cfg.Connection.SeaweedFSSecretKey},
 				}
 			},
 			CopyTargets: func() []serviceCopySpec {
@@ -360,6 +404,13 @@ func serviceDefinitions() []serviceDefinition {
 				}
 				return []connectionEntry{{Name: "pgAdmin", Value: cfg.URLs.PgAdmin}}
 			},
+			EnvEntries: func(cfg configpkg.Config) []envEntry {
+				return []envEntry{
+					{Name: "PGADMIN_URL", Value: cfg.URLs.PgAdmin},
+					{Name: "PGADMIN_EMAIL", Value: cfg.Connection.PgAdminEmail},
+					{Name: "PGADMIN_PASSWORD", Value: cfg.Connection.PgAdminPassword},
+				}
+			},
 			CopyTargets: func() []serviceCopySpec {
 				return []serviceCopySpec{
 					{
@@ -426,6 +477,11 @@ func serviceDefinitions() []serviceDefinition {
 					return nil
 				}
 				return []connectionEntry{{Name: "Cockpit", Value: cfg.URLs.Cockpit}}
+			},
+			EnvEntries: func(cfg configpkg.Config) []envEntry {
+				return []envEntry{
+					{Name: "COCKPIT_URL", Value: cfg.URLs.Cockpit},
+				}
 			},
 			CopyTargets: func() []serviceCopySpec {
 				return []serviceCopySpec{
@@ -495,6 +551,14 @@ func validCopyTargetNames() string {
 		for _, target := range definition.CopyTargets() {
 			names = append(names, target.PrimaryAlias)
 		}
+	}
+	return stringsJoin(names, ", ")
+}
+
+func validEnvTargetNames() string {
+	names := make([]string, 0, len(serviceDefinitions()))
+	for _, definition := range serviceDefinitions() {
+		names = append(names, definition.Key)
 	}
 	return stringsJoin(names, ", ")
 }
