@@ -54,7 +54,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-for cmd in curl tar mktemp install uname; do
+for cmd in curl tar mktemp install uname sha256sum sed head awk; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Missing required command: $cmd" >&2
     exit 1
@@ -93,8 +93,10 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 download_url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
+checksums_url="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
 tmp_dir="$(mktemp -d)"
 archive_path="${tmp_dir}/${asset}"
+checksums_path="${tmp_dir}/checksums.txt"
 binary_path="${tmp_dir}/stackctl"
 
 cleanup() {
@@ -105,6 +107,23 @@ trap cleanup EXIT
 echo "Installing stackctl ${VERSION} for ${os}/${arch}..."
 echo "Downloading ${download_url}"
 curl -fsSL "$download_url" -o "$archive_path"
+curl -fsSL "$checksums_url" -o "$checksums_path"
+
+expected_checksum="$(awk -v asset="$asset" '$2 == asset { print $1; exit }' "$checksums_path")"
+if [[ -z "$expected_checksum" ]]; then
+  echo "Could not find a checksum for ${asset} in ${checksums_url}" >&2
+  exit 1
+fi
+
+actual_checksum="$(sha256sum "$archive_path" | awk '{print $1}')"
+if [[ "$actual_checksum" != "$expected_checksum" ]]; then
+  echo "Checksum verification failed for ${asset}" >&2
+  echo "Expected: ${expected_checksum}" >&2
+  echo "Actual:   ${actual_checksum}" >&2
+  exit 1
+fi
+
+echo "Verified archive checksum."
 
 tar -xzf "$archive_path" -C "$tmp_dir"
 
