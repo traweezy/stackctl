@@ -990,6 +990,27 @@ func TestWizardStateMissingExternalDirConfirmation(t *testing.T) {
 	}
 }
 
+func TestWizardStepPositionTracksVisiblePages(t *testing.T) {
+	state := newWizardState(Default())
+	if position, total := wizardStepPosition(&state, wizardStepStack); position != 1 || total != 11 {
+		t.Fatalf("unexpected managed stack step position: %d/%d", position, total)
+	}
+	if position, total := wizardStepPosition(&state, wizardStepReview); position != 11 || total != 11 {
+		t.Fatalf("unexpected managed review step position: %d/%d", position, total)
+	}
+
+	state.StackMode = wizardStackModeExternal
+	state.ExternalStackDir = filepath.Join(t.TempDir(), "missing")
+	state.IncludeCockpit = true
+	state.Services = []string{"postgres", "redis", "nats", "seaweedfs", "pgadmin"}
+	if position, total := wizardStepPosition(&state, wizardStepExternalPath); position != 3 || total != 14 {
+		t.Fatalf("unexpected external path step position: %d/%d", position, total)
+	}
+	if next := wizardNextStepLabel(&state, wizardStepServices); next != "Postgres settings" {
+		t.Fatalf("unexpected next step label: %q", next)
+	}
+}
+
 func TestRunWizardPropagatesPromptReadErrors(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 

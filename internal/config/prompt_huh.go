@@ -91,6 +91,64 @@ type wizardState struct {
 	CockpitPort           string
 }
 
+type wizardStepID string
+
+const (
+	wizardStepStack           wizardStepID = "stack"
+	wizardStepExternalStack   wizardStepID = "external-stack"
+	wizardStepExternalPath    wizardStepID = "external-path"
+	wizardStepServices        wizardStepID = "services"
+	wizardStepPostgres        wizardStepID = "postgres"
+	wizardStepRedis           wizardStepID = "redis"
+	wizardStepNATS            wizardStepID = "nats"
+	wizardStepSeaweedFS       wizardStepID = "seaweedfs"
+	wizardStepPgAdmin         wizardStepID = "pgadmin"
+	wizardStepCockpit         wizardStepID = "cockpit"
+	wizardStepCockpitSettings wizardStepID = "cockpit-settings"
+	wizardStepBehavior        wizardStepID = "behavior"
+	wizardStepSystem          wizardStepID = "system"
+	wizardStepReview          wizardStepID = "review"
+)
+
+type wizardStepSpec struct {
+	ID      wizardStepID
+	Label   string
+	Visible func(*wizardState) bool
+}
+
+var wizardSteps = []wizardStepSpec{
+	{ID: wizardStepStack, Label: "Stack basics", Visible: func(*wizardState) bool { return true }},
+	{ID: wizardStepExternalStack, Label: "External stack target", Visible: func(state *wizardState) bool {
+		return state.StackMode == wizardStackModeExternal
+	}},
+	{ID: wizardStepExternalPath, Label: "External path confirmation", Visible: func(state *wizardState) bool {
+		return state.needsMissingExternalDirConfirmation()
+	}},
+	{ID: wizardStepServices, Label: "Service selection", Visible: func(*wizardState) bool { return true }},
+	{ID: wizardStepPostgres, Label: "Postgres settings", Visible: func(state *wizardState) bool {
+		return state.includesService("postgres")
+	}},
+	{ID: wizardStepRedis, Label: "Redis settings", Visible: func(state *wizardState) bool {
+		return state.includesService("redis")
+	}},
+	{ID: wizardStepNATS, Label: "NATS settings", Visible: func(state *wizardState) bool {
+		return state.includesService("nats")
+	}},
+	{ID: wizardStepSeaweedFS, Label: "SeaweedFS settings", Visible: func(state *wizardState) bool {
+		return state.includesService("seaweedfs")
+	}},
+	{ID: wizardStepPgAdmin, Label: "pgAdmin settings", Visible: func(state *wizardState) bool {
+		return state.includesService("pgadmin")
+	}},
+	{ID: wizardStepCockpit, Label: "Cockpit helpers", Visible: func(*wizardState) bool { return true }},
+	{ID: wizardStepCockpitSettings, Label: "Cockpit settings", Visible: func(state *wizardState) bool {
+		return state.IncludeCockpit
+	}},
+	{ID: wizardStepBehavior, Label: "Behavior", Visible: func(*wizardState) bool { return true }},
+	{ID: wizardStepSystem, Label: "System", Visible: func(*wizardState) bool { return true }},
+	{ID: wizardStepReview, Label: "Review", Visible: func(*wizardState) bool { return true }},
+}
+
 func newWizardState(cfg Config) wizardState {
 	mode := wizardStackModeExternal
 	if cfg.Stack.Managed {
@@ -194,9 +252,7 @@ func runHuhWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 func buildWizardForm(state *wizardState) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewNote().
-				Title("stackctl setup").
-				Description("Use this wizard to choose your stack mode, services, and connection settings. The full-screen flow is optimized for fast keyboard navigation."),
+			wizardStepNote(state, wizardStepStack),
 			huh.NewInput().
 				Title("Stack name").
 				Description("Used for `--stack`, managed resource names, and stack-specific config paths. Lowercase letters, numbers, hyphens, and underscores only.").
@@ -214,6 +270,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Title("Stack").
 			Description("Choose the stack identity and how much of the compose layout stackctl should own."),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepExternalStack),
 			huh.NewInput().
 				Title("Stack directory").
 				Description("Path to the external compose project. Relative paths are resolved to absolute paths before saving.").
@@ -229,6 +286,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("stackctl will inspect this compose project for runtime state but will not regenerate its compose files.").
 			WithHideFunc(func() bool { return state.StackMode != wizardStackModeExternal }),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepExternalPath),
 			huh.NewConfirm().
 				Title("Use the missing external directory anyway?").
 				DescriptionFunc(func() string {
@@ -250,6 +308,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("This only appears when the chosen external stack directory does not exist yet.").
 			WithHideFunc(func() bool { return !state.needsMissingExternalDirConfirmation() }),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepServices),
 			huh.NewMultiSelect[string]().
 				Title("Services to include").
 				Description("Use space to toggle services. stackctl will only scaffold, start, connect, and health-check the services selected here.").
@@ -266,6 +325,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Title("Services").
 			Description("Pick the local services this stack should manage. This replaces the old one-service-at-a-time include prompts."),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepPostgres),
 			huh.NewInput().
 				Title("Postgres container name").
 				Description("Used by stackctl runtime commands and the managed compose scaffold.").
@@ -312,6 +372,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("Configure the primary relational database service and its app-facing credentials.").
 			WithHideFunc(func() bool { return !state.includesService("postgres") }),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepRedis),
 			huh.NewInput().
 				Title("Redis container name").
 				Description("Used by stackctl runtime, exec, and log commands.").
@@ -358,6 +419,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("Tune local cache behavior and optional authentication for Redis.").
 			WithHideFunc(func() bool { return !state.includesService("redis") }),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepNATS),
 			huh.NewInput().
 				Title("NATS container name").
 				Description("Used by stackctl runtime, logs, and exec helpers.").
@@ -384,6 +446,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("Configure the lightweight messaging service and its client token.").
 			WithHideFunc(func() bool { return !state.includesService("nats") }),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepSeaweedFS),
 			huh.NewInput().
 				Title("SeaweedFS container name").
 				Description("Used by stackctl runtime, logs, and exec helpers.").
@@ -425,6 +488,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("Configure optional S3-compatible object storage with a single-container local SeaweedFS setup.").
 			WithHideFunc(func() bool { return !state.includesService("seaweedfs") }),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepPgAdmin),
 			huh.NewInput().
 				Title("pgAdmin container name").
 				Description("Used by stackctl runtime inspection and log helpers.").
@@ -465,6 +529,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("Configure the optional Postgres web UI that ships with the managed stack.").
 			WithHideFunc(func() bool { return !state.includesService("pgadmin") }),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepCockpit),
 			huh.NewConfirm().
 				Title("Include Cockpit helpers").
 				Description("Cockpit is managed outside the compose stack. Enable this if you want helper output, open actions, and optional setup-time installation.").
@@ -473,6 +538,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Title("Cockpit").
 			Description("Configure optional host-level integration separately from stack-managed services."),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepCockpitSettings),
 			huh.NewInput().
 				Title("Cockpit port").
 				Description("Used for Cockpit URLs and health hints when Cockpit helpers are enabled.").
@@ -487,6 +553,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("These settings only matter when Cockpit helpers are enabled.").
 			WithHideFunc(func() bool { return !state.IncludeCockpit }),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepBehavior),
 			huh.NewConfirm().
 				Title("Wait for selected services on start").
 				Description("When enabled, stackctl waits for service ports to come up before returning from start and restart.").
@@ -500,6 +567,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Title("Behavior").
 			Description("Choose how stack lifecycle commands should behave after launch."),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepSystem),
 			huh.NewInput().
 				Title("Package manager").
 				Description("Used by `stackctl setup --install` for supported dependency installation on the local machine.").
@@ -516,6 +584,7 @@ func runWizardReview(in io.Reader, out io.Writer, state wizardState) (bool, erro
 	confirmed := true
 	reviewForm := huh.NewForm(
 		huh.NewGroup(
+			wizardStepNote(&state, wizardStepReview),
 			huh.NewNote().
 				Title("Review").
 				Description(state.reviewSummary()).
@@ -539,6 +608,69 @@ func runWizardReview(in io.Reader, out io.Writer, state wizardState) (bool, erro
 	}
 
 	return confirmed, nil
+}
+
+func wizardStepNote(state *wizardState, step wizardStepID) *huh.Note {
+	return huh.NewNote().
+		TitleFunc(func() string {
+			position, total := wizardStepPosition(state, step)
+			label := wizardStepLabel(step)
+			if position == 0 || total == 0 {
+				return label
+			}
+			return fmt.Sprintf("Step %d of %d  •  %s", position, total, label)
+		}, state).
+		DescriptionFunc(func() string {
+			next := wizardNextStepLabel(state, step)
+			if next == "" {
+				return "Final confirmation before the config is written."
+			}
+			return "Next: " + next
+		}, state)
+}
+
+func wizardStepPosition(state *wizardState, target wizardStepID) (int, int) {
+	visible := visibleWizardSteps(state)
+	for idx, step := range visible {
+		if step.ID == target {
+			return idx + 1, len(visible)
+		}
+	}
+	return 0, len(visible)
+}
+
+func visibleWizardSteps(state *wizardState) []wizardStepSpec {
+	visible := make([]wizardStepSpec, 0, len(wizardSteps))
+	for _, step := range wizardSteps {
+		if step.Visible != nil && !step.Visible(state) {
+			continue
+		}
+		visible = append(visible, step)
+	}
+	return visible
+}
+
+func wizardStepLabel(target wizardStepID) string {
+	for _, step := range wizardSteps {
+		if step.ID == target {
+			return step.Label
+		}
+	}
+	return "Setup"
+}
+
+func wizardNextStepLabel(state *wizardState, target wizardStepID) string {
+	visible := visibleWizardSteps(state)
+	for idx, step := range visible {
+		if step.ID != target {
+			continue
+		}
+		if idx+1 >= len(visible) {
+			return ""
+		}
+		return visible[idx+1].Label
+	}
+	return ""
 }
 
 func (s wizardState) includesService(name string) bool {

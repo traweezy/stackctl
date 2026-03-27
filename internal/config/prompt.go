@@ -18,6 +18,9 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	if shouldUsePlainWizard(in, out) {
 		return runPlainWizard(in, out, base)
 	}
+	if err := clearWizardScreen(out); err != nil {
+		return Config{}, err
+	}
 
 	return runHuhWizard(in, out, base)
 }
@@ -159,6 +162,24 @@ func terminalFD(file *os.File) (int, bool) {
 	}
 
 	return int(fd), true
+}
+
+func clearWizardScreen(out io.Writer) error {
+	if os.Getenv("ACCESSIBLE") != "" {
+		return nil
+	}
+
+	outputFile, ok := out.(*os.File)
+	if !ok {
+		return nil
+	}
+	outputFD, ok := terminalFD(outputFile)
+	if !ok || !term.IsTerminal(outputFD) {
+		return nil
+	}
+
+	_, err := fmt.Fprint(out, "\033[H\033[2J")
+	return err
 }
 
 func PromptYesNo(in io.Reader, out io.Writer, question string, defaultYes bool) (bool, error) {
