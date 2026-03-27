@@ -498,6 +498,9 @@ Notes:
   wrapping
 - Cockpit is shown as a host tool, not a stack-managed service, so
   `start`/`stop`/`restart` only apply to the compose stack
+- host-port ownership is tracked separately from container state, so the health
+  view can tell you when a port is reachable, still starting, or busy outside
+  this stack
 - confirmations temporarily take over the center panel instead of pushing the
   layout down
 - action results now appear briefly in the global status area, then remain in
@@ -859,6 +862,11 @@ Valid service targets are the enabled stack-managed services: `postgres`,
 `redis`, `nats`, `seaweedfs`, and `pgadmin`. Cockpit is a host helper, not a compose
 service, so it is never a lifecycle target. `start` also refuses to run when
 another local stack is already running and tells you which stack to stop first.
+Before it launches anything, `start` verifies that each selected host port is
+either free or already owned by the expected stack container. If a port is
+busy outside this stack, `start` fails immediately instead of reporting a
+false success. When waiting is disabled, `stackctl` still verifies that the
+selected containers actually started and did not exit right away.
 
 Examples:
 
@@ -894,7 +902,10 @@ Restart the local development stack or selected stack services and print the
 current connection info when it is ready.
 
 Like `start`, `restart` only targets stack-managed services and refuses to
-cross-start a second local stack while another one is running.
+cross-start a second local stack while another one is running. It also runs
+the same host-port preflight and immediate startup verification as `start`, so
+`restart` fails fast when a selected service cannot bind its expected host
+port.
 
 Examples:
 
@@ -1377,6 +1388,9 @@ and every named stack.
 
 ### A service port is already in use
 
+`stackctl start` and `stackctl restart` now stop before launch when a selected
+host port is owned by something outside this stack.
+
 Run:
 
 ```bash
@@ -1384,7 +1398,8 @@ stackctl doctor
 ```
 
 That will tell you whether the port belongs to the expected local service or
-to some unrelated process.
+to some unrelated process. Then either stop the conflicting process or change
+the configured stack port before trying the lifecycle command again.
 
 ### The stack looks up but a service is not healthy
 
