@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"text/template"
 
 	embedded "github.com/traweezy/stackctl/templates"
@@ -166,7 +167,13 @@ func scaffoldFileNeedsWrite(path string, expected []byte) (bool, error) {
 		return missing, err
 	}
 
-	current, err := os.ReadFile(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+
+	current, err := root.ReadFile(filepath.Base(path))
 	if err != nil {
 		return false, err
 	}
