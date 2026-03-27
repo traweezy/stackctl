@@ -69,7 +69,7 @@ services:
       - server
       - -dir=/data
       - -s3
-      - -volumeSizeLimitMB={{ .Services.SeaweedFS.VolumeSizeLimitMB }}
+      - -volume.fileSizeLimitMB={{ .Services.SeaweedFS.VolumeSizeLimitMB }}
     ports:
       - "{{ .Ports.SeaweedFS }}:8333"
     volumes:

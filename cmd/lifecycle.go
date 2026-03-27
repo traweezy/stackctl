@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -76,20 +75,158 @@ func waitForConfiguredServices(ctx context.Context, cfg configpkg.Config) error 
 }
 
 func waitForSelectedServices(ctx context.Context, cfg configpkg.Config, selected []string) error {
-	for _, definition := range waitableServiceDefinitions(cfg) {
-		if len(selected) > 0 && !slices.Contains(selected, definition.Key) {
+	definitions := make([]serviceDefinition, 0, len(waitableServiceDefinitions(cfg)))
+	for _, definition := range selectedStackServiceDefinitions(cfg, selected) {
+		if !definition.WaitOnStart || definition.PrimaryPort == nil {
 			continue
 		}
-		if definition.PrimaryPort == nil {
-			continue
-		}
-		port := definition.PrimaryPort(cfg)
-		if err := deps.waitForPort(ctx, port, 500*time.Millisecond); err != nil {
-			return fmt.Errorf("%s port %d did not become ready: %w", definition.Key, port, err)
+		definitions = append(definitions, definition)
+	}
+
+	for _, definition := range definitions {
+		if err := waitForStackService(ctx, cfg, definition); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func ensureSelectedServicePortsAvailable(ctx context.Context, cfg configpkg.Config, selected []string) error {
+	definitions := selectedStackServiceDefinitions(cfg, selected)
+	if len(definitions) == 0 {
+		return nil
+	}
+
+	states, err := stackServiceRuntimeStates(ctx, cfg, definitions)
+	if err != nil {
+		return err
+	}
+
+	conflicts := make([]string, 0, len(states))
+	for _, state := range states {
+		if state.PortState.CheckErr != nil {
+			return fmt.Errorf("port %d check failed: %w", state.Port, state.PortState.CheckErr)
+		}
+		if state.PortState.Conflict {
+			conflicts = append(conflicts, portConflictMessage(state.Definition.Key, state.Port))
+		}
+	}
+	if len(conflicts) > 0 {
+		return fmt.Errorf("cannot start %s: %s", strings.ToLower(lifecycleTargetLabel(selected)), stringsJoin(conflicts, "; "))
+	}
+
+	return nil
+}
+
+func verifySelectedServicesStarted(ctx context.Context, cfg configpkg.Config, selected []string) error {
+	definitions := selectedStackServiceDefinitions(cfg, selected)
+	if len(definitions) == 0 {
+		return nil
+	}
+
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		states, err := stackServiceRuntimeStates(ctx, cfg, definitions)
+		if err != nil {
+			return err
+		}
+		if failure := firstServiceStartFailure(states); failure != nil {
+			return failure
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForStackService(ctx context.Context, cfg configpkg.Config, definition serviceDefinition) error {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		states, err := stackServiceRuntimeStates(ctx, cfg, []serviceDefinition{definition})
+		if err != nil {
+			return err
+		}
+		state := states[0]
+		if failure := serviceStartFailure(state); failure != nil {
+			return failure
+		}
+		if state.ContainerRunning && state.PortBound {
+			if err := deps.waitForPort(ctx, state.Port, 500*time.Millisecond); err != nil {
+				return fmt.Errorf("%s port %d did not become ready: %w", definition.Key, state.Port, err)
+			}
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%s did not become ready: %s: %w", definition.Key, servicePendingReason(state), ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func firstServiceStartFailure(states []stackServiceRuntimeState) error {
+	for _, state := range states {
+		if failure := serviceStartFailure(state); failure != nil {
+			return failure
+		}
+	}
+
+	return nil
+}
+
+func serviceStartFailure(state stackServiceRuntimeState) error {
+	switch {
+	case state.PortState.CheckErr != nil:
+		return fmt.Errorf("port %d check failed: %w", state.Port, state.PortState.CheckErr)
+	case state.PortState.Conflict:
+		return fmt.Errorf("%s could not bind host port %d because it is already in use by another process or container", state.Definition.Key, state.Port)
+	case state.ContainerFound && terminalContainerState(state.ContainerState):
+		return fmt.Errorf("%s container failed to start (%s)", state.Definition.Key, displayContainerStatus(state))
+	default:
+		return nil
+	}
+}
+
+func terminalContainerState(state string) bool {
+	switch strings.TrimSpace(strings.ToLower(state)) {
+	case "exited", "stopped", "dead", "removing":
+		return true
+	default:
+		return false
+	}
+}
+
+func displayContainerStatus(state stackServiceRuntimeState) string {
+	if strings.TrimSpace(state.ContainerStatus) != "" {
+		return strings.TrimSpace(state.ContainerStatus)
+	}
+	if strings.TrimSpace(state.ContainerState) != "" {
+		return state.ContainerState
+	}
+
+	return "unknown"
+}
+
+func servicePendingReason(state stackServiceRuntimeState) string {
+	switch {
+	case !state.ContainerFound:
+		return "container not found"
+	case !state.ContainerRunning:
+		return fmt.Sprintf("container status %s", displayContainerStatus(state))
+	case !state.PortBound:
+		return fmt.Sprintf("container is running but host port %d is not mapped", state.Port)
+	default:
+		return fmt.Sprintf("port %d is not listening yet", state.Port)
+	}
 }
 
 func currentConfigPath() (string, error) {

@@ -22,6 +22,9 @@ func newStartCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
+				return err
+			}
 			services, err := resolveTargetStackServices(cfg, args)
 			if err != nil {
 				return err
@@ -30,6 +33,9 @@ func newStartCmd() *cobra.Command {
 				return err
 			}
 			if err := ensureNoOtherRunningStack(context.Background()); err != nil {
+				return err
+			}
+			if err := ensureSelectedServicePortsAvailable(context.Background(), cfg, services); err != nil {
 				return err
 			}
 
@@ -52,6 +58,12 @@ func newStartCmd() *cobra.Command {
 				defer cancel()
 
 				if err := waitForSelectedServices(waitCtx, cfg, services); err != nil {
+					return err
+				}
+			} else {
+				verifyCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				if err := verifySelectedServicesStarted(verifyCtx, cfg, services); err != nil {
 					return err
 				}
 			}

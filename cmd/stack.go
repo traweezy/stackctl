@@ -487,6 +487,9 @@ func discoverStackEntries(ctx context.Context) ([]stackListEntry, error) {
 			if cfg.Stack.Managed {
 				entry.Mode = "managed"
 			}
+			if summary := configuredStackServiceSummary(cfg); summary != "" {
+				entry.Services = summary
+			}
 
 			services, runErr := runningStackServices(ctx, cfg)
 			switch {
@@ -534,6 +537,19 @@ func discoverStackEntries(ctx context.Context) ([]stackListEntry, error) {
 	}
 
 	return entries, nil
+}
+
+func configuredStackServiceSummary(cfg configpkg.Config) string {
+	definitions := enabledStackServiceDefinitions(cfg)
+	if len(definitions) == 0 {
+		return ""
+	}
+
+	services := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		services = append(services, definition.DisplayName)
+	}
+	return strings.Join(services, ", ")
 }
 
 func resolveStackArg(value string) (string, error) {
@@ -736,9 +752,11 @@ func retargetStackConfig(cfg configpkg.Config, targetName string) configpkg.Conf
 		cfg.Services.PostgresContainer = ""
 		cfg.Services.RedisContainer = ""
 		cfg.Services.NATSContainer = ""
+		cfg.Services.SeaweedFSContainer = ""
 		cfg.Services.PgAdminContainer = ""
 		cfg.Services.Postgres.DataVolume = ""
 		cfg.Services.Redis.DataVolume = ""
+		cfg.Services.SeaweedFS.DataVolume = ""
 		cfg.Services.PgAdmin.DataVolume = ""
 	}
 	cfg.ApplyDerivedFields()

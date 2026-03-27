@@ -16,14 +16,16 @@ func TestDoctorFixAppliesSupportedRemediations(t *testing.T) {
 	var installed []string
 	var enabledCockpit bool
 	var scaffolded bool
+	var forcedScaffold bool
 
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.Setup.InstallCockpit = true
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
-		d.scaffoldManagedStack = func(cfg configpkg.Config, _ bool) (configpkg.ScaffoldResult, error) {
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
 			scaffolded = true
+			forcedScaffold = force
 			return configpkg.ScaffoldResult{
 				CreatedDir:   true,
 				WroteCompose: true,
@@ -71,6 +73,9 @@ func TestDoctorFixAppliesSupportedRemediations(t *testing.T) {
 	}
 	if !scaffolded {
 		t.Fatal("expected doctor --fix to scaffold the managed stack")
+	}
+	if !forcedScaffold {
+		t.Fatal("expected doctor --fix to force-refresh stale managed scaffold files")
 	}
 	if !enabledCockpit {
 		t.Fatal("expected doctor --fix to enable cockpit")

@@ -82,7 +82,7 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 				return err
 			}
 			if ok {
-				if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+				if err := scaffoldManagedStack(cmd, cfg, true); err != nil {
 					return err
 				}
 				appliedFix = true

@@ -25,16 +25,24 @@ func ManagedStackNeedsScaffold(cfg Config) (bool, error) {
 		return false, nil
 	}
 
-	if missing, err := scaffoldFileMissing(ComposePath(cfg)); err != nil {
+	composeData, err := renderManagedCompose(cfg)
+	if err != nil {
+		return false, err
+	}
+	if needsWrite, err := scaffoldFileNeedsWrite(ComposePath(cfg), composeData); err != nil {
 		return false, fmt.Errorf("inspect compose file %s: %w", ComposePath(cfg), err)
-	} else if missing {
+	} else if needsWrite {
 		return true, nil
 	}
 
 	if cfg.Setup.IncludeNATS {
-		if missing, err := scaffoldFileMissing(NATSConfigPath(cfg)); err != nil {
+		natsConfigData, err := renderManagedNATSConfig(cfg)
+		if err != nil {
+			return false, err
+		}
+		if needsWrite, err := scaffoldFileNeedsWrite(NATSConfigPath(cfg), natsConfigData); err != nil {
 			return false, fmt.Errorf("inspect nats config file %s: %w", NATSConfigPath(cfg), err)
-		} else if missing {
+		} else if needsWrite {
 			return true, nil
 		}
 	}
@@ -150,6 +158,20 @@ func scaffoldFileMissing(path string) (bool, error) {
 	}
 
 	return false, err
+}
+
+func scaffoldFileNeedsWrite(path string, expected []byte) (bool, error) {
+	missing, err := scaffoldFileMissing(path)
+	if err != nil || missing {
+		return missing, err
+	}
+
+	current, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+
+	return !bytes.Equal(current, expected), nil
 }
 
 func writeScaffoldFile(path string, data []byte, force bool) (bool, error) {

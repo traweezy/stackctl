@@ -77,6 +77,38 @@ func TestStackListShowsCurrentMissingStack(t *testing.T) {
 	}
 }
 
+func TestStackListShowsConfiguredServicesForStoppedStacks(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.knownConfigPaths = func() ([]string, error) {
+			return []string{"/tmp/stackctl/stacks/staging.yaml"}, nil
+		}
+		d.loadConfig = func(path string) (configpkg.Config, error) {
+			cfg := configpkg.DefaultForStack("staging")
+			cfg.Setup.IncludeNATS = false
+			cfg.Setup.IncludePgAdmin = false
+			cfg.ApplyDerivedFields()
+			return cfg, nil
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: "[]"}, nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "stack", "list")
+	if err != nil {
+		t.Fatalf("stack list returned error: %v", err)
+	}
+	for _, fragment := range []string{
+		"staging",
+		"stopped",
+		"Postgres, Redis",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("stack list output missing %q:\n%s", fragment, stdout)
+		}
+	}
+}
+
 func TestStackDeleteRefusesRunningStackWithoutPurgeData(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		d.configFilePathForStack = func(string) (string, error) { return "/tmp/stackctl/stacks/staging.yaml", nil }
@@ -224,6 +256,8 @@ func TestStackRenameManagedStackUpdatesSelection(t *testing.T) {
 		}
 		d.loadConfig = func(string) (configpkg.Config, error) {
 			cfg := configpkg.DefaultForStack("staging")
+			cfg.Setup.IncludeSeaweedFS = true
+			cfg.ApplyDerivedFields()
 			cfg.Stack.Dir = sourceDir
 			return cfg, nil
 		}
@@ -261,6 +295,12 @@ func TestStackRenameManagedStackUpdatesSelection(t *testing.T) {
 	}
 	if savedConfig.Stack.Name != "qa" || savedConfig.Stack.Dir != targetDir {
 		t.Fatalf("unexpected saved config: %+v", savedConfig.Stack)
+	}
+	if savedConfig.Services.SeaweedFSContainer != "stackctl-qa-seaweedfs" {
+		t.Fatalf("expected seaweedfs container to retarget, got %q", savedConfig.Services.SeaweedFSContainer)
+	}
+	if savedConfig.Services.SeaweedFS.DataVolume != "stackctl-qa-seaweedfs-data" {
+		t.Fatalf("expected seaweedfs data volume to retarget, got %q", savedConfig.Services.SeaweedFS.DataVolume)
 	}
 	if renamedFrom != sourceDir || renamedTo != targetDir {
 		t.Fatalf("unexpected dir rename: %s -> %s", renamedFrom, renamedTo)
@@ -313,6 +353,8 @@ func TestStackCloneManagedStackCreatesNewConfig(t *testing.T) {
 		}
 		d.loadConfig = func(string) (configpkg.Config, error) {
 			cfg := configpkg.Default()
+			cfg.Setup.IncludeSeaweedFS = true
+			cfg.ApplyDerivedFields()
 			cfg.Stack.Dir = filepath.Join(dataRoot, "stackctl", "stacks", "dev-stack")
 			return cfg, nil
 		}
@@ -339,6 +381,12 @@ func TestStackCloneManagedStackCreatesNewConfig(t *testing.T) {
 	}
 	if savedConfig.Stack.Name != "demo" || savedConfig.Stack.Dir != targetDir {
 		t.Fatalf("unexpected saved config: %+v", savedConfig.Stack)
+	}
+	if savedConfig.Services.SeaweedFSContainer != "stackctl-demo-seaweedfs" {
+		t.Fatalf("expected seaweedfs container to retarget, got %q", savedConfig.Services.SeaweedFSContainer)
+	}
+	if savedConfig.Services.SeaweedFS.DataVolume != "stackctl-demo-seaweedfs-data" {
+		t.Fatalf("expected seaweedfs data volume to retarget, got %q", savedConfig.Services.SeaweedFS.DataVolume)
 	}
 	if !scaffolded {
 		t.Fatal("expected managed stack clone to scaffold target files")

@@ -22,6 +22,9 @@ func newRestartCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
+				return err
+			}
 			services, err := resolveTargetStackServices(cfg, args)
 			if err != nil {
 				return err
@@ -42,8 +45,14 @@ func newRestartCmd() *cobra.Command {
 				if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, false); err != nil {
 					return err
 				}
+				if err := ensureSelectedServicePortsAvailable(context.Background(), cfg, services); err != nil {
+					return err
+				}
 				err = deps.composeUp(context.Background(), runnerFor(cmd), cfg)
 			default:
+				if err := ensureSelectedServicePortsAvailable(context.Background(), cfg, services); err != nil {
+					return err
+				}
 				err = deps.composeUpServices(context.Background(), runnerFor(cmd), cfg, true, services)
 			}
 			if err != nil {
@@ -55,6 +64,12 @@ func newRestartCmd() *cobra.Command {
 				defer cancel()
 
 				if err := waitForSelectedServices(waitCtx, cfg, services); err != nil {
+					return err
+				}
+			} else {
+				verifyCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				if err := verifySelectedServicesStarted(verifyCtx, cfg, services); err != nil {
 					return err
 				}
 			}

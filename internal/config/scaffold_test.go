@@ -48,6 +48,44 @@ func TestManagedStackNeedsScaffoldIgnoresExternalStack(t *testing.T) {
 	}
 }
 
+func TestManagedStackNeedsScaffoldDetectsComposeDrift(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	if _, err := ScaffoldManagedStack(cfg, false); err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	cfg.Ports.Postgres = 25432
+
+	needsScaffold, err := ManagedStackNeedsScaffold(cfg)
+	if err != nil {
+		t.Fatalf("ManagedStackNeedsScaffold returned error: %v", err)
+	}
+	if !needsScaffold {
+		t.Fatal("expected managed stack to need scaffolding when compose content drifts from config")
+	}
+}
+
+func TestManagedStackNeedsScaffoldDetectsNATSConfigDrift(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	if _, err := ScaffoldManagedStack(cfg, false); err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	cfg.Connection.NATSToken = "updated-token"
+
+	needsScaffold, err := ManagedStackNeedsScaffold(cfg)
+	if err != nil {
+		t.Fatalf("ManagedStackNeedsScaffold returned error: %v", err)
+	}
+	if !needsScaffold {
+		t.Fatal("expected managed stack to need scaffolding when nats config drifts from config")
+	}
+}
+
 func TestManagedStackNeedsScaffoldErrorsWhenComposePathIsDirectory(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
@@ -252,7 +290,7 @@ func TestScaffoldManagedStackAddsSeaweedFSWhenEnabled(t *testing.T) {
 	if !strings.Contains(string(data), "AWS_SECRET_ACCESS_KEY: \"seaweed-secret\"") {
 		t.Fatalf("expected rendered seaweedfs secret key, got: %s", string(data))
 	}
-	if !strings.Contains(string(data), "- -volumeSizeLimitMB=2048") {
+	if !strings.Contains(string(data), "- -volume.fileSizeLimitMB=2048") {
 		t.Fatalf("expected rendered seaweedfs volume limit, got: %s", string(data))
 	}
 	if !strings.Contains(string(data), "\"18333:8333\"") {

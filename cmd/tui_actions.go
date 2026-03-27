@@ -227,10 +227,16 @@ func runTUIRestartStack(stackName string) (stacktui.ActionReport, error) {
 }
 
 func runTUIStart(cfg configpkg.Config, services []string) (stacktui.ActionReport, error) {
+	if err := syncManagedScaffoldIfNeededForConfig(cfg); err != nil {
+		return stacktui.ActionReport{}, err
+	}
 	if err := ensureComposeRuntimeForConfig(cfg); err != nil {
 		return stacktui.ActionReport{}, err
 	}
 	if err := ensureNoOtherRunningStack(context.Background()); err != nil {
+		return stacktui.ActionReport{}, err
+	}
+	if err := ensureSelectedServicePortsAvailable(context.Background(), cfg, services); err != nil {
 		return stacktui.ActionReport{}, err
 	}
 
@@ -252,6 +258,12 @@ func runTUIStart(cfg configpkg.Config, services []string) (stacktui.ActionReport
 		waitCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Behavior.StartupTimeoutSec)*time.Second)
 		defer cancel()
 		if err := waitForSelectedServices(waitCtx, cfg, services); err != nil {
+			return stacktui.ActionReport{}, err
+		}
+	} else {
+		verifyCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := verifySelectedServicesStarted(verifyCtx, cfg, services); err != nil {
 			return stacktui.ActionReport{}, err
 		}
 	}
@@ -305,6 +317,9 @@ func runTUIStop(cfg configpkg.Config, services []string) (stacktui.ActionReport,
 }
 
 func runTUIRestart(cfg configpkg.Config, services []string) (stacktui.ActionReport, error) {
+	if err := syncManagedScaffoldIfNeededForConfig(cfg); err != nil {
+		return stacktui.ActionReport{}, err
+	}
 	if err := ensureComposeRuntimeForConfig(cfg); err != nil {
 		return stacktui.ActionReport{}, err
 	}
@@ -318,11 +333,17 @@ func runTUIRestart(cfg configpkg.Config, services []string) (stacktui.ActionRepo
 		if err := deps.composeDown(context.Background(), quietRunner(), cfg, false); err != nil {
 			return stacktui.ActionReport{}, err
 		}
+		if err := ensureSelectedServicePortsAvailable(context.Background(), cfg, services); err != nil {
+			return stacktui.ActionReport{}, err
+		}
 		err := deps.composeUp(context.Background(), quietRunner(), cfg)
 		if err != nil {
 			return stacktui.ActionReport{}, err
 		}
 	default:
+		if err := ensureSelectedServicePortsAvailable(context.Background(), cfg, services); err != nil {
+			return stacktui.ActionReport{}, err
+		}
 		err := deps.composeUpServices(context.Background(), quietRunner(), cfg, true, services)
 		if err != nil {
 			return stacktui.ActionReport{}, err
@@ -333,6 +354,12 @@ func runTUIRestart(cfg configpkg.Config, services []string) (stacktui.ActionRepo
 		waitCtx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Behavior.StartupTimeoutSec)*time.Second)
 		defer cancel()
 		if err := waitForSelectedServices(waitCtx, cfg, services); err != nil {
+			return stacktui.ActionReport{}, err
+		}
+	} else {
+		verifyCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := verifySelectedServicesStarted(verifyCtx, cfg, services); err != nil {
 			return stacktui.ActionReport{}, err
 		}
 	}

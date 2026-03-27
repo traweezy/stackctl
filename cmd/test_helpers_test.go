@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"testing"
@@ -133,6 +134,42 @@ func newReport(checks ...doctorpkg.Check) doctorpkg.Report {
 	}
 
 	return report
+}
+
+func marshalContainersJSON(containers ...system.Container) string {
+	data, err := json.Marshal(containers)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(data)
+}
+
+func runningContainerJSON(cfg configpkg.Config, services ...string) string {
+	definitions := selectedStackServiceDefinitions(cfg, services)
+	containers := make([]system.Container, 0, len(definitions))
+	for _, definition := range definitions {
+		if definition.ContainerName == nil || definition.PrimaryPort == nil {
+			continue
+		}
+		containers = append(containers, system.Container{
+			ID:     definition.Key + "123456",
+			Image:  definition.Key + ":latest",
+			Names:  []string{definition.ContainerName(cfg)},
+			Status: "Up 5 minutes",
+			State:  "running",
+			Ports: []system.ContainerPort{
+				{
+					HostPort:      definition.PrimaryPort(cfg),
+					ContainerPort: definition.DefaultInternalPort,
+					Protocol:      "tcp",
+				},
+			},
+			CreatedAt: "now",
+		})
+	}
+
+	return marshalContainersJSON(containers...)
 }
 
 type fakeFileInfo struct {

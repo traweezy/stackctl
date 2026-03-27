@@ -136,6 +136,37 @@ func TestServicesHandlesMissingContainersCleanly(t *testing.T) {
 	}
 }
 
+func TestServicesMarksCockpitNeedsAttentionWhenSocketPortIsNotListening(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Ports.Cockpit = 19090
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.cockpitStatus = func(context.Context) system.CockpitState {
+			return system.CockpitState{Installed: true, Active: true, State: "active"}
+		}
+		d.portListening = func(port int) bool {
+			return port != cfg.Ports.Cockpit
+		}
+		d.portInUse = func(int) (bool, error) { return false, nil }
+	})
+
+	stdout, _, err := executeRoot(t, "services", "--json")
+	if err != nil {
+		t.Fatalf("services --json returned error: %v", err)
+	}
+
+	var services []runtimeService
+	if err := json.Unmarshal([]byte(stdout), &services); err != nil {
+		t.Fatalf("parse services json: %v\n%s", err, stdout)
+	}
+	if services[4].Name != "cockpit" || services[4].Status != "needs attention" || services[4].PortListening {
+		t.Fatalf("unexpected cockpit runtime service: %+v", services[4])
+	}
+}
+
 func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()

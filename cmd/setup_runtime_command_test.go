@@ -20,6 +20,7 @@ func TestSetupNonInteractiveCreatesConfigAndPrintsNextSteps(t *testing.T) {
 	scaffolded := false
 
 	withTestDeps(t, func(d *commandDeps) {
+		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
 		d.saveConfig = func(string, configpkg.Config) error {
 			saved = true
 			return nil
@@ -51,6 +52,19 @@ func TestSetupNonInteractiveCreatesConfigAndPrintsNextSteps(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Next steps:") {
 		t.Fatalf("stdout missing next steps: %s", stdout)
+	}
+	for _, fragment := range []string{
+		"stackctl setup --install",
+		"stackctl start",
+		"stackctl services",
+		"stackctl env --export",
+		"stackctl connect",
+		"stackctl tui",
+		"stackctl doctor",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("stdout missing next-step hint %q:\n%s", fragment, stdout)
+		}
 	}
 }
 
@@ -156,6 +170,9 @@ func TestSetupInstallRunsPackageInstallAndCockpitEnable(t *testing.T) {
 	if !strings.Contains(stdout, "Installed:") {
 		t.Fatalf("stdout missing installed summary: %s", stdout)
 	}
+	if strings.Contains(stdout, "stackctl setup --install") {
+		t.Fatalf("stdout should not keep stale install guidance after install succeeds: %s", stdout)
+	}
 }
 
 func TestSetupInstallPromptDeclineCancels(t *testing.T) {
@@ -233,10 +250,13 @@ func TestStartFirstRunRunsWizardComposeWaitAndPrintsEndpoints(t *testing.T) {
 	scaffolded := false
 	var waitPorts []int
 	upCalled := false
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
 
 	withTestDeps(t, func(d *commandDeps) {
 		d.isTerminal = func() bool { return true }
 		d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return true, nil }
+		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
 		d.runWizard = func(_ io.Reader, _ io.Writer, cfg configpkg.Config) (configpkg.Config, error) { return cfg, nil }
 		d.saveConfig = func(string, configpkg.Config) error {
 			saved = true
@@ -249,6 +269,9 @@ func TestStartFirstRunRunsWizardComposeWaitAndPrintsEndpoints(t *testing.T) {
 		d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
 			upCalled = true
 			return nil
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
 		}
 		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
 			waitPorts = append(waitPorts, port)
@@ -285,16 +308,18 @@ func TestStartFirstRunRunsWizardComposeWaitAndPrintsEndpoints(t *testing.T) {
 
 func TestSetupOffersScaffoldingForExistingManagedConfig(t *testing.T) {
 	scaffolded := false
+	forced := false
 
 	withTestDeps(t, func(d *commandDeps) {
 		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
 		d.isTerminal = func() bool { return true }
 		d.promptYesNo = func(_ io.Reader, _ io.Writer, question string, _ bool) (bool, error) {
-			return strings.Contains(question, "Create and scaffold the default stack now?"), nil
+			return strings.Contains(question, "Refresh the managed stack files now?"), nil
 		}
 		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
 		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
 			scaffolded = true
+			forced = force
 			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
 		}
 		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
@@ -309,8 +334,49 @@ func TestSetupOffersScaffoldingForExistingManagedConfig(t *testing.T) {
 	if !scaffolded {
 		t.Fatal("expected setup to scaffold the managed stack when prompted")
 	}
+	if !forced {
+		t.Fatal("expected setup to force-refresh stale managed scaffold files")
+	}
 	if !strings.Contains(stdout, "wrote managed compose file") {
 		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestStartRefreshesManagedScaffoldBeforeComposeUp(t *testing.T) {
+	scaffolded := false
+	forced := false
+	composeUpCalled := false
+	cfg := configpkg.Default()
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			forced = force
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+		}
+		d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+			composeUpCalled = true
+			return nil
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "start")
+	if err != nil {
+		t.Fatalf("start returned error: %v", err)
+	}
+	if !scaffolded || !forced {
+		t.Fatalf("expected start to force-refresh managed scaffold before compose up, scaffolded=%v forced=%v", scaffolded, forced)
+	}
+	if !composeUpCalled {
+		t.Fatal("expected start to continue with compose up after scaffold refresh")
+	}
+	if !strings.Contains(stdout, "wrote managed compose file") {
+		t.Fatalf("stdout missing scaffold refresh message: %s", stdout)
 	}
 }
 
@@ -427,13 +493,19 @@ func TestResetVolumesDeclineCancels(t *testing.T) {
 }
 
 func TestWaitForConfiguredServicesPropagatesTimeout(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+
 	withTestDeps(t, func(d *commandDeps) {
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
 		d.waitForPort = func(context.Context, int, time.Duration) error {
 			return errors.New("timeout")
 		}
 	})
 
-	err := waitForConfiguredServices(context.Background(), configpkg.Default())
+	err := waitForConfiguredServices(context.Background(), cfg)
 	if err == nil || !strings.Contains(err.Error(), "timeout") {
 		t.Fatalf("unexpected wait error: %v", err)
 	}

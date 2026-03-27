@@ -91,7 +91,7 @@ func newConfigInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := scaffoldManagedStack(cmd, cfg, force); err != nil {
+			if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
 				return err
 			}
 
@@ -172,7 +172,7 @@ func newConfigEditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+			if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
 				return err
 			}
 
@@ -261,7 +261,7 @@ func newConfigResetCmd() *cobra.Command {
 			}
 
 			cfg := deps.defaultConfig()
-			if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+			if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
 				return err
 			}
 			if err := deps.saveConfig(path, cfg); err != nil {

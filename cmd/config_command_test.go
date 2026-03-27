@@ -16,6 +16,7 @@ func TestConfigInitNonInteractiveSavesConfig(t *testing.T) {
 	scaffolded := false
 
 	withTestDeps(t, func(d *commandDeps) {
+		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
 		d.saveConfig = func(path string, cfg configpkg.Config) error {
 			savedPath = path
 			savedConfig = cfg
@@ -93,6 +94,30 @@ func TestConfigViewPrintsYAML(t *testing.T) {
 	}
 	if stdout != "stack:\n  name: dev-stack\n" {
 		t.Fatalf("unexpected config view output: %q", stdout)
+	}
+}
+
+func TestConfigEditRefreshesStaleManagedScaffold(t *testing.T) {
+	forced := false
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			forced = force
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "config", "edit", "--non-interactive")
+	if err != nil {
+		t.Fatalf("config edit returned error: %v", err)
+	}
+	if !forced {
+		t.Fatal("expected config edit to force-refresh stale managed scaffold files")
+	}
+	if !strings.Contains(stdout, "wrote managed compose file") {
+		t.Fatalf("stdout missing scaffold refresh message: %s", stdout)
 	}
 }
 

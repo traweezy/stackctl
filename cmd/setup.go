@@ -52,7 +52,7 @@ func newSetupCmd() *cobra.Command {
 				switch {
 				case nonInteractive:
 					cfg = deps.defaultConfig()
-					if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+					if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
 						return err
 					}
 					if err := deps.saveConfig(path, cfg); err != nil {
@@ -76,7 +76,7 @@ func newSetupCmd() *cobra.Command {
 						if err != nil {
 							return err
 						}
-						if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+						if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
 							return err
 						}
 						if err := deps.saveConfig(path, cfg); err != nil {
@@ -110,7 +110,7 @@ func newSetupCmd() *cobra.Command {
 						}
 					}
 					if shouldScaffold {
-						if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+						if err := scaffoldManagedStack(cmd, cfg, true); err != nil {
 							return err
 						}
 					} else if err := output.StatusLine(cmd.OutOrStdout(), output.StatusWarn, "managed stack files are missing"); err != nil {
@@ -168,15 +168,10 @@ func newSetupCmd() *cobra.Command {
 				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Installed: %s\n", strings.Join(installed, ", ")); err != nil {
 					return err
 				}
+				missing = nil
 			}
 
-			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Next steps:"); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "- run `stackctl doctor` to re-check the environment"); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "- run `stackctl start` after the stack config and dependencies are ready"); err != nil {
+			if err := printSetupNextSteps(cmd, cfg, missing); err != nil {
 				return err
 			}
 
@@ -214,4 +209,42 @@ func requiredPackages(report doctorpkg.Report, cfg configpkg.Config) []string {
 	}
 
 	return required
+}
+
+func printSetupNextSteps(cmd *cobra.Command, cfg configpkg.Config, missing []string) error {
+	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Next steps:"); err != nil {
+		return err
+	}
+	for _, step := range setupNextSteps(cfg, missing) {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func setupNextSteps(cfg configpkg.Config, missing []string) []string {
+	steps := make([]string, 0, 7)
+	if len(missing) > 0 {
+		steps = append(steps, fmt.Sprintf(
+			"run `stackctl setup --install` or install %s manually first",
+			strings.Join(missing, ", "),
+		))
+	}
+
+	startHint := "run `stackctl start` after the stack config and dependencies are ready"
+	if !cfg.Stack.Managed {
+		startHint = "run `stackctl start` when the external stack is ready to be launched from this config"
+	}
+
+	steps = append(steps,
+		startHint,
+		"run `stackctl services` to inspect status, ports, and credentials",
+		"run `stackctl env --export` to load app-ready environment variables",
+		"run `stackctl connect` for minimal DSNs, URLs, and endpoints",
+		"run `stackctl tui` for the interactive dashboard",
+		"run `stackctl doctor` to re-check the environment",
+	)
+
+	return steps
 }

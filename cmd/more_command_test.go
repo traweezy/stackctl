@@ -177,6 +177,7 @@ func TestConfigResetForceWritesDefaults(t *testing.T) {
 	scaffolded := false
 
 	withTestDeps(t, func(d *commandDeps) {
+		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
 		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
 			scaffolded = true
 			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
@@ -394,11 +395,16 @@ func TestStartServiceRunsComposeUpServicesAndWaitsSelectedPort(t *testing.T) {
 	var waitedPorts []int
 
 	withTestDeps(t, func(d *commandDeps) {
-		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 		d.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, force bool, services []string) error {
 			forceRecreate = force
 			calledServices = append([]string(nil), services...)
 			return nil
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
 		}
 		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
 			waitedPorts = append(waitedPorts, port)
@@ -430,6 +436,72 @@ func TestStartServiceRunsComposeUpServicesAndWaitsSelectedPort(t *testing.T) {
 	}
 	if strings.Contains(stdout, "Redis\n  redis://localhost:6379") {
 		t.Fatalf("service start should only print selected connections:\n%s", stdout)
+	}
+}
+
+func TestStartFailsWhenHostPortIsAlreadyBusy(t *testing.T) {
+	composeUpCalled := false
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: marshalContainersJSON()}, nil
+		}
+		d.portInUse = func(port int) (bool, error) {
+			return port == cfg.Ports.Postgres, nil
+		}
+		d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+			composeUpCalled = true
+			return nil
+		}
+	})
+
+	_, _, err := executeRoot(t, "start")
+	if err == nil {
+		t.Fatal("expected start to fail when a host port is already busy")
+	}
+	if composeUpCalled {
+		t.Fatal("compose up should not run when port preflight fails")
+	}
+	for _, fragment := range []string{
+		"cannot start stack",
+		"port 5432 is in use by another process or container, not postgres",
+	} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("expected error to contain %q: %v", fragment, err)
+		}
+	}
+}
+
+func TestStartServiceWithWaitDisabledFailsWhenContainerExitsImmediately(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Behavior.WaitForServicesStart = false
+	cfg.ApplyDerivedFields()
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, _ bool, _ []string) error {
+			return nil
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: marshalContainersJSON(system.Container{
+				ID:     "postgres123456",
+				Image:  "postgres:latest",
+				Names:  []string{cfg.Services.PostgresContainer},
+				Status: "Exited (1)",
+				State:  "exited",
+			})}, nil
+		}
+	})
+
+	_, _, err := executeRoot(t, "start", "postgres")
+	if err == nil {
+		t.Fatal("expected start to fail when the selected container exits immediately")
+	}
+	if !strings.Contains(err.Error(), "postgres container failed to start (Exited (1))") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -467,11 +539,16 @@ func TestRestartServiceRunsComposeUpServicesWithForceRecreate(t *testing.T) {
 	var waitedPorts []int
 
 	withTestDeps(t, func(d *commandDeps) {
-		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 		d.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, force bool, services []string) error {
 			forceRecreate = force
 			calledServices = append([]string(nil), services...)
 			return nil
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg, "nats")}, nil
 		}
 		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
 			waitedPorts = append(waitedPorts, port)
@@ -602,7 +679,9 @@ func TestRestartRunsDownUpWaitAndPrintsEndpoints(t *testing.T) {
 	calls := make([]string, 0, 2)
 
 	withTestDeps(t, func(d *commandDeps) {
-		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 		d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
 			calls = append(calls, "down")
 			return nil
@@ -610,6 +689,9 @@ func TestRestartRunsDownUpWaitAndPrintsEndpoints(t *testing.T) {
 		d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
 			calls = append(calls, "up")
 			return nil
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
 		}
 		d.waitForPort = func(context.Context, int, time.Duration) error { return nil }
 	})
@@ -872,21 +954,62 @@ func TestHealthChecksWarnWhenContainersNotRunning(t *testing.T) {
 	}
 }
 
-func TestWaitForConfiguredServicesOnlyWaitsForCoreServicePorts(t *testing.T) {
-	var ports []int
+func TestHealthChecksWarnWhenPortIsBusyOutsideTheStack(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
 
 	withTestDeps(t, func(d *commandDeps) {
-		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
-			ports = append(ports, port)
-			return nil
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: marshalContainersJSON(system.Container{
+				ID:     "postgres123456",
+				Image:  "postgres:latest",
+				Names:  []string{cfg.Services.PostgresContainer},
+				Status: "Created",
+				State:  "created",
+			})}, nil
+		}
+		d.portInUse = func(port int) (bool, error) {
+			return port == cfg.Ports.Postgres, nil
 		}
 	})
 
+	lines, err := healthChecks(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("healthChecks returned error: %v", err)
+	}
+
+	foundConflict := false
+	for _, line := range lines {
+		if line.Message == "postgres port listening" && line.Status == output.StatusOK {
+			t.Fatalf("expected health check to avoid a false-positive postgres listener: %+v", lines)
+		}
+		if line.Message == "port 5432 is in use by another process or container, not postgres" {
+			foundConflict = true
+		}
+	}
+	if !foundConflict {
+		t.Fatalf("expected external port-conflict warning, got %+v", lines)
+	}
+}
+
+func TestWaitForConfiguredServicesOnlyWaitsForCoreServicePorts(t *testing.T) {
+	var ports []int
 	cfg := configpkg.Default()
 	cfg.Ports.Postgres = 15432
 	cfg.Ports.Redis = 16379
 	cfg.Ports.NATS = 14222
 	cfg.Ports.PgAdmin = 18081
+	cfg.ApplyDerivedFields()
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
+		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+			ports = append(ports, port)
+			return nil
+		}
+	})
 
 	if err := waitForConfiguredServices(context.Background(), cfg); err != nil {
 		t.Fatalf("waitForConfiguredServices returned error: %v", err)
@@ -898,7 +1021,15 @@ func TestWaitForConfiguredServicesOnlyWaitsForCoreServicePorts(t *testing.T) {
 }
 
 func TestWaitForConfiguredServicesNamesTheFailingService(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Ports.Postgres = 15432
+	cfg.Ports.Redis = 16379
+	cfg.ApplyDerivedFields()
+
 	withTestDeps(t, func(d *commandDeps) {
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
 		d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
 			if port == 16379 {
 				return errors.New("context deadline exceeded")
@@ -906,10 +1037,6 @@ func TestWaitForConfiguredServicesNamesTheFailingService(t *testing.T) {
 			return nil
 		}
 	})
-
-	cfg := configpkg.Default()
-	cfg.Ports.Postgres = 15432
-	cfg.Ports.Redis = 16379
 
 	err := waitForConfiguredServices(context.Background(), cfg)
 	if err == nil || !strings.Contains(err.Error(), "redis port 16379 did not become ready") {

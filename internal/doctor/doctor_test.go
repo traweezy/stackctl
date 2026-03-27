@@ -197,6 +197,49 @@ func TestRunWithDepsTreatsCockpitPortAsExpectedWhenCockpitIsActive(t *testing.T)
 	}
 }
 
+func TestRunWithDepsWarnsWhenCockpitIsActiveButConfiguredPortIsNotListening(t *testing.T) {
+	cfg := configpkg.Default()
+
+	report, err := runWithDeps(context.Background(), dependencies{
+		configFilePath: func() (string, error) { return "/tmp/stackctl/config.yaml", nil },
+		loadConfig:     func(string) (configpkg.Config, error) { return cfg, nil },
+		validateConfig: func(configpkg.Config) []configpkg.ValidationIssue { return nil },
+		composePath:    func(configpkg.Config) string { return "/tmp/compose.yaml" },
+		stat: func(path string) (os.FileInfo, error) {
+			switch path {
+			case cfg.Stack.Dir:
+				return fakeFileInfo{dir: true}, nil
+			case "/tmp/compose.yaml":
+				return fakeFileInfo{name: "compose.yaml"}, nil
+			default:
+				return nil, errors.New("missing")
+			}
+		},
+		commandExists:      func(string) bool { return true },
+		podmanComposeAvail: func(context.Context) bool { return true },
+		openCommandName:    func() string { return "xdg-open" },
+		cockpitStatus: func(context.Context) system.CockpitState {
+			return system.CockpitState{Installed: true, Active: true, State: "active"}
+		},
+		portInUse:      func(int) (bool, error) { return false, nil },
+		listContainers: func(context.Context) ([]system.Container, error) { return nil, nil },
+		redisOvercommit: func(context.Context) (system.OvercommitStatus, error) {
+			return system.OvercommitStatus{Supported: true, Value: 1}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runWithDeps returned error: %v", err)
+	}
+
+	for _, check := range report.Checks {
+		if check.Message == "cockpit.socket active but port 9090 is not listening" && check.Status == output.StatusWarn {
+			return
+		}
+	}
+
+	t.Fatalf("expected warning about active cockpit without a listening configured port, got %+v", report.Checks)
+}
+
 type fakeFileInfo struct {
 	name string
 	dir  bool

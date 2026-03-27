@@ -210,6 +210,8 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 				report.add(output.StatusFail, fmt.Sprintf("port %d check failed: %v", cfg.Ports.Cockpit, err))
 			} else if cockpitInUse && cockpit.Active {
 				report.add(output.StatusOK, fmt.Sprintf("port %d is in use by cockpit", cfg.Ports.Cockpit))
+			} else if cockpit.Active {
+				report.add(output.StatusWarn, fmt.Sprintf("cockpit.socket active but port %d is not listening", cfg.Ports.Cockpit))
 			} else if cockpitInUse {
 				report.add(output.StatusWarn, fmt.Sprintf("port %d is in use by another process, not cockpit", cfg.Ports.Cockpit))
 			} else {

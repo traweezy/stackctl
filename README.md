@@ -523,8 +523,9 @@ Notes:
 - `c` opens a picker of real values from the selected service, including DSNs,
   URLs, host ports, usernames, passwords, and databases when they exist
 - `:` or `ctrl+k` opens a fuzzy command palette that can rerun recent actions,
-  jump to sections, jump to services, trigger lifecycle actions, and open
-  service-level helpers
+  jump to sections, jump to services, trigger lifecycle actions, copy
+  stack-wide `connect` / `env --export` / `ports` output, and open service-level
+  helpers
 - `g` or `/` opens the service jump picker directly, with pinned services shown
   first
 - `p` pins the selected service for the current session so it stays at the top
@@ -542,7 +543,8 @@ Flags: `-h`, `--help` only.
 ### TUI productivity workflows
 
 - use `:` or `ctrl+k` to open the command palette, then type a few characters to
-  fuzzy-filter sections, service helpers, lifecycle actions, and recent actions
+  fuzzy-filter sections, service helpers, lifecycle actions, recent actions,
+  and stack-wide `connect` / `env --export` / `ports` copy helpers
 - use `g` or `/` to jump straight to a service, with pinned services listed
   first
 - use `c` from `Services` or `Health` to copy the selected service's real
@@ -562,9 +564,10 @@ Prepare the local machine and the `stackctl` config.
 
 When setup runs interactively, it opens the full-screen wizard: choose the
 stack mode, pick services with a checkbox list, fill only the enabled-service
-pages, then review the final config before saving. Set `ACCESSIBLE=1` to use
-the same wizard in accessible prompting mode, or `STACKCTL_WIZARD_PLAIN=1` to
-force the legacy plain prompt flow.
+pages, and see step-by-step progress all the way through the final review
+before saving. Set `ACCESSIBLE=1` to use the same wizard in accessible
+prompting mode, or `STACKCTL_WIZARD_PLAIN=1` to force the legacy plain prompt
+flow.
 
 Examples:
 
@@ -677,7 +680,9 @@ that stack in depth.
 List configured stack profiles and the active selection.
 
 The table shows which stack is active, whether each profile is managed or
-external, whether it looks running, and which config path owns it.
+external, whether it looks running, which services are currently running, or
+which stack services are configured when the profile is stopped, and which
+config path owns it.
 
 #### `stackctl stack current`
 

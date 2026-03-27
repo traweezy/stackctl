@@ -462,14 +462,17 @@ func serviceDefinitions() []serviceDefinition {
 			WaitOnStart:         false,
 			BuildRuntime: func(ctx context.Context, cfg configpkg.Config, _ map[string]system.Container) runtimeService {
 				cockpit := deps.cockpitStatus(ctx)
+				portState := inspectHostPort(cfg.Ports.Cockpit)
 				return runtimeService{
-					Name:         "cockpit",
-					Icon:         "🖥️",
-					DisplayName:  "Cockpit",
-					Status:       cockpitStateLabel(cockpit),
-					Host:         cfg.Connection.Host,
-					ExternalPort: cfg.Ports.Cockpit,
-					URL:          cfg.URLs.Cockpit,
+					Name:          "cockpit",
+					Icon:          "🖥️",
+					DisplayName:   "Cockpit",
+					Status:        cockpitRuntimeStateLabel(cockpit, portState),
+					Host:          cfg.Connection.Host,
+					ExternalPort:  cfg.Ports.Cockpit,
+					PortListening: portState.Listening,
+					PortConflict:  portState.Conflict,
+					URL:           cfg.URLs.Cockpit,
 				}
 			},
 			ConnectionEntries: func(cfg configpkg.Config) []connectionEntry {

@@ -27,6 +27,9 @@ func TestRunTUIActionStartUsesComposeUpAndWait(t *testing.T) {
 			composeUpCalls++
 			return nil
 		}
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
 		value.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
 			waitedPorts = append(waitedPorts, port)
 			return nil
@@ -42,6 +45,76 @@ func TestRunTUIActionStartUsesComposeUpAndWait(t *testing.T) {
 	}
 	if len(waitedPorts) != 3 || waitedPorts[0] != 5432 || waitedPorts[1] != 6379 || waitedPorts[2] != 4222 {
 		t.Fatalf("unexpected waited ports: %+v", waitedPorts)
+	}
+	if !report.Refresh || report.Message != "stack started" {
+		t.Fatalf("unexpected start report: %+v", report)
+	}
+}
+
+func TestRunTUIActionStartFailsWhenHostPortIsAlreadyBusy(t *testing.T) {
+	composeUpCalls := 0
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+
+	withTestDeps(t, func(value *commandDeps) {
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: marshalContainersJSON()}, nil
+		}
+		value.portInUse = func(port int) (bool, error) {
+			return port == cfg.Ports.Postgres, nil
+		}
+		value.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+			composeUpCalls++
+			return nil
+		}
+	})
+
+	_, err := runTUIAction(stacktui.ActionStart)
+	if err == nil {
+		t.Fatal("expected TUI start to fail when a host port is already busy")
+	}
+	if composeUpCalls != 0 {
+		t.Fatalf("composeUp should not run when preflight fails, got %d calls", composeUpCalls)
+	}
+	if !strings.Contains(err.Error(), "port 5432 is in use by another process or container, not postgres") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunTUIActionStartRefreshesManagedScaffoldBeforeComposeUp(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+	scaffolded := false
+	forced := false
+	composeUpCalled := false
+
+	withTestDeps(t, func(value *commandDeps) {
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
+		value.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			forced = force
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+		}
+		value.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+			composeUpCalled = true
+			return nil
+		}
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
+	})
+
+	report, err := runTUIAction(stacktui.ActionStart)
+	if err != nil {
+		t.Fatalf("runTUIAction(start) returned error: %v", err)
+	}
+	if !scaffolded || !forced {
+		t.Fatalf("expected TUI start to force-refresh managed scaffold files, scaffolded=%v forced=%v", scaffolded, forced)
+	}
+	if !composeUpCalled {
+		t.Fatal("expected TUI start to continue with compose up after scaffold refresh")
 	}
 	if !report.Refresh || report.Message != "stack started" {
 		t.Fatalf("unexpected start report: %+v", report)
@@ -195,6 +268,9 @@ func TestRunTUIActionRestartUsesDownUpAndWait(t *testing.T) {
 			composeUpCalls++
 			return nil
 		}
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
 		value.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
 			waitedPorts = append(waitedPorts, port)
 			return nil
@@ -260,6 +336,14 @@ func TestRunTUIActionStartNamedStackUsesSelectedProfileConfig(t *testing.T) {
 			}
 			return nil
 		}
+		value.captureResult = func(_ context.Context, _ string, _ string, _ ...string) (system.CommandResult, error) {
+			cfg := configpkg.DefaultForStack("staging")
+			cfg.Ports.Postgres = 25432
+			cfg.Ports.Redis = 26379
+			cfg.Ports.NATS = 24222
+			cfg.ApplyDerivedFields()
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
 		value.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
 			waitedPorts = append(waitedPorts, port)
 			return nil
@@ -306,6 +390,9 @@ func TestRunTUIActionStartServiceUsesComposeUpServicesAndWait(t *testing.T) {
 			forceRecreate = force
 			calledServices = append([]string(nil), services...)
 			return nil
+		}
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
 		}
 		value.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
 			waitedPorts = append(waitedPorts, port)
@@ -369,6 +456,9 @@ func TestRunTUIActionRestartServiceUsesForceRecreate(t *testing.T) {
 			forceRecreate = force
 			calledServices = append([]string(nil), services...)
 			return nil
+		}
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg, "nats")}, nil
 		}
 		value.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
 			waitedPorts = append(waitedPorts, port)
