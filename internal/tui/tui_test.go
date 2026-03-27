@@ -532,7 +532,7 @@ func TestHealthViewWarnsWhenPortIsBusyOutsideTheStack(t *testing.T) {
 				ContainerName: "stack-postgres",
 				Host:          "localhost",
 				ExternalPort:  5432,
-				PortListening: true,
+				PortConflict:  true,
 			},
 		},
 	}
@@ -547,7 +547,7 @@ func TestHealthViewWarnsWhenPortIsBusyOutsideTheStack(t *testing.T) {
 		"Warnings: 1",
 		"Not running: 0",
 		"Status: needs attention",
-		"Reachability: accepting on localhost:5432",
+		"Reachability: busy on localhost:5432",
 		"Host port is busy outside this stack.",
 	} {
 		if !collapsedContainsTest(view, fragment) {
@@ -951,6 +951,65 @@ func TestCopyShortcutOpensPaletteAndCopiesSelectedValue(t *testing.T) {
 	}
 }
 
+func TestCommandPaletteCopiesStackLevelCLIHandoffs(t *testing.T) {
+	copied := ""
+	model := NewInspectionModel(
+		func() (Snapshot, error) { return Snapshot{}, nil },
+		func(LogWatchRequest) (tea.ExecCommand, error) { return stubExecCommand{}, nil },
+		nil,
+	).WithProductivity(
+		func(value string) error {
+			copied = value
+			return nil
+		},
+		nil,
+		nil,
+	)
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+	current.snapshot = Snapshot{
+		StackName:     "dev-stack",
+		ConnectText:   "Postgres\n  postgres://app:secret@localhost:5432/app",
+		EnvExportText: "export DATABASE_URL='postgres://app:secret@localhost:5432/app'",
+		PortsText:     "SERVICE   HOST        PORTS\nPostgres  localhost  5432 -> 5432",
+	}
+	current.active = overviewSection
+	current.syncLayout()
+
+	updatedModel, _ = current.Update(tea.KeyPressMsg{Text: ":"})
+	current = updatedModel.(Model)
+	if current.palette == nil {
+		t.Fatalf("expected command palette to open")
+	}
+	if len(current.palette.filtered) < 3 {
+		t.Fatalf("expected stack-level copy actions in the palette, got %+v", current.palette.filtered)
+	}
+	if got := current.palette.filtered[0].Title; got != "Copy stackctl connect output" {
+		t.Fatalf("expected connect copy action first, got %q", got)
+	}
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	current = updatedModel.(Model)
+	if cmd == nil {
+		t.Fatalf("expected copy command after selecting stack-level palette item")
+	}
+
+	msg := cmd()
+	copyMsg, ok := msg.(copyDoneMsg)
+	if !ok {
+		t.Fatalf("expected copyDoneMsg, got %T", msg)
+	}
+	updatedModel, _ = current.Update(copyMsg)
+	current = updatedModel.(Model)
+	if copied != "Postgres\n  postgres://app:secret@localhost:5432/app" {
+		t.Fatalf("unexpected copied stack-level text: %q", copied)
+	}
+	if len(current.history) == 0 || current.history[len(current.history)-1].Action != "Copy stackctl connect output" {
+		t.Fatalf("expected stack-level copy action in history, got %+v", current.history)
+	}
+}
+
 func TestQuickJumpPaletteFuzzySelectsService(t *testing.T) {
 	model := NewInspectionModel(
 		func() (Snapshot, error) { return Snapshot{}, nil },
@@ -1270,7 +1329,8 @@ func TestOverviewExcludesCockpitFromStackServiceCount(t *testing.T) {
 		"Cockpit: running",
 		"URL: https://devbox:9090",
 		"Helpful commands",
-		"stackctl start  •  stackctl services  •  stackctl health",
+		"Inspect: stackctl start  •  stackctl services  •  stackctl doctor",
+		"Handoff: stackctl connect  •  stackctl env --export  •  stackctl tui",
 	} {
 		if !strings.Contains(view, fragment) {
 			t.Fatalf("expected overview to contain %q:\n%s", fragment, view)
@@ -1321,7 +1381,8 @@ func TestOverviewExpandedLayoutShowsPathsAndManagedMode(t *testing.T) {
 		"Compose: /tmp/stackctl/stacks/dev-stack/compose.yaml",
 		"Startup timeout: 45s",
 		"Wait on start: on",
-		"stackctl services  •  stackctl health  •  stackctl connect",
+		"Inspect: stackctl services  •  stackctl health  •  stackctl ports",
+		"Handoff: stackctl connect  •  stackctl env --export  •  stackctl tui",
 	} {
 		if !strings.Contains(view, fragment) {
 			t.Fatalf("expected expanded overview to contain %q:\n%s", fragment, view)
@@ -1354,6 +1415,7 @@ func TestStacksViewShowsProfilesAndContextualActions(t *testing.T) {
 				Configured: true,
 				State:      "stopped",
 				Mode:       "managed",
+				Services:   "Postgres, Redis, NATS, pgAdmin",
 			},
 		},
 	}
@@ -1390,6 +1452,9 @@ func TestStacksViewShowsProfilesAndContextualActions(t *testing.T) {
 
 	updatedModel, _ = current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	current = updatedModel.(Model)
+	if !collapsedContainsTest(current.currentContent(), "Configured services: Postgres, Redis, NATS, pgAdmin") {
+		t.Fatalf("expected stopped stack detail to show configured services:\n%s", current.currentContent())
+	}
 	sidebar = renderSidebar(current)
 	for _, fragment := range []string{"[1] Use staging", "[2] Start staging", "[3] Delete staging"} {
 		if !strings.Contains(sidebar, fragment) {
@@ -2902,8 +2967,8 @@ func TestConfigSectionApplyFromFreshManagedConfigSavesAndScaffolds(t *testing.T)
 	if saveCalls != 1 || scaffoldCalls != 1 {
 		t.Fatalf("expected one save and one scaffold call, got save=%d scaffold=%d", saveCalls, scaffoldCalls)
 	}
-	if forcedScaffold {
-		t.Fatalf("expected fresh scaffold apply to avoid force overwrite")
+	if !forcedScaffold {
+		t.Fatalf("expected managed apply to force-refresh scaffold drift before the next start")
 	}
 	if !strings.Contains(resultMsg.Message, "ready for the next stack start") {
 		t.Fatalf("expected apply result to explain next start behavior, got %q", resultMsg.Message)

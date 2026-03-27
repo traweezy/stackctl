@@ -47,6 +47,9 @@ type Snapshot struct {
 	DoctorSummary         DoctorSummary
 	DoctorChecks          []DoctorCheck
 	Connections           []Connection
+	ConnectText           string
+	EnvExportText         string
+	PortsText             string
 	Stacks                []StackProfile
 }
 
@@ -71,6 +74,7 @@ type Service struct {
 	ExternalPort      int
 	InternalPort      int
 	PortListening     bool
+	PortConflict      bool
 	Database          string
 	MaintenanceDB     string
 	Email             string
@@ -1547,7 +1551,11 @@ func renderOverview(snapshot Snapshot, layout layoutMode) string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, subsectionTitleStyle().Render("Helpful commands"))
-	lines = append(lines, "  "+overviewCommandHints(stackServices))
+	lines = append(lines, "  "+overviewInspectHints(stackServices))
+	lines = append(lines, "  "+overviewHandoffHints())
+	if hint := overviewPaletteHint(snapshot); hint != "" {
+		lines = append(lines, "  "+hint)
+	}
 
 	return strings.Join(lines, "\n")
 }
@@ -1781,13 +1789,34 @@ func overviewPortSummary(services []Service) string {
 	return strings.Join(parts, "  •  ")
 }
 
-func overviewCommandHints(services []Service) string {
+func overviewInspectHints(services []Service) string {
 	running, _ := runningStackServiceCount(services)
 	if running > 0 {
-		return "stackctl services  •  stackctl health  •  stackctl connect"
+		return "Inspect: stackctl services  •  stackctl health  •  stackctl ports"
 	}
 
-	return "stackctl start  •  stackctl services  •  stackctl health"
+	return "Inspect: stackctl start  •  stackctl services  •  stackctl doctor"
+}
+
+func overviewHandoffHints() string {
+	return "Handoff: stackctl connect  •  stackctl env --export  •  stackctl tui"
+}
+
+func overviewPaletteHint(snapshot Snapshot) string {
+	available := make([]string, 0, 3)
+	if strings.TrimSpace(snapshot.ConnectText) != "" {
+		available = append(available, "stackctl connect")
+	}
+	if strings.TrimSpace(snapshot.EnvExportText) != "" {
+		available = append(available, "stackctl env --export")
+	}
+	if strings.TrimSpace(snapshot.PortsText) != "" {
+		available = append(available, "stackctl ports")
+	}
+	if len(available) == 0 {
+		return ""
+	}
+	return "Palette copy: " + strings.Join(available, "  •  ")
 }
 
 func renderHealthSummary(services []Service) string {
@@ -1863,7 +1892,7 @@ func classifyServiceHealth(service Service) string {
 		return output.StatusWarn
 	case strings.EqualFold(status, "running"):
 		return output.StatusWarn
-	case service.PortListening:
+	case service.PortConflict:
 		return output.StatusWarn
 	default:
 		return "not running"
@@ -1896,6 +1925,9 @@ func healthReachabilityLabel(service Service) string {
 	if service.PortListening {
 		return "accepting on " + target
 	}
+	if service.PortConflict {
+		return "busy on " + target
+	}
 
 	return "no response on " + target
 }
@@ -1907,7 +1939,7 @@ func healthNote(service Service) string {
 		return "Service is changing state. Refresh when the action finishes."
 	case strings.EqualFold(status, "running") && !serviceHasReachablePort(service):
 		return "Container is running, but the host port is not reachable yet."
-	case !strings.EqualFold(status, "running") && service.PortListening:
+	case service.PortConflict:
 		return "Host port is busy outside this stack."
 	case strings.EqualFold(status, "missing"):
 		if isStackService(service) {

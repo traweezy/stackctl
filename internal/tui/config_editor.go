@@ -624,6 +624,7 @@ func (e configEditor) applyPlan() configApplyPlan {
 	plan.Save = saveNeeded
 	if e.needsScaffold {
 		plan.Scaffold = true
+		plan.ForceScaffold = true
 	}
 
 	if impact.composeTemplate && e.draft.Stack.Managed {

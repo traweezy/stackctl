@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"slices"
 	"strings"
@@ -50,7 +51,7 @@ func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config
 		if err != nil {
 			return configpkg.Config{}, err
 		}
-		if err := scaffoldManagedStack(cmd, cfg, false); err != nil {
+		if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
 			return configpkg.Config{}, err
 		}
 		if err := deps.saveConfig(path, cfg); err != nil {
@@ -187,11 +188,6 @@ func printConnectionInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 
 func healthChecks(ctx context.Context, cfg configpkg.Config) ([]outputLine, error) {
 	lines := make([]outputLine, 0, len(serviceDefinitions())*2)
-	for _, definition := range enabledServiceDefinitions(cfg) {
-		if definition.PrimaryPort != nil && definition.PrimaryPortLabel != "" {
-			lines = append(lines, checkPort(definition.PrimaryPort(cfg), definition.PrimaryPortLabel))
-		}
-	}
 
 	containers, err := loadStackContainers(ctx, cfg)
 	if err != nil {
@@ -199,11 +195,17 @@ func healthChecks(ctx context.Context, cfg configpkg.Config) ([]outputLine, erro
 		return lines, nil
 	}
 
-	containerByName := make(map[string]system.Container, len(containers))
-	for _, container := range containers {
-		for _, name := range container.Names {
-			containerByName[name] = container
+	containerByName := mapContainersByName(containers)
+
+	for _, definition := range enabledServiceDefinitions(cfg) {
+		if definition.PrimaryPort == nil || definition.PrimaryPortLabel == "" {
+			continue
 		}
+		if definition.Kind == serviceKindStack {
+			lines = append(lines, checkStackServicePort(cfg, definition, containerByName))
+			continue
+		}
+		lines = append(lines, checkPort(definition.PrimaryPort(cfg), definition.PrimaryPortLabel))
 	}
 
 	for _, service := range configuredStackServices(cfg) {
@@ -254,6 +256,24 @@ type configuredService struct {
 	Port          int
 }
 
+type stackServicePortState struct {
+	Listening bool
+	Conflict  bool
+	CheckErr  error
+}
+
+type stackServiceRuntimeState struct {
+	Definition       serviceDefinition
+	Port             int
+	Container        system.Container
+	ContainerFound   bool
+	ContainerRunning bool
+	ContainerState   string
+	ContainerStatus  string
+	PortBound        bool
+	PortState        stackServicePortState
+}
+
 type runtimeService struct {
 	Name              string `json:"name"`
 	Icon              string `json:"-"`
@@ -265,6 +285,8 @@ type runtimeService struct {
 	Host              string `json:"host,omitempty"`
 	ExternalPort      int    `json:"external_port,omitempty"`
 	InternalPort      int    `json:"internal_port,omitempty"`
+	PortListening     bool   `json:"port_listening,omitempty"`
+	PortConflict      bool   `json:"port_conflict,omitempty"`
 	Database          string `json:"database,omitempty"`
 	MaintenanceDB     string `json:"maintenance_database,omitempty"`
 	Email             string `json:"email,omitempty"`
@@ -314,12 +336,7 @@ func configuredStackServices(cfg configpkg.Config) []configuredService {
 	return services
 }
 
-func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeService, error) {
-	containers, err := loadStackContainers(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
+func mapContainersByName(containers []system.Container) map[string]system.Container {
 	containerByName := make(map[string]system.Container, len(containers))
 	for _, container := range containers {
 		for _, name := range container.Names {
@@ -327,9 +344,158 @@ func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeServic
 		}
 	}
 
+	return containerByName
+}
+
+func selectedStackServiceDefinitions(cfg configpkg.Config, selected []string) []serviceDefinition {
+	if len(selected) == 0 {
+		return enabledStackServiceDefinitions(cfg)
+	}
+
+	selectedSet := make(map[string]struct{}, len(selected))
+	for _, name := range selected {
+		selectedSet[name] = struct{}{}
+	}
+
+	definitions := make([]serviceDefinition, 0, len(selectedSet))
+	for _, definition := range enabledStackServiceDefinitions(cfg) {
+		if _, ok := selectedSet[definition.Key]; !ok {
+			continue
+		}
+		definitions = append(definitions, definition)
+	}
+
+	return definitions
+}
+
+func stackServiceRuntimeStates(ctx context.Context, cfg configpkg.Config, definitions []serviceDefinition) ([]stackServiceRuntimeState, error) {
+	containers, err := loadStackContainers(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	containerByName := mapContainersByName(containers)
+	states := make([]stackServiceRuntimeState, 0, len(definitions))
+	for _, definition := range definitions {
+		states = append(states, stackServiceRuntimeStateForDefinition(cfg, definition, containerByName))
+	}
+
+	return states, nil
+}
+
+func stackServiceRuntimeStateForDefinition(cfg configpkg.Config, definition serviceDefinition, containerByName map[string]system.Container) stackServiceRuntimeState {
+	state := stackServiceRuntimeState{Definition: definition}
+	if definition.PrimaryPort != nil {
+		state.Port = definition.PrimaryPort(cfg)
+	}
+
+	if definition.ContainerName != nil {
+		containerName := definition.ContainerName(cfg)
+		if container, ok := containerByName[containerName]; ok {
+			state.Container = container
+			state.ContainerFound = true
+			state.ContainerState = strings.TrimSpace(strings.ToLower(container.State))
+			state.ContainerStatus = strings.TrimSpace(container.Status)
+			state.ContainerRunning = state.ContainerState == "running"
+			state.PortBound = state.Port > 0 && containerBindsHostPort(container, state.Port)
+		}
+	}
+
+	if state.Port > 0 {
+		state.PortState = inspectStackServicePort(state.Port, state.PortBound)
+	}
+
+	return state
+}
+
+func inspectStackServicePort(port int, ownedByContainer bool) stackServicePortState {
+	if port <= 0 {
+		return stackServicePortState{}
+	}
+
+	if ownedByContainer {
+		return stackServicePortState{Listening: deps.portListening(port)}
+	}
+
+	inUse, err := deps.portInUse(port)
+	if err != nil {
+		return stackServicePortState{CheckErr: err}
+	}
+
+	return stackServicePortState{Conflict: inUse}
+}
+
+func inspectHostPort(port int) stackServicePortState {
+	if port <= 0 {
+		return stackServicePortState{}
+	}
+
+	listening := deps.portListening(port)
+	if listening {
+		return stackServicePortState{Listening: true}
+	}
+
+	inUse, err := deps.portInUse(port)
+	if err != nil {
+		return stackServicePortState{CheckErr: err}
+	}
+
+	return stackServicePortState{Conflict: inUse}
+}
+
+func containerBindsHostPort(container system.Container, port int) bool {
+	for _, mapping := range container.Ports {
+		if mapping.HostPort == port {
+			return true
+		}
+	}
+
+	return false
+}
+
+func checkStackServicePort(cfg configpkg.Config, definition serviceDefinition, containerByName map[string]system.Container) outputLine {
+	state := stackServiceRuntimeStateForDefinition(cfg, definition, containerByName)
+	switch {
+	case state.PortState.CheckErr != nil:
+		return outputLine{
+			Status:  output.StatusFail,
+			Message: fmt.Sprintf("port %d check failed: %v", state.Port, state.PortState.CheckErr),
+		}
+	case state.ContainerRunning && state.PortBound && state.PortState.Listening:
+		return outputLine{Status: output.StatusOK, Message: definition.PrimaryPortLabel}
+	case state.PortState.Conflict:
+		return outputLine{
+			Status:  output.StatusWarn,
+			Message: portConflictMessage(definition.Key, state.Port),
+		}
+	default:
+		return outputLine{Status: output.StatusWarn, Message: missingPortLabel(definition.PrimaryPortLabel)}
+	}
+}
+
+func portConflictMessage(service string, port int) string {
+	return fmt.Sprintf("port %d is in use by another process or container, not %s", port, service)
+}
+
+func runtimeServices(ctx context.Context, cfg configpkg.Config) ([]runtimeService, error) {
+	containers, err := loadStackContainers(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	containerByName := mapContainersByName(containers)
+
 	services := make([]runtimeService, 0, len(serviceDefinitions()))
 	for _, definition := range runtimeServiceDefinitions(cfg) {
-		services = append(services, runtimeServiceForDefinition(ctx, cfg, definition, containerByName))
+		service := runtimeServiceForDefinition(ctx, cfg, definition, containerByName)
+		if definition.Kind == serviceKindStack && definition.PrimaryPort != nil {
+			state := stackServiceRuntimeStateForDefinition(cfg, definition, containerByName)
+			if state.PortState.CheckErr == nil {
+				service.PortListening = state.PortState.Listening
+				service.PortConflict = state.PortState.Conflict
+			}
+		}
+		services = append(services, service)
 	}
 
 	return services, nil
@@ -486,18 +652,30 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 }
 
 func printConnectionEntries(cmd *cobra.Command, entries []connectionEntry) error {
+	return writeConnectionEntries(cmd.OutOrStdout(), entries)
+}
+
+func writeConnectionEntries(out io.Writer, entries []connectionEntry) error {
 	for idx, entry := range entries {
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n  %s\n", entry.Name, entry.Value); err != nil {
+		if _, err := fmt.Fprintf(out, "%s\n  %s\n", entry.Name, entry.Value); err != nil {
 			return err
 		}
 		if idx < len(entries)-1 {
-			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+			if _, err := fmt.Fprintln(out); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+func formatConnectionEntries(entries []connectionEntry) string {
+	var builder strings.Builder
+	if err := writeConnectionEntries(&builder, entries); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func connectionEntries(cfg configpkg.Config) []connectionEntry {
@@ -610,26 +788,38 @@ func printEnvJSON(cmd *cobra.Command, cfg configpkg.Config, services []string) e
 }
 
 func printEnvGroups(cmd *cobra.Command, groups []envGroup, export bool) error {
+	return writeEnvGroups(cmd.OutOrStdout(), groups, export)
+}
+
+func writeEnvGroups(out io.Writer, groups []envGroup, export bool) error {
 	for groupIndex, group := range groups {
 		if len(group.Entries) == 0 {
 			continue
 		}
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "# %s\n", group.Title); err != nil {
+		if _, err := fmt.Fprintf(out, "# %s\n", group.Title); err != nil {
 			return err
 		}
 		for _, entry := range group.Entries {
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s%s=%s\n", envAssignmentPrefix(export), entry.Name, quoteShellValue(entry.Value)); err != nil {
+			if _, err := fmt.Fprintf(out, "%s%s=%s\n", envAssignmentPrefix(export), entry.Name, quoteShellValue(entry.Value)); err != nil {
 				return err
 			}
 		}
 		if groupIndex < len(groups)-1 {
-			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+			if _, err := fmt.Fprintln(out); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+func formatEnvGroups(groups []envGroup, export bool) string {
+	var builder strings.Builder
+	if err := writeEnvGroups(&builder, groups, export); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func envAssignmentPrefix(export bool) string {
@@ -759,6 +949,19 @@ func cockpitStateLabel(state system.CockpitState) string {
 		return "stopped"
 	default:
 		return strings.TrimSpace(state.State)
+	}
+}
+
+func cockpitRuntimeStateLabel(state system.CockpitState, portState stackServicePortState) string {
+	switch {
+	case !state.Installed:
+		return "missing"
+	case state.Active && portState.Listening:
+		return "running"
+	case state.Active:
+		return "needs attention"
+	default:
+		return cockpitStateLabel(state)
 	}
 }
 

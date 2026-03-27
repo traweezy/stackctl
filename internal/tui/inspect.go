@@ -292,7 +292,11 @@ func renderStackDetailPane(profile StackProfile, layout layoutMode) string {
 		fmt.Sprintf("Config: %s", emptyLabel(profile.ConfigPath)),
 	}
 	if profile.Services != "" && profile.Services != "-" {
-		location = append(location, fmt.Sprintf("Running services: %s", profile.Services))
+		serviceLabel := "Configured services"
+		if normalizedStackState(profile.State) == "running" {
+			serviceLabel = "Running services"
+		}
+		location = append(location, fmt.Sprintf("%s: %s", serviceLabel, profile.Services))
 	}
 
 	workflow := stackWorkflowLines(profile, layout)
@@ -610,7 +614,19 @@ func renderProductivityHint(service Service, pinned map[string]struct{}) string 
 		parts = append(parts, "p pin")
 	}
 	parts = append(parts, "g jump", ": palette")
-	return mutedStyle().Render("Actions: " + strings.Join(parts, "  •  "))
+
+	lines := make([]string, 0, 2)
+	for len(parts) > 0 {
+		take := minInt(4, len(parts))
+		prefix := "Actions: "
+		if len(lines) > 0 {
+			prefix = "         "
+		}
+		lines = append(lines, prefix+strings.Join(parts[:take], "  •  "))
+		parts = parts[take:]
+	}
+
+	return mutedStyle().Render(strings.Join(lines, "\n"))
 }
 
 func serviceListLabel(service Service) string {

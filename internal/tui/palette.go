@@ -44,6 +44,7 @@ const (
 	paletteActionJumpStack
 	paletteActionJumpService
 	paletteActionCopyValue
+	paletteActionCopyText
 	paletteActionWatchLogs
 	paletteActionExecShell
 	paletteActionDBShell
@@ -79,6 +80,7 @@ type paletteAction struct {
 	StackName  string
 	ServiceKey string
 	CopyTarget copyTargetKind
+	CopyValue  string
 }
 
 type paletteState struct {
@@ -225,6 +227,8 @@ func (a paletteAction) recentKey() string {
 		return fmt.Sprintf("stack:%s", a.StackName)
 	case paletteActionCopyValue:
 		return fmt.Sprintf("copy:%s:%s", a.ServiceKey, a.CopyTarget)
+	case paletteActionCopyText:
+		return fmt.Sprintf("copy-text:%s", normalizePaletteQuery(a.Title))
 	case paletteActionWatchLogs:
 		return fmt.Sprintf("logs:%s", a.ServiceKey)
 	case paletteActionExecShell:
@@ -569,6 +573,33 @@ func (m Model) stackJumpActions() []paletteAction {
 func (m Model) commandPaletteActions() []paletteAction {
 	actions := make([]paletteAction, 0, 32)
 	actions = append(actions, m.recentPaletteActions()...)
+	if strings.TrimSpace(m.snapshot.ConnectText) != "" {
+		actions = append(actions, paletteAction{
+			Kind:      paletteActionCopyText,
+			Title:     "Copy stackctl connect output",
+			Subtitle:  "Minimal DSNs, URLs, and endpoints",
+			Search:    "stackctl connect dsn url endpoint copy",
+			CopyValue: m.snapshot.ConnectText,
+		})
+	}
+	if strings.TrimSpace(m.snapshot.EnvExportText) != "" {
+		actions = append(actions, paletteAction{
+			Kind:      paletteActionCopyText,
+			Title:     "Copy stackctl env --export output",
+			Subtitle:  "Export-ready environment variables",
+			Search:    "stackctl env export environment variables copy",
+			CopyValue: m.snapshot.EnvExportText,
+		})
+	}
+	if strings.TrimSpace(m.snapshot.PortsText) != "" {
+		actions = append(actions, paletteAction{
+			Kind:      paletteActionCopyText,
+			Title:     "Copy stackctl ports output",
+			Subtitle:  "Host-to-service port mappings",
+			Search:    "stackctl ports host port mapping copy",
+			CopyValue: m.snapshot.PortsText,
+		})
+	}
 
 	if service, ok := m.selectedProductivityService(); ok {
 		serviceKey := serviceKey(service)
@@ -840,6 +871,8 @@ func (m *Model) executePaletteAction(action paletteAction) tea.Cmd {
 		return nil
 	case paletteActionCopyValue:
 		return m.startCopyAction(action)
+	case paletteActionCopyText:
+		return m.startCopyTextAction(action)
 	case paletteActionWatchLogs:
 		return m.startServiceLogWatch(action)
 	case paletteActionExecShell:
@@ -914,6 +947,27 @@ func (m *Model) startCopyAction(action paletteAction) tea.Cmd {
 	}
 
 	return copyValueCmd(m.clipboardWriter, target.Value, action, fmt.Sprintf("copied %s to clipboard", target.Label))
+}
+
+func (m *Model) startCopyTextAction(action paletteAction) tea.Cmd {
+	if m.clipboardWriter == nil {
+		bannerID := m.setBanner(output.StatusWarn, "clipboard copy is unavailable in this model")
+		return clearBannerCmd(bannerID)
+	}
+	if strings.TrimSpace(action.CopyValue) == "" {
+		bannerID := m.setBanner(output.StatusWarn, "copy value is unavailable for this action")
+		return clearBannerCmd(bannerID)
+	}
+
+	return copyValueCmd(
+		m.clipboardWriter,
+		action.CopyValue,
+		action,
+		fmt.Sprintf(
+			"copied %s to clipboard",
+			strings.ToLower(strings.TrimPrefix(action.Title, "Copy ")),
+		),
+	)
 }
 
 func copyValueCmd(copyWriter ClipboardWriter, value string, action paletteAction, successMessage string) tea.Cmd {

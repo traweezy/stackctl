@@ -23,7 +23,7 @@ func TestLoadTUISnapshotBuildsReadOnlyDashboardState(t *testing.T) {
 		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 		value.captureResult = func(_ context.Context, _ string, name string, args ...string) (system.CommandResult, error) {
 			if name == "podman" {
-				return system.CommandResult{Stdout: "[]", ExitCode: 0}, nil
+				return system.CommandResult{Stdout: runningContainerJSON(cfg), ExitCode: 0}, nil
 			}
 			return system.CommandResult{Stdout: "", ExitCode: 0}, nil
 		}
@@ -62,6 +62,15 @@ func TestLoadTUISnapshotBuildsReadOnlyDashboardState(t *testing.T) {
 	}
 	if len(snapshot.Connections) != 5 {
 		t.Fatalf("expected 5 connection entries, got %d", len(snapshot.Connections))
+	}
+	for label, value := range map[string]string{
+		"connect": snapshot.ConnectText,
+		"env":     snapshot.EnvExportText,
+		"ports":   snapshot.PortsText,
+	} {
+		if strings.TrimSpace(value) == "" {
+			t.Fatalf("expected %s text in snapshot, got %q", label, value)
+		}
 	}
 }
 
@@ -201,8 +210,11 @@ func TestBuildTUISnapshotPreservesServiceLoadErrors(t *testing.T) {
 	if len(snapshot.Health) == 0 {
 		t.Fatalf("expected health lines even when services fail")
 	}
-	if snapshot.Health[0].Status != output.StatusWarn {
-		t.Fatalf("expected health line status to be preserved, got %+v", snapshot.Health[0])
+	if snapshot.Health[0].Status != output.StatusFail {
+		t.Fatalf("expected health failure when container inspection breaks, got %+v", snapshot.Health[0])
+	}
+	if !strings.Contains(snapshot.Health[0].Message, "container status check failed") {
+		t.Fatalf("expected health error detail, got %+v", snapshot.Health[0])
 	}
 }
 
@@ -293,6 +305,7 @@ func TestTUICmdHelpDocumentsPaletteAndShellShortcuts(t *testing.T) {
 		"use c to copy service values",
 		"g to jump between services",
 		"ctrl+k for the command palette",
+		"stack-wide connect/env/ports copy helpers",
 		"e for a service shell",
 		"d for the Postgres db shell",
 	} {

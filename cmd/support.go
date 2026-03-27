@@ -59,7 +59,7 @@ func printValidationIssues(cmd *cobra.Command, issues []configpkg.ValidationIssu
 
 func managedStackPrompt(cfg configpkg.Config) string {
 	return fmt.Sprintf(
-		"A managed stack can be created for you in:\n\n%s\n\nCreate and scaffold the default stack now?",
+		"A managed stack can be created or refreshed for you in:\n\n%s\n\nRefresh the managed stack files now?",
 		cfg.Stack.Dir,
 	)
 }
@@ -89,6 +89,39 @@ func scaffoldManagedStack(cmd *cobra.Command, cfg configpkg.Config, force bool) 
 	}
 
 	return nil
+}
+
+func syncManagedScaffoldIfNeeded(cmd *cobra.Command, cfg configpkg.Config) error {
+	if !cfg.Stack.Managed || !cfg.Setup.ScaffoldDefaultStack {
+		return nil
+	}
+
+	needsScaffold, err := deps.managedStackNeedsScaffold(cfg)
+	if err != nil {
+		return err
+	}
+	if !needsScaffold {
+		return nil
+	}
+
+	return scaffoldManagedStack(cmd, cfg, true)
+}
+
+func syncManagedScaffoldIfNeededForConfig(cfg configpkg.Config) error {
+	if !cfg.Stack.Managed || !cfg.Setup.ScaffoldDefaultStack {
+		return nil
+	}
+
+	needsScaffold, err := deps.managedStackNeedsScaffold(cfg)
+	if err != nil {
+		return err
+	}
+	if !needsScaffold {
+		return nil
+	}
+
+	_, err = deps.scaffoldManagedStack(cfg, true)
+	return err
 }
 
 func fileDescriptor(file *os.File) (int, bool) {

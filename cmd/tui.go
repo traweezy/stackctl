@@ -44,7 +44,8 @@ func newTUICmd() *cobra.Command {
 			"change sections, use j/k or [ and ] to switch the active\n" +
 			"item inside split inspection panes, use c to copy service\n" +
 			"values, g to jump between services or stack profiles, : or ctrl+k for the\n" +
-			"command palette, e for a service shell, d for the Postgres db\n" +
+			"command palette, including stack-wide connect/env/ports copy helpers,\n" +
+			"e for a service shell, d for the Postgres db\n" +
 			"shell, and press w from the service and health panels to open\n" +
 			"live logs for the selected compose service in the full terminal\n" +
 			"viewer.",
@@ -183,7 +184,8 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config, source stacktui.C
 				Host:              service.Host,
 				ExternalPort:      service.ExternalPort,
 				InternalPort:      service.InternalPort,
-				PortListening:     service.ExternalPort > 0 && deps.portListening(service.ExternalPort),
+				PortListening:     service.PortListening,
+				PortConflict:      service.PortConflict,
 				Database:          service.Database,
 				MaintenanceDB:     service.MaintenanceDB,
 				Email:             service.Email,
@@ -246,6 +248,15 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config, source stacktui.C
 			Value: entry.Value,
 		})
 	}
+	snapshot.ConnectText = formatConnectionEntries(connectionEntries(cfg))
+	if groups, err := envGroups(cfg, nil); err == nil {
+		snapshot.EnvExportText = formatEnvGroups(groups, true)
+	}
+	portMappings := configuredPortMappings(cfg)
+	if runtimeReady {
+		portMappings = loadPortMappings(ctx, cfg)
+	}
+	snapshot.PortsText = formatPortMappings(portMappings)
 
 	return snapshot
 }

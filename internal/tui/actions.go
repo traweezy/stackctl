@@ -762,12 +762,15 @@ func applyOptimisticServiceLifecycle(snapshot *Snapshot, verb string) {
 		switch verb {
 		case "start":
 			snapshot.Services[idx].Status = "starting"
+			snapshot.Services[idx].PortConflict = false
 		case "stop":
 			snapshot.Services[idx].Status = "stopping"
 			snapshot.Services[idx].PortListening = false
+			snapshot.Services[idx].PortConflict = false
 		case "restart":
 			snapshot.Services[idx].Status = "restarting"
 			snapshot.Services[idx].PortListening = false
+			snapshot.Services[idx].PortConflict = false
 		}
 	}
 }
@@ -780,12 +783,15 @@ func optimisticServiceState(snapshot *Snapshot, serviceName, verb string) {
 		switch verb {
 		case "start":
 			snapshot.Services[idx].Status = "starting"
+			snapshot.Services[idx].PortConflict = false
 		case "stop":
 			snapshot.Services[idx].Status = "stopping"
 			snapshot.Services[idx].PortListening = false
+			snapshot.Services[idx].PortConflict = false
 		case "restart":
 			snapshot.Services[idx].Status = "restarting"
 			snapshot.Services[idx].PortListening = false
+			snapshot.Services[idx].PortConflict = false
 		}
 		return
 	}

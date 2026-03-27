@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -88,6 +90,10 @@ func configuredPortMappings(cfg configpkg.Config) []portMapping {
 }
 
 func printPortMappings(cmd *cobra.Command, mappings []portMapping) error {
+	return writePortMappings(cmd.OutOrStdout(), mappings)
+}
+
+func writePortMappings(out io.Writer, mappings []portMapping) error {
 	rows := make([][]string, 0, len(mappings))
 	for _, mapping := range mappings {
 		rows = append(rows, []string{
@@ -97,5 +103,13 @@ func printPortMappings(cmd *cobra.Command, mappings []portMapping) error {
 		})
 	}
 
-	return output.RenderTable(cmd.OutOrStdout(), []string{"Service", "Host", "Ports"}, rows)
+	return output.RenderTable(out, []string{"Service", "Host", "Ports"}, rows)
+}
+
+func formatPortMappings(mappings []portMapping) string {
+	var builder strings.Builder
+	if err := writePortMappings(&builder, mappings); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(builder.String())
 }
