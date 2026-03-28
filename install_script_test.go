@@ -133,7 +133,7 @@ done
 
 case "$url" in
   */releases/latest)
-    printf '{"tag_name":"v0.18.0"}\n'
+    printf '{"tag_name":"v0.19.0"}\n'
     ;;
   */checksums.txt)
     cp "$FAKE_CHECKSUMS_PATH" "$output"
