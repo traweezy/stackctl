@@ -19,6 +19,7 @@ func newServicesCmd() *cobra.Command {
 		Short: "Show full connection details for configured services",
 		Example: "  stackctl services\n" +
 			"  stackctl services --json\n" +
+			"  stackctl services --copy meilisearch-api-key\n" +
 			"  stackctl services --copy seaweedfs\n" +
 			"  stackctl services --copy seaweedfs-secret-key",
 		Args:              cobra.NoArgs,
@@ -50,7 +51,7 @@ func newServicesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Print service details as JSON")
-	cmd.Flags().StringVar(&copyTarget, "copy", "", "Copy a service value such as postgres, postgres-password, seaweedfs, seaweedfs-secret-key, pgadmin, or cockpit")
+	cmd.Flags().StringVar(&copyTarget, "copy", "", "Copy a service value such as postgres, meilisearch-api-key, seaweedfs, seaweedfs-secret-key, pgadmin, or cockpit")
 	mustRegisterFlagCompletion(cmd, "copy", completeServiceCopyTargets)
 
 	return cmd

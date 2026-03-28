@@ -324,6 +324,84 @@ func TestScaffoldManagedStackOmitsSeaweedFSWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestScaffoldManagedStackAddsMeilisearchWhenEnabled(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	cfg.Setup.IncludeMeilisearch = true
+	cfg.Services.Meilisearch.Image = "docker.io/getmeili/meilisearch:v1.40.0"
+	cfg.Services.Meilisearch.DataVolume = "stack_meilisearch_data"
+	cfg.Connection.MeilisearchMasterKey = "meili-master-key-123"
+	cfg.Ports.Meilisearch = 17700
+
+	result, err := ScaffoldManagedStack(cfg, false)
+	if err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(result.ComposePath)
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "meilisearch:") {
+		t.Fatalf("expected meilisearch service to be rendered, got: %s", text)
+	}
+	if !strings.Contains(text, "image: \"docker.io/getmeili/meilisearch:v1.40.0\"") {
+		t.Fatalf("expected rendered meilisearch image, got: %s", text)
+	}
+	if !strings.Contains(text, "container_name: \"local-meilisearch\"") {
+		t.Fatalf("expected rendered meilisearch container, got: %s", text)
+	}
+	if !strings.Contains(text, "MEILI_HTTP_ADDR: \"0.0.0.0:7700\"") {
+		t.Fatalf("expected rendered meilisearch bind address, got: %s", text)
+	}
+	if !strings.Contains(text, "MEILI_DB_PATH: \"/meili_data\"") {
+		t.Fatalf("expected rendered meilisearch db path, got: %s", text)
+	}
+	if !strings.Contains(text, "MEILI_ENV: \"development\"") {
+		t.Fatalf("expected rendered meilisearch env, got: %s", text)
+	}
+	if !strings.Contains(text, "MEILI_MASTER_KEY: \"meili-master-key-123\"") {
+		t.Fatalf("expected rendered meilisearch master key, got: %s", text)
+	}
+	if strings.Contains(text, "MEILI_NO_ANALYTICS") {
+		t.Fatalf("expected meilisearch analytics opt-out to use the CLI flag, got: %s", text)
+	}
+	if !strings.Contains(text, "- meilisearch") || !strings.Contains(text, "- --no-analytics") {
+		t.Fatalf("expected rendered meilisearch command flags, got: %s", text)
+	}
+	if !strings.Contains(text, "\"17700:7700\"") {
+		t.Fatalf("expected rendered meilisearch port mapping, got: %s", text)
+	}
+	if !strings.Contains(text, "stack_meilisearch_data:/meili_data") {
+		t.Fatalf("expected rendered meilisearch data volume, got: %s", text)
+	}
+}
+
+func TestScaffoldManagedStackOmitsMeilisearchWhenDisabled(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	cfg.Setup.IncludeMeilisearch = false
+
+	result, err := ScaffoldManagedStack(cfg, false)
+	if err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(result.ComposePath)
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	if strings.Contains(string(data), "meilisearch:") {
+		t.Fatalf("expected meilisearch service to be omitted, got: %s", string(data))
+	}
+	if strings.Contains(string(data), "meilisearch_data") {
+		t.Fatalf("expected meilisearch volume to be omitted, got: %s", string(data))
+	}
+}
+
 func TestScaffoldManagedStackOmitsPostgresWhenDisabled(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 

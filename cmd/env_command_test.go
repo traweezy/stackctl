@@ -57,6 +57,48 @@ func TestEnvPrintsShellAssignmentsFromConfig(t *testing.T) {
 	}
 }
 
+func TestEnvIncludesMeilisearchVariablesWhenEnabled(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Setup.IncludeMeilisearch = true
+		cfg.Ports.Meilisearch = 17700
+		cfg.Connection.MeilisearchMasterKey = "meili-master-key-123"
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.captureResult = func(_ context.Context, _ string, _ string, _ ...string) (system.CommandResult, error) {
+			t.Fatal("env should not inspect podman runtime")
+			return system.CommandResult{}, nil
+		}
+		d.cockpitStatus = func(context.Context) system.CockpitState {
+			t.Fatal("env should not inspect cockpit runtime")
+			return system.CockpitState{}
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "env", "meilisearch")
+	if err != nil {
+		t.Fatalf("env returned error: %v", err)
+	}
+
+	for _, fragment := range []string{
+		"# Meilisearch",
+		"MEILISEARCH_URL='http://devbox:17700'",
+		"MEILISEARCH_HOST='devbox'",
+		"MEILISEARCH_PORT='17700'",
+		"MEILISEARCH_MASTER_KEY='meili-master-key-123'",
+		"MEILISEARCH_API_KEY='meili-master-key-123'",
+		"MEILI_MASTER_KEY='meili-master-key-123'",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("expected env output to contain %q:\n%s", fragment, stdout)
+		}
+	}
+	if strings.Contains(stdout, "# Postgres") || strings.Contains(stdout, "# Redis") {
+		t.Fatalf("did not expect unselected env groups:\n%s", stdout)
+	}
+}
+
 func TestEnvExportPrefixesAssignments(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()

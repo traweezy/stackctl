@@ -85,6 +85,9 @@ func runPlainWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	if err := session.configureSeaweedFS(&cfg); err != nil {
 		return Config{}, err
 	}
+	if err := session.configureMeilisearch(&cfg); err != nil {
+		return Config{}, err
+	}
 	if err := session.configurePgAdmin(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -490,6 +493,53 @@ func (p promptSession) configurePgAdmin(cfg *Config) error {
 	return nil
 }
 
+func (p promptSession) configureMeilisearch(cfg *Config) error {
+	includeMeilisearch, err := p.askBool("Include Meilisearch in the stack", cfg.Setup.IncludeMeilisearch)
+	if err != nil {
+		return err
+	}
+	cfg.Setup.IncludeMeilisearch = includeMeilisearch
+	if !cfg.Setup.IncludeMeilisearch {
+		return nil
+	}
+
+	if err := p.printSection("Meilisearch"); err != nil {
+		return err
+	}
+
+	meilisearchContainer, err := p.askString("Meilisearch container name", cfg.Services.MeilisearchContainer, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.MeilisearchContainer = meilisearchContainer
+
+	meilisearchImage, err := p.askString("Meilisearch image", cfg.Services.Meilisearch.Image, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Meilisearch.Image = meilisearchImage
+
+	meilisearchDataVolume, err := p.askString("Meilisearch data volume", cfg.Services.Meilisearch.DataVolume, nonEmpty)
+	if err != nil {
+		return err
+	}
+	cfg.Services.Meilisearch.DataVolume = meilisearchDataVolume
+
+	meilisearchPort, err := p.askPort("Meilisearch port", cfg.Ports.Meilisearch)
+	if err != nil {
+		return err
+	}
+	cfg.Ports.Meilisearch = meilisearchPort
+
+	meilisearchMasterKey, err := p.askString("Meilisearch master key", cfg.Connection.MeilisearchMasterKey, minLen(16))
+	if err != nil {
+		return err
+	}
+	cfg.Connection.MeilisearchMasterKey = meilisearchMasterKey
+
+	return nil
+}
+
 func (p promptSession) configureCockpit(cfg *Config) error {
 	includeCockpit, err := p.askBool("Include Cockpit helpers", cfg.Setup.IncludeCockpit)
 	if err != nil {
@@ -655,6 +705,15 @@ func nonEmpty(value string) error {
 	}
 
 	return nil
+}
+
+func minLen(length int) func(string) error {
+	return func(value string) error {
+		if len(strings.TrimSpace(value)) < length {
+			return fmt.Errorf("value must be at least %d characters", length)
+		}
+		return nil
+	}
 }
 
 func validStackName(value string) error {

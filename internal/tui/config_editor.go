@@ -586,9 +586,6 @@ func (e *configEditor) canScaffold() (bool, string) {
 	if !e.draft.Stack.Managed {
 		return false, "enable a managed stack before scaffolding"
 	}
-	if !e.draft.Setup.ScaffoldDefaultStack {
-		return false, "turn on scaffold_default_stack before scaffolding"
-	}
 	return true, ""
 }
 
@@ -1470,6 +1467,14 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Changes the NATS service and container name stackctl targets."
 	case "services.nats.image":
 		return "Changes the NATS image tag used by the managed stack template."
+	case "setup.include_meilisearch":
+		return "Adds or removes Meilisearch from the managed stack."
+	case "services.meilisearch_container":
+		return "Changes the Meilisearch service and container name stackctl targets."
+	case "services.meilisearch.image":
+		return "Changes the Meilisearch image tag used by the managed stack template."
+	case "services.meilisearch.data_volume":
+		return "Changes the Meilisearch volume name used for index storage."
 	case "setup.include_pgadmin":
 		return "Adds or removes pgAdmin from the managed stack."
 	case "services.pgadmin_container":
@@ -1486,6 +1491,8 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Changes the host port published for Redis."
 	case "ports.nats":
 		return "Changes the host port published for NATS."
+	case "ports.meilisearch":
+		return "Changes the host port published for Meilisearch."
 	case "ports.pgadmin":
 		return "Changes the host port published for pgAdmin."
 	case "ports.cockpit":
@@ -1502,6 +1509,8 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Adds or removes Redis authentication in helpers and the managed stack runtime arguments."
 	case "connection.nats_token":
 		return "Changes the NATS token in helpers and the managed NATS configuration."
+	case "connection.meilisearch_master_key":
+		return "Changes the Meilisearch master key used by helpers and the managed stack environment."
 	case "connection.pgadmin_email":
 		return "Changes the default pgAdmin login email in helpers and the managed stack environment."
 	case "connection.pgadmin_password":
@@ -1633,6 +1642,9 @@ func redactConfigSecrets(cfg configpkg.Config) configpkg.Config {
 	if strings.TrimSpace(cfg.Connection.SeaweedFSSecretKey) != "" {
 		cfg.Connection.SeaweedFSSecretKey = maskedSecret
 	}
+	if strings.TrimSpace(cfg.Connection.MeilisearchMasterKey) != "" {
+		cfg.Connection.MeilisearchMasterKey = maskedSecret
+	}
 	if strings.TrimSpace(cfg.Connection.PgAdminPassword) != "" {
 		cfg.Connection.PgAdminPassword = maskedSecret
 	}
@@ -1645,6 +1657,7 @@ var configFieldGroupOrder = []string{
 	"Redis",
 	"NATS",
 	"SeaweedFS",
+	"Meilisearch",
 	"pgAdmin",
 	"Cockpit",
 	"Behavior",
@@ -1678,6 +1691,8 @@ func configFieldGroup(spec configFieldSpec) string {
 		return "NATS"
 	case spec.Key == "setup.include_seaweedfs", strings.HasPrefix(spec.Key, "services.seaweedfs"), strings.HasPrefix(spec.Key, "ports.seaweedfs"), strings.HasPrefix(spec.Key, "connection.seaweedfs_"):
 		return "SeaweedFS"
+	case spec.Key == "setup.include_meilisearch", strings.HasPrefix(spec.Key, "services.meilisearch"), strings.HasPrefix(spec.Key, "ports.meilisearch"), strings.HasPrefix(spec.Key, "connection.meilisearch_"):
+		return "Meilisearch"
 	case spec.Key == "setup.include_pgadmin", strings.HasPrefix(spec.Key, "services.pgadmin"), strings.HasPrefix(spec.Key, "ports.pgadmin"), strings.HasPrefix(spec.Key, "connection.pgadmin_"):
 		return "pgAdmin"
 	case spec.Key == "setup.include_cockpit", spec.Key == "setup.install_cockpit", strings.HasPrefix(spec.Key, "ports.cockpit"):
@@ -1713,6 +1728,8 @@ func configFieldLabel(spec configFieldSpec) string {
 		return "Enabled"
 	case "setup.include_seaweedfs":
 		return "Enabled"
+	case "setup.include_meilisearch":
+		return "Enabled"
 	case "setup.include_pgadmin":
 		return "Enabled"
 	case "setup.include_cockpit":
@@ -1734,6 +1751,8 @@ func configFieldLabel(spec configFieldSpec) string {
 		return titleCaseLabel(strings.TrimPrefix(spec.Label, "NATS "))
 	case "SeaweedFS":
 		return titleCaseLabel(strings.TrimPrefix(spec.Label, "SeaweedFS "))
+	case "Meilisearch":
+		return titleCaseLabel(strings.TrimPrefix(spec.Label, "Meilisearch "))
 	case "pgAdmin":
 		return titleCaseLabel(strings.TrimPrefix(spec.Label, "pgAdmin "))
 	case "Cockpit":
@@ -2021,6 +2040,15 @@ func positiveIntText(_ configpkg.Config, value string) error {
 		return fmt.Errorf("value must be greater than zero")
 	}
 	return nil
+}
+
+func minLengthText(length int) func(configpkg.Config, string) error {
+	return func(_ configpkg.Config, value string) error {
+		if len(strings.TrimSpace(value)) < length {
+			return fmt.Errorf("value must be at least %d characters", length)
+		}
+		return nil
+	}
 }
 
 func stringSetter(target func(*configpkg.Config) *string) func(*configpkg.Config, string) error {
@@ -2343,6 +2371,48 @@ var configFieldSpecs = []configFieldSpec{
 		},
 	},
 	{
+		Key:         "setup.include_meilisearch",
+		Group:       "Services",
+		Label:       "Include Meilisearch",
+		Description: "Enable the Meilisearch service and its connection settings in the managed stack.",
+		Kind:        configFieldBool,
+		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.IncludeMeilisearch },
+		SetBool: func(cfg *configpkg.Config, value bool) error {
+			cfg.Setup.IncludeMeilisearch = value
+			return nil
+		},
+	},
+	{
+		Key:           "services.meilisearch_container",
+		Group:         "Services",
+		Label:         "Meilisearch container",
+		Description:   "The compose service and container name used for Meilisearch.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.MeilisearchContainer },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.MeilisearchContainer }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:           "services.meilisearch.image",
+		Group:         "Services",
+		Label:         "Meilisearch image",
+		Description:   "The container image used for Meilisearch.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.Meilisearch.Image },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.Meilisearch.Image }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:           "services.meilisearch.data_volume",
+		Group:         "Services",
+		Label:         "Meilisearch data volume",
+		Description:   "The named volume used for Meilisearch index storage.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.Meilisearch.DataVolume },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.Meilisearch.DataVolume }),
+		InputValidate: requiredText,
+	},
+	{
 		Key:         "setup.include_pgadmin",
 		Group:       "Services",
 		Label:       "Include pgAdmin",
@@ -2434,6 +2504,16 @@ var configFieldSpecs = []configFieldSpec{
 		Kind:          configFieldInt,
 		GetString:     func(cfg configpkg.Config) string { return strconv.Itoa(cfg.Ports.SeaweedFS) },
 		SetString:     intSetter(func(cfg *configpkg.Config) *int { return &cfg.Ports.SeaweedFS }),
+		InputValidate: validPortText,
+	},
+	{
+		Key:           "ports.meilisearch",
+		Group:         "Ports",
+		Label:         "Meilisearch port",
+		Description:   "The host port exposed for the Meilisearch API and preview interface.",
+		Kind:          configFieldInt,
+		GetString:     func(cfg configpkg.Config) string { return strconv.Itoa(cfg.Ports.Meilisearch) },
+		SetString:     intSetter(func(cfg *configpkg.Config) *int { return &cfg.Ports.Meilisearch }),
 		InputValidate: validPortText,
 	},
 	{
@@ -2538,6 +2618,17 @@ var configFieldSpecs = []configFieldSpec{
 		GetString:     func(cfg configpkg.Config) string { return cfg.Connection.SeaweedFSSecretKey },
 		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.SeaweedFSSecretKey }),
 		InputValidate: requiredText,
+	},
+	{
+		Key:           "connection.meilisearch_master_key",
+		Group:         "Connections",
+		Label:         "Meilisearch master key",
+		Description:   "The Meilisearch master key used for local-dev auth and exported API key helpers.",
+		Kind:          configFieldString,
+		Secret:        true,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Connection.MeilisearchMasterKey },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.MeilisearchMasterKey }),
+		InputValidate: minLengthText(16),
 	},
 	{
 		Key:           "connection.pgadmin_email",

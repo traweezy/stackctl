@@ -488,6 +488,7 @@ func TestRunWizardCanCustomizeServiceCredentials(t *testing.T) {
 		"", // nats port
 		"natssecret",
 		"", // include seaweedfs
+		"", // include meilisearch
 		"", // include pgadmin
 		"", // pgadmin container
 		"", // pgadmin image
@@ -562,6 +563,7 @@ func TestRunWizardCanCustomizeServiceRuntimeSettings(t *testing.T) {
 		"", // nats port
 		"", // nats token
 		"", // include seaweedfs
+		"", // include meilisearch
 		"", // include pgadmin
 		"", // pgadmin container
 		"docker.io/dpage/pgadmin4:9",
@@ -655,6 +657,7 @@ func TestRunWizardCanEnableAndCustomizeSeaweedFS(t *testing.T) {
 		"18333",
 		"seaweed-access",
 		"seaweed-secret",
+		"", // include meilisearch
 		"", // include pgadmin
 		"", // pgadmin container
 		"", // pgadmin image
@@ -695,6 +698,80 @@ func TestRunWizardCanEnableAndCustomizeSeaweedFS(t *testing.T) {
 	}
 }
 
+func TestRunWizardCanEnableAndCustomizeMeilisearch(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	input := strings.Join([]string{
+		"", // stack name
+		"", // managed stack
+		"", // include postgres
+		"", // postgres container
+		"", // postgres image
+		"", // postgres volume
+		"", // postgres maintenance db
+		"", // postgres port
+		"", // postgres database
+		"", // postgres username
+		"", // postgres password
+		"", // include redis
+		"", // redis container
+		"", // redis image
+		"", // redis volume
+		"", // redis appendonly
+		"", // redis save policy
+		"", // redis maxmemory policy
+		"", // redis port
+		"", // redis password
+		"", // include nats
+		"", // nats container
+		"", // nats image
+		"", // nats port
+		"", // nats token
+		"", // include seaweedfs
+		"y",
+		"", // meilisearch container
+		"docker.io/getmeili/meilisearch:v1.40.0",
+		"stack_meilisearch_data",
+		"17700",
+		"meili-master-key-123",
+		"", // include pgadmin
+		"", // pgadmin container
+		"", // pgadmin image
+		"", // pgadmin volume
+		"", // pgadmin server mode
+		"", // pgadmin port
+		"", // pgadmin email
+		"", // pgadmin password
+		"", // include cockpit
+		"", // cockpit port
+		"", // install cockpit
+		"", // wait for services
+		"", // startup timeout
+		"", // package manager
+	}, "\n") + "\n"
+
+	got, err := RunWizard(strings.NewReader(input), io.Discard, cfg)
+	if err != nil {
+		t.Fatalf("RunWizard returned error: %v", err)
+	}
+	if !got.Setup.IncludeMeilisearch {
+		t.Fatalf("expected meilisearch to be enabled: %+v", got.Setup)
+	}
+	if got.Services.Meilisearch.Image != "docker.io/getmeili/meilisearch:v1.40.0" {
+		t.Fatalf("unexpected meilisearch image: %q", got.Services.Meilisearch.Image)
+	}
+	if got.Services.Meilisearch.DataVolume != "stack_meilisearch_data" {
+		t.Fatalf("unexpected meilisearch data volume: %q", got.Services.Meilisearch.DataVolume)
+	}
+	if got.Ports.Meilisearch != 17700 {
+		t.Fatalf("unexpected meilisearch port: %d", got.Ports.Meilisearch)
+	}
+	if got.Connection.MeilisearchMasterKey != "meili-master-key-123" {
+		t.Fatalf("unexpected meilisearch master key: %q", got.Connection.MeilisearchMasterKey)
+	}
+}
+
 func TestRunWizardRejectsDisablingEveryStackService(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
@@ -703,6 +780,7 @@ func TestRunWizardRejectsDisablingEveryStackService(t *testing.T) {
 	input := strings.Join([]string{
 		"",
 		"",
+		"n",
 		"n",
 		"n",
 		"n",

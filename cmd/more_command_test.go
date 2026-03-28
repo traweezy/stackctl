@@ -292,6 +292,29 @@ func TestConnectIncludesSeaweedFSEndpointAndCredentialsWhenEnabled(t *testing.T)
 	}
 }
 
+func TestConnectIncludesMeilisearchURLAndAPIKeyWhenEnabled(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Setup.IncludeMeilisearch = true
+		cfg.Connection.MeilisearchMasterKey = "meili-master-key-123"
+		cfg.Ports.Meilisearch = 17700
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+	})
+
+	stdout, _, err := executeRoot(t, "connect")
+	if err != nil {
+		t.Fatalf("connect returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "Meilisearch\n  http://devbox:17700") {
+		t.Fatalf("expected meilisearch url in connect output: %s", stdout)
+	}
+	if !strings.Contains(stdout, "Meilisearch API key\n  meili-master-key-123") {
+		t.Fatalf("expected meilisearch api key in connect output: %s", stdout)
+	}
+}
+
 func TestConnectAllowsExternalStackWithoutComposeFile(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
@@ -723,7 +746,7 @@ func TestOpenRejectsInvalidTarget(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid open target error")
 	}
-	if !strings.Contains(err.Error(), "valid values: cockpit, pgadmin, all") {
+	if !strings.Contains(err.Error(), "valid values: cockpit, meilisearch, pgadmin, all") {
 		t.Fatalf("unexpected open error: %v", err)
 	}
 }
@@ -744,6 +767,60 @@ func TestOpenDefaultsToCockpit(t *testing.T) {
 		t.Fatalf("open returned error: %v", err)
 	}
 	if opened != configpkg.Default().URLs.Cockpit {
+		t.Fatalf("unexpected opened url: %s", opened)
+	}
+}
+
+func TestOpenDefaultsToMeilisearchWhenCockpitDisabled(t *testing.T) {
+	opened := ""
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) {
+			cfg := configpkg.Default()
+			cfg.Setup.IncludeCockpit = false
+			cfg.Setup.IncludePgAdmin = false
+			cfg.Setup.IncludeMeilisearch = true
+			cfg.ApplyDerivedFields()
+			return cfg, nil
+		}
+		d.openURL = func(_ context.Context, _ system.Runner, target string) error {
+			opened = target
+			return nil
+		}
+	})
+
+	_, _, err := executeRoot(t, "open")
+	if err != nil {
+		t.Fatalf("open returned error: %v", err)
+	}
+	if opened != "http://localhost:7700" {
+		t.Fatalf("unexpected opened url: %s", opened)
+	}
+}
+
+func TestOpenDefaultsToPgAdminWhenCockpitAndMeilisearchDisabled(t *testing.T) {
+	opened := ""
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) {
+			cfg := configpkg.Default()
+			cfg.Setup.IncludeCockpit = false
+			cfg.Setup.IncludeMeilisearch = false
+			cfg.Setup.IncludePgAdmin = true
+			cfg.ApplyDerivedFields()
+			return cfg, nil
+		}
+		d.openURL = func(_ context.Context, _ system.Runner, target string) error {
+			opened = target
+			return nil
+		}
+	})
+
+	_, _, err := executeRoot(t, "open")
+	if err != nil {
+		t.Fatalf("open returned error: %v", err)
+	}
+	if opened != "http://localhost:8081" {
 		t.Fatalf("unexpected opened url: %s", opened)
 	}
 }

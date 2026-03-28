@@ -189,6 +189,7 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config, source stacktui.C
 				Database:          service.Database,
 				MaintenanceDB:     service.MaintenanceDB,
 				Email:             service.Email,
+				MasterKey:         service.MasterKey,
 				Token:             service.Token,
 				AccessKey:         service.AccessKey,
 				SecretKey:         service.SecretKey,

@@ -142,6 +142,22 @@ func Validate(cfg Config) []ValidationIssue {
 		}
 	}
 
+	if cfg.MeilisearchEnabled() {
+		for field, value := range map[string]string{
+			"services.meilisearch_container":    cfg.Services.MeilisearchContainer,
+			"services.meilisearch.image":        cfg.Services.Meilisearch.Image,
+			"services.meilisearch.data_volume":  cfg.Services.Meilisearch.DataVolume,
+			"connection.meilisearch_master_key": cfg.Connection.MeilisearchMasterKey,
+		} {
+			if strings.TrimSpace(value) == "" {
+				issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
+			}
+		}
+		if len(strings.TrimSpace(cfg.Connection.MeilisearchMasterKey)) < 16 {
+			issues = append(issues, ValidationIssue{Field: "connection.meilisearch_master_key", Message: "must be at least 16 characters"})
+		}
+	}
+
 	if cfg.PgAdminEnabled() {
 		for field, value := range map[string]string{
 			"services.pgadmin_container":   cfg.Services.PgAdminContainer,
@@ -167,6 +183,9 @@ func Validate(cfg Config) []ValidationIssue {
 	}
 	if cfg.SeaweedFSEnabled() && (cfg.Ports.SeaweedFS < 1 || cfg.Ports.SeaweedFS > 65535) {
 		issues = append(issues, ValidationIssue{Field: "ports.seaweedfs", Message: "must be between 1 and 65535"})
+	}
+	if cfg.MeilisearchEnabled() && (cfg.Ports.Meilisearch < 1 || cfg.Ports.Meilisearch > 65535) {
+		issues = append(issues, ValidationIssue{Field: "ports.meilisearch", Message: "must be between 1 and 65535"})
 	}
 	if cfg.PgAdminEnabled() && (cfg.Ports.PgAdmin < 1 || cfg.Ports.PgAdmin > 65535) {
 		issues = append(issues, ValidationIssue{Field: "ports.pgadmin", Message: "must be between 1 and 65535"})

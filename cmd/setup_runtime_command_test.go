@@ -389,7 +389,7 @@ func TestLogsInvalidServiceReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected logs to reject invalid service")
 	}
-	if !strings.Contains(err.Error(), "valid values: postgres, redis, nats, seaweedfs, pgadmin") {
+	if !strings.Contains(err.Error(), "valid values: postgres, redis, nats, seaweedfs, meilisearch, pgadmin") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

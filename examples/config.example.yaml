@@ -9,6 +9,7 @@ services:
   redis_container: local-redis
   nats_container: local-nats
   seaweedfs_container: local-seaweedfs
+  meilisearch_container: local-meilisearch
   pgadmin_container: local-pgadmin
   postgres:
     image: docker.io/library/postgres:16
@@ -26,6 +27,9 @@ services:
     image: docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9
     data_volume: seaweedfs_data
     volume_size_limit_mb: 1024
+  meilisearch:
+    image: docker.io/getmeili/meilisearch:v1.40.0
+    data_volume: meilisearch_data
   pgadmin:
     image: docker.io/dpage/pgadmin4:latest
     data_volume: pgadmin_data
@@ -40,6 +44,7 @@ connection:
   nats_token: stackctl
   seaweedfs_access_key: stackctl
   seaweedfs_secret_key: stackctlsecret
+  meilisearch_master_key: stackctl-meili-master-key
   pgadmin_email: admin@example.com
   pgadmin_password: admin
 
@@ -48,11 +53,13 @@ ports:
   redis: 6379
   nats: 4222
   seaweedfs: 8333
+  meilisearch: 7700
   pgadmin: 8081
   cockpit: 9090
 
 urls:
   seaweedfs: http://localhost:8333
+  meilisearch: http://localhost:7700
   cockpit: https://localhost:9090
   pgadmin: http://localhost:8081
 
@@ -67,6 +74,7 @@ setup:
   install_cockpit: true
   include_nats: true
   include_seaweedfs: false
+  include_meilisearch: false
   include_pgadmin: true
   scaffold_default_stack: true
 

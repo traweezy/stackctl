@@ -65,7 +65,7 @@ func managedStackPrompt(cfg configpkg.Config) string {
 }
 
 func scaffoldManagedStack(cmd *cobra.Command, cfg configpkg.Config, force bool) error {
-	if !cfg.Stack.Managed || !cfg.Setup.ScaffoldDefaultStack {
+	if !cfg.Stack.Managed {
 		return nil
 	}
 

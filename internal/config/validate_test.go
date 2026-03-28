@@ -80,6 +80,44 @@ func TestValidateRejectsInvalidSeaweedFSValues(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidMeilisearchValues(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	if err := validateWithDir(cfg.Stack.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ComposePath(cfg), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.Setup.IncludeMeilisearch = true
+	cfg.Services.Meilisearch.Image = ""
+	cfg.Services.Meilisearch.DataVolume = ""
+	cfg.Connection.MeilisearchMasterKey = "short"
+	cfg.Ports.Meilisearch = 70000
+
+	issues := Validate(cfg)
+	if len(issues) == 0 {
+		t.Fatal("expected meilisearch validation issues")
+	}
+
+	fields := map[string]bool{}
+	for _, issue := range issues {
+		fields[issue.Field] = true
+	}
+	for _, field := range []string{
+		"services.meilisearch.image",
+		"services.meilisearch.data_volume",
+		"connection.meilisearch_master_key",
+		"ports.meilisearch",
+	} {
+		if !fields[field] {
+			t.Fatalf("expected validation issue for %s, got %v", field, issues)
+		}
+	}
+}
+
 func TestValidateAllowsExternalStackWithoutComposeFile(t *testing.T) {
 	cfg := Default()
 	cfg.Stack.Managed = false

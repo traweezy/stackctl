@@ -753,10 +753,12 @@ func retargetStackConfig(cfg configpkg.Config, targetName string) configpkg.Conf
 		cfg.Services.RedisContainer = ""
 		cfg.Services.NATSContainer = ""
 		cfg.Services.SeaweedFSContainer = ""
+		cfg.Services.MeilisearchContainer = ""
 		cfg.Services.PgAdminContainer = ""
 		cfg.Services.Postgres.DataVolume = ""
 		cfg.Services.Redis.DataVolume = ""
 		cfg.Services.SeaweedFS.DataVolume = ""
+		cfg.Services.Meilisearch.DataVolume = ""
 		cfg.Services.PgAdmin.DataVolume = ""
 	}
 	cfg.ApplyDerivedFields()

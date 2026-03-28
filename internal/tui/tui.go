@@ -79,6 +79,7 @@ type Service struct {
 	Database          string
 	MaintenanceDB     string
 	Email             string
+	MasterKey         string
 	Token             string
 	AccessKey         string
 	SecretKey         string
@@ -1611,6 +1612,9 @@ func renderServiceBlock(service Service, showSecrets bool, layout layoutMode, ho
 	}
 	if service.Email != "" {
 		accessGroup = append(accessGroup, fmt.Sprintf("Email: %s", service.Email))
+	}
+	if layout == expandedLayout && service.MasterKey != "" {
+		accessGroup = append(accessGroup, fmt.Sprintf("Master key: %s", maskSecret(service.MasterKey, showSecrets)))
 	}
 	if layout == expandedLayout && service.Token != "" {
 		accessGroup = append(accessGroup, fmt.Sprintf("Token: %s", maskSecret(service.Token, showSecrets)))

@@ -63,6 +63,7 @@ const (
 	copyTargetHostPort  copyTargetKind = "host-port"
 	copyTargetUsername  copyTargetKind = "username"
 	copyTargetPassword  copyTargetKind = "password"
+	copyTargetMasterKey copyTargetKind = "master-key"
 	copyTargetToken     copyTargetKind = "token"
 	copyTargetAccessKey copyTargetKind = "access-key"
 	copyTargetSecretKey copyTargetKind = "secret-key"
@@ -455,6 +456,9 @@ func serviceCopyTargets(service Service, showSecrets bool) []copyTarget {
 	}
 	if service.Password != "" {
 		add(copyTargetPassword, service.DisplayName+" password", service.Password, maskSecret(service.Password, showSecrets))
+	}
+	if service.MasterKey != "" {
+		add(copyTargetMasterKey, service.DisplayName+" master key", service.MasterKey, maskSecret(service.MasterKey, showSecrets))
 	}
 	if service.Token != "" {
 		add(copyTargetToken, service.DisplayName+" token", service.Token, maskSecret(service.Token, showSecrets))

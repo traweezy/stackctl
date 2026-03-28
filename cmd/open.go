@@ -7,16 +7,18 @@ import (
 
 	"github.com/spf13/cobra"
 
+	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/output"
 )
 
 func newOpenCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "open [cockpit|pgadmin|all]",
+		Use:   "open [cockpit|meilisearch|pgadmin|all]",
 		Short: "Open configured web UIs",
 		Long:  "Open configured stack web UIs. If browser launch is unavailable, stackctl prints the URL instead.",
 		Example: "  stackctl open\n" +
 			"  stackctl open cockpit\n" +
+			"  stackctl open meilisearch\n" +
 			"  stackctl open pgadmin\n" +
 			"  stackctl open all",
 		Args:              cobra.MaximumNArgs(1),
@@ -27,11 +29,9 @@ func newOpenCmd() *cobra.Command {
 				return err
 			}
 
-			target := "cockpit"
+			target := defaultOpenTarget(cfg)
 			if len(args) == 1 {
 				target = strings.ToLower(args[0])
-			} else if !cfg.CockpitEnabled() && cfg.PgAdminEnabled() {
-				target = "pgadmin"
 			}
 
 			switch target {
@@ -40,6 +40,11 @@ func newOpenCmd() *cobra.Command {
 					return fmt.Errorf("cockpit is disabled in config")
 				}
 				return openConfiguredURL(cmd, "cockpit", cfg.URLs.Cockpit)
+			case "meilisearch":
+				if !cfg.MeilisearchEnabled() {
+					return fmt.Errorf("meilisearch is disabled in config")
+				}
+				return openConfiguredURL(cmd, "meilisearch", cfg.URLs.Meilisearch)
 			case "pgadmin":
 				if !cfg.PgAdminEnabled() {
 					return fmt.Errorf("pgadmin is disabled in config")
@@ -51,14 +56,32 @@ func newOpenCmd() *cobra.Command {
 						return err
 					}
 				}
+				if cfg.MeilisearchEnabled() {
+					if err := openConfiguredURL(cmd, "meilisearch", cfg.URLs.Meilisearch); err != nil {
+						return err
+					}
+				}
 				if cfg.PgAdminEnabled() {
 					return openConfiguredURL(cmd, "pgadmin", cfg.URLs.PgAdmin)
 				}
 				return nil
 			default:
-				return fmt.Errorf("invalid open target %q; valid values: cockpit, pgadmin, all", target)
+				return fmt.Errorf("invalid open target %q; valid values: cockpit, meilisearch, pgadmin, all", target)
 			}
 		},
+	}
+}
+
+func defaultOpenTarget(cfg configpkg.Config) string {
+	switch {
+	case cfg.CockpitEnabled():
+		return "cockpit"
+	case cfg.MeilisearchEnabled():
+		return "meilisearch"
+	case cfg.PgAdminEnabled():
+		return "pgadmin"
+	default:
+		return "cockpit"
 	}
 }
 

@@ -258,6 +258,33 @@ func TestConfigScaffoldRunsHelper(t *testing.T) {
 	}
 }
 
+func TestConfigScaffoldRunsHelperWhenAutoScaffoldDisabled(t *testing.T) {
+	scaffolded := false
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) {
+			cfg := configpkg.Default()
+			cfg.Setup.ScaffoldDefaultStack = false
+			return cfg, nil
+		}
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "config", "scaffold")
+	if err != nil {
+		t.Fatalf("config scaffold returned error: %v", err)
+	}
+	if !scaffolded {
+		t.Fatal("expected config scaffold to run even when auto scaffold is disabled")
+	}
+	if !strings.Contains(stdout, "wrote managed compose file") {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
 func TestMissingConfigHint(t *testing.T) {
 	err := missingConfigHint(configpkg.ErrNotFound)
 	if err == nil || !strings.Contains(err.Error(), "stackctl setup") {

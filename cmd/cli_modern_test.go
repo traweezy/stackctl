@@ -92,6 +92,7 @@ func TestCompleteStackServiceArgsUsesEnabledServicesFromConfig(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.Setup.IncludeSeaweedFS = true
+		cfg.Setup.IncludeMeilisearch = true
 		cfg.Setup.IncludePgAdmin = false
 		cfg.ApplyDerivedFields()
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
@@ -103,7 +104,7 @@ func TestCompleteStackServiceArgsUsesEnabledServicesFromConfig(t *testing.T) {
 	if containsChoice(choices, "postgres") {
 		t.Fatalf("did not expect already-selected service in completions: %v", choices)
 	}
-	for _, expected := range []string{"redis", "nats", "seaweedfs"} {
+	for _, expected := range []string{"redis", "nats", "seaweedfs", "meilisearch"} {
 		if !containsChoice(choices, expected) {
 			t.Fatalf("expected service completion %q in %v", expected, choices)
 		}
@@ -117,6 +118,7 @@ func TestCompleteServiceCopyTargetsUsesEnabledServicesFromConfig(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.Setup.IncludeSeaweedFS = true
+		cfg.Setup.IncludeMeilisearch = true
 		cfg.Setup.IncludePgAdmin = false
 		cfg.Setup.IncludeCockpit = false
 		cfg.ApplyDerivedFields()
@@ -129,7 +131,7 @@ func TestCompleteServiceCopyTargetsUsesEnabledServicesFromConfig(t *testing.T) {
 	if containsChoice(choices, "pgadmin") || containsChoice(choices, "cockpit") {
 		t.Fatalf("did not expect disabled web UI targets in completions: %v", choices)
 	}
-	for _, expected := range []string{"postgres", "redis", "nats", "seaweedfs", "seaweedfs-access-key", "seaweedfs-secret-key"} {
+	for _, expected := range []string{"postgres", "redis", "nats", "seaweedfs", "meilisearch", "meilisearch-api-key", "seaweedfs-access-key", "seaweedfs-secret-key"} {
 		if !containsChoice(choices, expected) {
 			t.Fatalf("expected copy target %q in %v", expected, choices)
 		}
@@ -140,6 +142,7 @@ func TestCompleteEnvArgsUsesEnabledServicesFromConfig(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.Setup.IncludeSeaweedFS = true
+		cfg.Setup.IncludeMeilisearch = true
 		cfg.Setup.IncludePgAdmin = false
 		cfg.ApplyDerivedFields()
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
@@ -151,7 +154,7 @@ func TestCompleteEnvArgsUsesEnabledServicesFromConfig(t *testing.T) {
 	if containsChoice(choices, "postgres") {
 		t.Fatalf("did not expect already-selected env target in completions: %v", choices)
 	}
-	for _, expected := range []string{"redis", "nats", "seaweedfs", "cockpit"} {
+	for _, expected := range []string{"redis", "nats", "seaweedfs", "meilisearch", "cockpit"} {
 		if !containsChoice(choices, expected) {
 			t.Fatalf("expected env target %q in %v", expected, choices)
 		}
@@ -165,6 +168,7 @@ func TestCompleteOpenTargetsUsesEnabledWebUIs(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.Setup.IncludeCockpit = false
+		cfg.Setup.IncludeMeilisearch = true
 		cfg.Setup.IncludePgAdmin = true
 		cfg.ApplyDerivedFields()
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
@@ -176,7 +180,7 @@ func TestCompleteOpenTargetsUsesEnabledWebUIs(t *testing.T) {
 	if containsChoice(choices, "cockpit") {
 		t.Fatalf("did not expect cockpit target in %v", choices)
 	}
-	for _, expected := range []string{"pgadmin", "all"} {
+	for _, expected := range []string{"meilisearch", "pgadmin", "all"} {
 		if !containsChoice(choices, expected) {
 			t.Fatalf("expected open target %q in %v", expected, choices)
 		}

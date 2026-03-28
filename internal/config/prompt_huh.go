@@ -20,11 +20,12 @@ const (
 
 var (
 	wizardServiceLabels = map[string]string{
-		"postgres":  "Postgres",
-		"redis":     "Redis",
-		"nats":      "NATS",
-		"seaweedfs": "SeaweedFS",
-		"pgadmin":   "pgAdmin",
+		"postgres":    "Postgres",
+		"redis":       "Redis",
+		"nats":        "NATS",
+		"seaweedfs":   "SeaweedFS",
+		"meilisearch": "Meilisearch",
+		"pgadmin":     "pgAdmin",
 	}
 	packageManagerSuggestions  = []string{"apt", "dnf", "yum", "pacman", "zypper", "apk", "brew"}
 	redisSavePolicySuggestions = []string{
@@ -81,6 +82,11 @@ type wizardState struct {
 	SeaweedFSPort         string
 	SeaweedFSAccessKey    string
 	SeaweedFSSecretKey    string
+	MeilisearchContainer  string
+	MeilisearchImage      string
+	MeilisearchDataVolume string
+	MeilisearchPort       string
+	MeilisearchMasterKey  string
 	PgAdminContainer      string
 	PgAdminImage          string
 	PgAdminDataVolume     string
@@ -102,6 +108,7 @@ const (
 	wizardStepRedis           wizardStepID = "redis"
 	wizardStepNATS            wizardStepID = "nats"
 	wizardStepSeaweedFS       wizardStepID = "seaweedfs"
+	wizardStepMeilisearch     wizardStepID = "meilisearch"
 	wizardStepPgAdmin         wizardStepID = "pgadmin"
 	wizardStepCockpit         wizardStepID = "cockpit"
 	wizardStepCockpitSettings wizardStepID = "cockpit-settings"
@@ -136,6 +143,9 @@ var wizardSteps = []wizardStepSpec{
 	}},
 	{ID: wizardStepSeaweedFS, Label: "SeaweedFS settings", Visible: func(state *wizardState) bool {
 		return state.includesService("seaweedfs")
+	}},
+	{ID: wizardStepMeilisearch, Label: "Meilisearch settings", Visible: func(state *wizardState) bool {
+		return state.includesService("meilisearch")
 	}},
 	{ID: wizardStepPgAdmin, Label: "pgAdmin settings", Visible: func(state *wizardState) bool {
 		return state.includesService("pgadmin")
@@ -192,6 +202,11 @@ func newWizardState(cfg Config) wizardState {
 		SeaweedFSPort:         strconv.Itoa(cfg.Ports.SeaweedFS),
 		SeaweedFSAccessKey:    cfg.Connection.SeaweedFSAccessKey,
 		SeaweedFSSecretKey:    cfg.Connection.SeaweedFSSecretKey,
+		MeilisearchContainer:  cfg.Services.MeilisearchContainer,
+		MeilisearchImage:      cfg.Services.Meilisearch.Image,
+		MeilisearchDataVolume: cfg.Services.Meilisearch.DataVolume,
+		MeilisearchPort:       strconv.Itoa(cfg.Ports.Meilisearch),
+		MeilisearchMasterKey:  cfg.Connection.MeilisearchMasterKey,
 		PgAdminContainer:      cfg.Services.PgAdminContainer,
 		PgAdminImage:          cfg.Services.PgAdmin.Image,
 		PgAdminDataVolume:     cfg.Services.PgAdmin.DataVolume,
@@ -213,6 +228,9 @@ func newWizardState(cfg Config) wizardState {
 	}
 	if cfg.Setup.IncludeSeaweedFS {
 		state.Services = append(state.Services, "seaweedfs")
+	}
+	if cfg.Setup.IncludeMeilisearch {
+		state.Services = append(state.Services, "meilisearch")
 	}
 	if cfg.Setup.IncludePgAdmin {
 		state.Services = append(state.Services, "pgadmin")
@@ -488,6 +506,38 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("Configure optional S3-compatible object storage with a single-container local SeaweedFS setup.").
 			WithHideFunc(func() bool { return !state.includesService("seaweedfs") }),
 		huh.NewGroup(
+			wizardStepNote(state, wizardStepMeilisearch),
+			huh.NewInput().
+				Title("Meilisearch container name").
+				Description("Used by stackctl runtime, logs, and exec helpers.").
+				Value(&state.MeilisearchContainer).
+				Validate(nonEmpty),
+			huh.NewInput().
+				Title("Meilisearch image").
+				Description("Container image for the managed Meilisearch service.").
+				Value(&state.MeilisearchImage).
+				Validate(nonEmpty),
+			huh.NewInput().
+				Title("Meilisearch data volume").
+				Description("Named volume for Meilisearch database files.").
+				Value(&state.MeilisearchDataVolume).
+				Validate(nonEmpty),
+			huh.NewInput().
+				Title("Meilisearch port").
+				Description("Host port exposed for the Meilisearch API and preview interface.").
+				Value(&state.MeilisearchPort).
+				Validate(validPortText),
+			huh.NewInput().
+				Title("Meilisearch master key").
+				Description("Used to protect the Meilisearch instance and exported as the local-dev API key helper.").
+				Value(&state.MeilisearchMasterKey).
+				EchoMode(huh.EchoModePassword).
+				Validate(minLen(16)),
+		).
+			Title("Meilisearch").
+			Description("Configure optional local search with a protected Meilisearch instance and preview UI.").
+			WithHideFunc(func() bool { return !state.includesService("meilisearch") }),
+		huh.NewGroup(
 			wizardStepNote(state, wizardStepPgAdmin),
 			huh.NewInput().
 				Title("pgAdmin container name").
@@ -726,6 +776,7 @@ func (s wizardState) toConfig(base Config) (Config, error) {
 	cfg.Setup.IncludeRedis = s.includesService("redis")
 	cfg.Setup.IncludeNATS = s.includesService("nats")
 	cfg.Setup.IncludeSeaweedFS = s.includesService("seaweedfs")
+	cfg.Setup.IncludeMeilisearch = s.includesService("meilisearch")
 	cfg.Setup.IncludePgAdmin = s.includesService("pgadmin")
 	cfg.Setup.IncludeCockpit = s.IncludeCockpit
 	cfg.Setup.InstallCockpit = s.InstallCockpit
@@ -785,6 +836,15 @@ func (s wizardState) toConfig(base Config) (Config, error) {
 		return Config{}, fmt.Errorf("seaweedfs port: %w", err)
 	}
 
+	cfg.Services.MeilisearchContainer = strings.TrimSpace(s.MeilisearchContainer)
+	cfg.Services.Meilisearch.Image = strings.TrimSpace(s.MeilisearchImage)
+	cfg.Services.Meilisearch.DataVolume = strings.TrimSpace(s.MeilisearchDataVolume)
+	cfg.Connection.MeilisearchMasterKey = strings.TrimSpace(s.MeilisearchMasterKey)
+	cfg.Ports.Meilisearch, err = parsePort(s.MeilisearchPort)
+	if err != nil {
+		return Config{}, fmt.Errorf("meilisearch port: %w", err)
+	}
+
 	cfg.Services.PgAdminContainer = strings.TrimSpace(s.PgAdminContainer)
 	cfg.Services.PgAdmin.Image = strings.TrimSpace(s.PgAdminImage)
 	cfg.Services.PgAdmin.DataVolume = strings.TrimSpace(s.PgAdminDataVolume)
@@ -825,6 +885,9 @@ func (s wizardState) reviewSummary() string {
 	}
 	if s.includesService("seaweedfs") {
 		lines = append(lines, fmt.Sprintf("  - SeaweedFS: %s", s.SeaweedFSPort))
+	}
+	if s.includesService("meilisearch") {
+		lines = append(lines, fmt.Sprintf("  - Meilisearch: %s", s.MeilisearchPort))
 	}
 	if s.includesService("pgadmin") {
 		lines = append(lines, fmt.Sprintf("  - pgAdmin: %s", s.PgAdminPort))
@@ -875,6 +938,7 @@ func serviceOptions(state *wizardState) []huh.Option[string] {
 		huh.NewOption("Redis", "redis").Selected(state.includesService("redis")),
 		huh.NewOption("NATS", "nats").Selected(state.includesService("nats")),
 		huh.NewOption("SeaweedFS (S3)", "seaweedfs").Selected(state.includesService("seaweedfs")),
+		huh.NewOption("Meilisearch", "meilisearch").Selected(state.includesService("meilisearch")),
 		huh.NewOption("pgAdmin", "pgadmin").Selected(state.includesService("pgadmin")),
 	}
 }

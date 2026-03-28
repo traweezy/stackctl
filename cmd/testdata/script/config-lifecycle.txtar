@@ -36,7 +36,7 @@ exec stackctl env postgres
 cmp stdout expected-env.txt
 
 ! exec stackctl logs -s invalid
-stderr 'invalid service "invalid"; valid values: postgres, redis, nats, seaweedfs, pgadmin'
+stderr 'invalid service "invalid"; valid values: postgres, redis, nats, seaweedfs, meilisearch, pgadmin'
 
 exec stackctl config reset --force
 stdout 'Reset config at '

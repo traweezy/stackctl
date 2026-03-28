@@ -199,14 +199,18 @@ func completeOpenTargets(_ *cobra.Command, _ []string, toComplete string) ([]cob
 	if !ok {
 		return filterCompletions([]cobra.Completion{
 			cobra.CompletionWithDesc("cockpit", "open the Cockpit web UI"),
+			cobra.CompletionWithDesc("meilisearch", "open the Meilisearch preview/API URL"),
 			cobra.CompletionWithDesc("pgadmin", "open the pgAdmin web UI"),
 			cobra.CompletionWithDesc("all", "open every enabled web UI"),
 		}, toComplete), cobra.ShellCompDirectiveNoFileComp
 	}
 
-	completions := make([]cobra.Completion, 0, 3)
+	completions := make([]cobra.Completion, 0, 4)
 	if cfg.CockpitEnabled() {
 		completions = append(completions, cobra.CompletionWithDesc("cockpit", "open the Cockpit web UI"))
+	}
+	if cfg.MeilisearchEnabled() {
+		completions = append(completions, cobra.CompletionWithDesc("meilisearch", "open the Meilisearch preview/API URL"))
 	}
 	if cfg.PgAdminEnabled() {
 		completions = append(completions, cobra.CompletionWithDesc("pgadmin", "open the pgAdmin web UI"))

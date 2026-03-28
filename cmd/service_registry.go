@@ -369,6 +369,82 @@ func serviceDefinitions() []serviceDefinition {
 			},
 		},
 		{
+			Key:                 "meilisearch",
+			DisplayName:         "Meilisearch",
+			Icon:                "🔎",
+			Aliases:             []string{"meilisearch", "meili"},
+			Kind:                serviceKindStack,
+			Enabled:             func(cfg configpkg.Config) bool { return cfg.MeilisearchEnabled() },
+			ContainerName:       func(cfg configpkg.Config) string { return cfg.Services.MeilisearchContainer },
+			PrimaryPort:         func(cfg configpkg.Config) int { return cfg.Ports.Meilisearch },
+			PrimaryPortLabel:    "meilisearch port listening",
+			DefaultInternalPort: 7700,
+			WaitOnStart:         true,
+			BuildRuntime: func(_ context.Context, cfg configpkg.Config, containerByName map[string]system.Container) runtimeService {
+				return runtimeService{
+					Name:          "meilisearch",
+					Icon:          "🔎",
+					DisplayName:   "Meilisearch",
+					Status:        containerStatus(containerByName, cfg.Services.MeilisearchContainer),
+					ContainerName: cfg.Services.MeilisearchContainer,
+					Image:         cfg.Services.Meilisearch.Image,
+					DataVolume:    cfg.Services.Meilisearch.DataVolume,
+					Host:          cfg.Connection.Host,
+					ExternalPort:  cfg.Ports.Meilisearch,
+					InternalPort:  resolvedContainerInternalPort(containerByName, cfg.Services.MeilisearchContainer, cfg.Ports.Meilisearch, 7700),
+					MasterKey:     cfg.Connection.MeilisearchMasterKey,
+					URL:           meilisearchURL(cfg),
+				}
+			},
+			ConnectionEntries: func(cfg configpkg.Config) []connectionEntry {
+				if !cfg.MeilisearchEnabled() {
+					return nil
+				}
+				return []connectionEntry{
+					{Name: "Meilisearch", Value: meilisearchURL(cfg)},
+					{Name: "Meilisearch API key", Value: cfg.Connection.MeilisearchMasterKey},
+				}
+			},
+			EnvEntries: func(cfg configpkg.Config) []envEntry {
+				url := meilisearchURL(cfg)
+				port := fmt.Sprintf("%d", cfg.Ports.Meilisearch)
+				return []envEntry{
+					{Name: "MEILISEARCH_URL", Value: url},
+					{Name: "MEILISEARCH_HOST", Value: cfg.Connection.Host},
+					{Name: "MEILISEARCH_PORT", Value: port},
+					{Name: "MEILISEARCH_MASTER_KEY", Value: cfg.Connection.MeilisearchMasterKey},
+					{Name: "MEILISEARCH_API_KEY", Value: cfg.Connection.MeilisearchMasterKey},
+					{Name: "MEILI_MASTER_KEY", Value: cfg.Connection.MeilisearchMasterKey},
+				}
+			},
+			CopyTargets: func() []serviceCopySpec {
+				return []serviceCopySpec{
+					{
+						PrimaryAlias: "meilisearch",
+						Aliases:      []string{"meili", "meilisearchurl"},
+						Label:        "Meilisearch URL",
+						Resolve: func(cfg configpkg.Config) (string, error) {
+							if !cfg.MeilisearchEnabled() {
+								return "", errors.New("meilisearch is not enabled in this stack")
+							}
+							return meilisearchURL(cfg), nil
+						},
+					},
+					{
+						PrimaryAlias: "meilisearch-api-key",
+						Aliases:      []string{"meilisearchapikey", "meilisearchmasterkey", "meiliapikey", "meilimasterkey"},
+						Label:        "Meilisearch API key",
+						Resolve: func(cfg configpkg.Config) (string, error) {
+							if !cfg.MeilisearchEnabled() {
+								return "", errors.New("meilisearch is not enabled in this stack")
+							}
+							return cfg.Connection.MeilisearchMasterKey, nil
+						},
+					},
+				}
+			},
+		},
+		{
 			Key:                 "pgadmin",
 			DisplayName:         "pgAdmin",
 			Icon:                "🌐",

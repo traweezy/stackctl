@@ -18,6 +18,7 @@ This gives you:
 You can also opt into:
 
 - SeaweedFS for S3-compatible local object storage
+- Meilisearch for local search and autocomplete
 
 No manual configuration required. The setup wizard and config editor also let
 you enable or disable each service explicitly.
@@ -232,10 +233,12 @@ config:
 - NATS token: `stackctl`
 - SeaweedFS access key: `stackctl`
 - SeaweedFS secret key: `stackctlsecret`
+- Meilisearch master key: `stackctl-meili-master-key`
 - Postgres port: `5432`
 - Redis port: `6379`
 - NATS port: `4222`
 - SeaweedFS endpoint: `http://localhost:8333`
+- Meilisearch URL: `http://localhost:7700`
 - pgAdmin URL: `http://localhost:8081`
 - Cockpit URL: `https://localhost:9090`
 
@@ -250,6 +253,7 @@ Service toggles default to enabled for:
 Disabled by default:
 
 - SeaweedFS
+- Meilisearch
 
 The managed pgAdmin service also ships with these default credentials:
 
@@ -271,6 +275,9 @@ Managed service defaults also include:
   `docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9`
 - SeaweedFS data volume: `seaweedfs_data`
 - SeaweedFS volume size limit: `1024 MB`
+- Meilisearch image: `docker.io/getmeili/meilisearch:v1.40.0`
+- Meilisearch data volume: `meilisearch_data`
+- Meilisearch runs in `development` mode, binds on `0.0.0.0:7700`, and disables telemetry by default
 - pgAdmin image: `docker.io/dpage/pgadmin4:latest`
 - pgAdmin data volume: `pgadmin_data`
 - pgAdmin server mode: disabled
@@ -319,7 +326,8 @@ In managed mode:
 - `stackctl config scaffold` can create or refresh the managed stack files
 - the managed compose file is rendered from your config values, including
   Postgres credentials, optional Redis auth, the NATS token, optional
-  SeaweedFS S3 credentials, and pgAdmin login details
+  SeaweedFS S3 credentials, the optional Meilisearch master key, and pgAdmin
+  login details
 
 This is the default and the easiest way to get started.
 
@@ -759,13 +767,14 @@ Edit the current config using the interactive wizard.
 
 This is the easiest way to change service credentials, optional Redis auth,
 the managed NATS token, optional SeaweedFS S3 credentials, managed-stack
-ports, Postgres maintenance-db behavior, Redis persistence and memory settings,
-SeaweedFS volume sizing, pgAdmin server mode, and service image/data-volume
-settings without editing compose files manually. All managed services can also
-be enabled or disabled here. The wizard now starts with stack mode and a
-checkbox-style service picker, then only shows configuration pages for the
-services you selected. Each page includes inline hints so the common fields
-read more like the TUI than raw YAML keys.
+ports, the optional Meilisearch master key, Postgres maintenance-db behavior,
+Redis persistence and memory settings, SeaweedFS volume sizing, pgAdmin server
+mode, and service image/data-volume settings without editing compose files
+manually. All managed services can also be enabled or disabled here. The
+wizard now starts with stack mode and a checkbox-style service picker, then
+only shows configuration pages for the services you selected. Each page
+includes inline hints so the common fields read more like the TUI than raw
+YAML keys.
 
 If you want a full-screen workflow with diff preview, save/reset, and managed
 stack scaffolding in one place, use the `Config` section inside `stackctl tui`.
@@ -794,6 +803,8 @@ Service settings available in the config and wizard:
 - NATS: enabled flag, image, auth token, container name, and host port
 - SeaweedFS: enabled flag, image, data volume, volume size limit, access key,
   secret key, container name, and host port
+- Meilisearch: enabled flag, image, data volume, master key, container name,
+  and host port
 - pgAdmin: enabled flag, image, data volume, email, password, server mode,
   container name, and host port
 - Cockpit: enabled flag, install-on-setup flag, and host port
@@ -854,19 +865,20 @@ Flags:
 
 Start the local development stack or selected stack services. If
 `wait_for_services_on_start` is enabled in config, `stackctl` waits for the
-core app-facing services (`postgres`, `redis`, `nats`, and `seaweedfs` when
-enabled) that are part of the requested start operation before returning.
-Disabled services are skipped automatically.
+core app-facing services (`postgres`, `redis`, `nats`, `seaweedfs`, and
+`meilisearch` when enabled) that are part of the requested start operation
+before returning. Disabled services are skipped automatically.
 
 Valid service targets are the enabled stack-managed services: `postgres`,
-`redis`, `nats`, `seaweedfs`, and `pgadmin`. Cockpit is a host helper, not a compose
-service, so it is never a lifecycle target. `start` also refuses to run when
-another local stack is already running and tells you which stack to stop first.
-Before it launches anything, `start` verifies that each selected host port is
-either free or already owned by the expected stack container. If a port is
-busy outside this stack, `start` fails immediately instead of reporting a
-false success. When waiting is disabled, `stackctl` still verifies that the
-selected containers actually started and did not exit right away.
+`redis`, `nats`, `seaweedfs`, `meilisearch`, and `pgadmin`. Cockpit is a host
+helper, not a compose service, so it is never a lifecycle target. `start` also
+refuses to run when another local stack is already running and tells you which
+stack to stop first. Before it launches anything, `start` verifies that each
+selected host port is either free or already owned by the expected stack
+container. If a port is busy outside this stack, `start` fails immediately
+instead of reporting a false success. When waiting is disabled, `stackctl`
+still verifies that the selected containers actually started and did not exit
+right away.
 
 Examples:
 
@@ -954,6 +966,7 @@ Examples:
 ```bash
 stackctl services
 stackctl services --json
+stackctl services --copy meilisearch-api-key
 stackctl services --copy postgres
 stackctl services --copy nats
 stackctl services --copy seaweedfs
@@ -978,6 +991,7 @@ Supported copy targets:
 - `redis`
 - `nats`
 - `seaweedfs`
+- `meilisearch`
 - `pgadmin`
 - `cockpit`
 - `postgres-user`
@@ -987,6 +1001,7 @@ Supported copy targets:
 - `nats-token`
 - `seaweedfs-access-key`
 - `seaweedfs-secret-key`
+- `meilisearch-api-key`
 - `pgadmin-email`
 - `pgadmin-password`
 
@@ -1000,6 +1015,7 @@ Examples:
 ```bash
 stackctl exec postgres -- psql -U app -d app
 stackctl exec redis -- redis-cli -a secret PING
+stackctl exec meilisearch -- meilisearch --help
 stackctl exec seaweedfs -- weed shell
 stackctl exec pgadmin -- printenv PGADMIN_DEFAULT_EMAIL
 ```
@@ -1010,6 +1026,7 @@ Supported service targets:
 - `redis` or `rd`
 - `nats`
 - `seaweedfs` or `seaweed`
+- `meilisearch` or `meili`
 - `pgadmin`
 
 Flags:
@@ -1155,7 +1172,7 @@ Examples:
 stackctl logs
 stackctl logs --watch
 stackctl logs --service postgres
-stackctl logs --service seaweedfs --tail 200 --watch
+stackctl logs --service meilisearch --tail 200 --watch
 ```
 
 Supported service filters:
@@ -1164,6 +1181,7 @@ Supported service filters:
 - `redis` or `rd`
 - `nats`
 - `seaweedfs` or `seaweed`
+- `meilisearch` or `meili`
 - `pgadmin`
 
 Flags:
@@ -1222,6 +1240,7 @@ Examples:
 ```bash
 stackctl open
 stackctl open cockpit
+stackctl open meilisearch
 stackctl open pgadmin
 stackctl open all
 ```
@@ -1233,6 +1252,7 @@ Arguments:
 | Argument | Meaning |
 | --- | --- |
 | `cockpit` | Open Cockpit |
+| `meilisearch` | Open Meilisearch |
 | `pgadmin` | Open pgAdmin |
 | `all` | Open every enabled web UI |
 
@@ -1479,6 +1499,7 @@ Available today:
 - Redis
 - NATS
 - SeaweedFS (optional, disabled by default)
+- Meilisearch (optional, disabled by default)
 - pgAdmin
 - Cockpit
 - configurable Postgres database, username, password, and ports
@@ -1487,10 +1508,12 @@ Available today:
   DSNs, and helper commands
 - optional SeaweedFS S3 endpoint with access key, secret key, volume sizing,
   managed scaffolding, helper output, and TUI coverage
+- optional Meilisearch URL and master-key helpers that flow through managed
+  scaffolding, `connect`, `env`, `services`, `open`, and the TUI
 - configurable pgAdmin login details that stay in sync with the managed stack
 - explicit enable/disable toggles for Postgres, Redis, NATS, SeaweedFS,
-  pgAdmin, and Cockpit helpers in setup, `config edit`, and the TUI config
-  editor
+  Meilisearch, pgAdmin, and Cockpit helpers in setup, `config edit`, and the
+  TUI config editor
 - service-level image, data-volume, and tuning settings in `stackctl config`
 - configurable Postgres maintenance-database settings for admin helpers
 - configurable Redis persistence and maxmemory policy settings
@@ -1538,25 +1561,6 @@ Current CLI surface:
 - `stack`
 - `config`
 - `version`
-
-### High priority
-
-These are the highest-value additions after the current release line.
-
-#### More local services
-
-- `Meilisearch`
-  Why: fast, lightweight search and autocomplete without Elasticsearch
-
-Resulting target stack:
-
-- PostgreSQL
-- Redis
-- NATS
-- SeaweedFS
-- Meilisearch
-- pgAdmin
-- Cockpit
 
 ### Next after that
 

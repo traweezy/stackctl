@@ -290,6 +290,7 @@ type runtimeService struct {
 	Database          string `json:"database,omitempty"`
 	MaintenanceDB     string `json:"maintenance_database,omitempty"`
 	Email             string `json:"email,omitempty"`
+	MasterKey         string `json:"-"`
 	Token             string `json:"-"`
 	AccessKey         string `json:"access_key,omitempty"`
 	SecretKey         string `json:"-"`
@@ -573,6 +574,11 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 		}
 		if service.Email != "" {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Email: %s\n", service.Email); err != nil {
+				return err
+			}
+		}
+		if service.MasterKey != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Master key: %s\n", service.MasterKey); err != nil {
 				return err
 			}
 		}
@@ -920,6 +926,14 @@ func seaweedFSEndpoint(cfg configpkg.Config) string {
 	}
 
 	return fmt.Sprintf("http://%s:%d", cfg.Connection.Host, cfg.Ports.SeaweedFS)
+}
+
+func meilisearchURL(cfg configpkg.Config) string {
+	if strings.TrimSpace(cfg.URLs.Meilisearch) != "" {
+		return cfg.URLs.Meilisearch
+	}
+
+	return fmt.Sprintf("http://%s:%d", cfg.Connection.Host, cfg.Ports.Meilisearch)
 }
 
 func containerStatus(containerByName map[string]system.Container, containerName string) string {

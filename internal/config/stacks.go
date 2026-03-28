@@ -51,6 +51,13 @@ func defaultSeaweedFSContainerName(stackName string) string {
 	return "stackctl-" + normalizeStackName(stackName) + "-seaweedfs"
 }
 
+func defaultMeilisearchContainerName(stackName string) string {
+	if normalizeStackName(stackName) == DefaultStackName {
+		return "local-meilisearch"
+	}
+	return "stackctl-" + normalizeStackName(stackName) + "-meilisearch"
+}
+
 func defaultPostgresVolumeName(stackName string) string {
 	if normalizeStackName(stackName) == DefaultStackName {
 		return "postgres_data"
@@ -77,4 +84,11 @@ func defaultSeaweedFSVolumeName(stackName string) string {
 		return "seaweedfs_data"
 	}
 	return "stackctl-" + normalizeStackName(stackName) + "-seaweedfs-data"
+}
+
+func defaultMeilisearchVolumeName(stackName string) string {
+	if normalizeStackName(stackName) == DefaultStackName {
+		return "meilisearch_data"
+	}
+	return "stackctl-" + normalizeStackName(stackName) + "-meilisearch-data"
 }

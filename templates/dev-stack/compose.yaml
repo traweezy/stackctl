@@ -76,6 +76,25 @@ services:
       - {{ .Services.SeaweedFS.DataVolume }}:/data
 {{- end }}
 
+{{- if .Setup.IncludeMeilisearch }}
+  meilisearch:
+    image: {{ printf "%q" .Services.Meilisearch.Image }}
+    container_name: {{ printf "%q" .Services.MeilisearchContainer }}
+    restart: unless-stopped
+    command:
+      - meilisearch
+      - --no-analytics
+    environment:
+      MEILI_HTTP_ADDR: "0.0.0.0:7700"
+      MEILI_DB_PATH: "/meili_data"
+      MEILI_ENV: "development"
+      MEILI_MASTER_KEY: {{ printf "%q" .Connection.MeilisearchMasterKey }}
+    ports:
+      - "{{ .Ports.Meilisearch }}:7700"
+    volumes:
+      - {{ .Services.Meilisearch.DataVolume }}:/meili_data
+{{- end }}
+
 {{- if .Setup.IncludePgAdmin }}
   pgadmin:
     image: {{ printf "%q" .Services.PgAdmin.Image }}
@@ -108,6 +127,9 @@ volumes:
 {{- end }}
 {{- if .Setup.IncludeSeaweedFS }}
   {{ .Services.SeaweedFS.DataVolume }}:
+{{- end }}
+{{- if .Setup.IncludeMeilisearch }}
+  {{ .Services.Meilisearch.DataVolume }}:
 {{- end }}
 {{- if .Setup.IncludePgAdmin }}
   {{ .Services.PgAdmin.DataVolume }}:

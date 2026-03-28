@@ -257,6 +257,7 @@ func TestStackRenameManagedStackUpdatesSelection(t *testing.T) {
 		d.loadConfig = func(string) (configpkg.Config, error) {
 			cfg := configpkg.DefaultForStack("staging")
 			cfg.Setup.IncludeSeaweedFS = true
+			cfg.Setup.IncludeMeilisearch = true
 			cfg.ApplyDerivedFields()
 			cfg.Stack.Dir = sourceDir
 			return cfg, nil
@@ -301,6 +302,12 @@ func TestStackRenameManagedStackUpdatesSelection(t *testing.T) {
 	}
 	if savedConfig.Services.SeaweedFS.DataVolume != "stackctl-qa-seaweedfs-data" {
 		t.Fatalf("expected seaweedfs data volume to retarget, got %q", savedConfig.Services.SeaweedFS.DataVolume)
+	}
+	if savedConfig.Services.MeilisearchContainer != "stackctl-qa-meilisearch" {
+		t.Fatalf("expected meilisearch container to retarget, got %q", savedConfig.Services.MeilisearchContainer)
+	}
+	if savedConfig.Services.Meilisearch.DataVolume != "stackctl-qa-meilisearch-data" {
+		t.Fatalf("expected meilisearch data volume to retarget, got %q", savedConfig.Services.Meilisearch.DataVolume)
 	}
 	if renamedFrom != sourceDir || renamedTo != targetDir {
 		t.Fatalf("unexpected dir rename: %s -> %s", renamedFrom, renamedTo)
@@ -354,6 +361,7 @@ func TestStackCloneManagedStackCreatesNewConfig(t *testing.T) {
 		d.loadConfig = func(string) (configpkg.Config, error) {
 			cfg := configpkg.Default()
 			cfg.Setup.IncludeSeaweedFS = true
+			cfg.Setup.IncludeMeilisearch = true
 			cfg.ApplyDerivedFields()
 			cfg.Stack.Dir = filepath.Join(dataRoot, "stackctl", "stacks", "dev-stack")
 			return cfg, nil
@@ -387,6 +395,12 @@ func TestStackCloneManagedStackCreatesNewConfig(t *testing.T) {
 	}
 	if savedConfig.Services.SeaweedFS.DataVolume != "stackctl-demo-seaweedfs-data" {
 		t.Fatalf("expected seaweedfs data volume to retarget, got %q", savedConfig.Services.SeaweedFS.DataVolume)
+	}
+	if savedConfig.Services.MeilisearchContainer != "stackctl-demo-meilisearch" {
+		t.Fatalf("expected meilisearch container to retarget, got %q", savedConfig.Services.MeilisearchContainer)
+	}
+	if savedConfig.Services.Meilisearch.DataVolume != "stackctl-demo-meilisearch-data" {
+		t.Fatalf("expected meilisearch data volume to retarget, got %q", savedConfig.Services.Meilisearch.DataVolume)
 	}
 	if !scaffolded {
 		t.Fatal("expected managed stack clone to scaffold target files")

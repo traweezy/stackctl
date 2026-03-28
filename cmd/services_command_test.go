@@ -414,6 +414,102 @@ func TestServicesJSONIncludesSeaweedFSWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestServicesIncludeMeilisearchDetailsWhenEnabled(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Setup.IncludeMeilisearch = true
+		cfg.Services.Meilisearch.Image = "docker.io/getmeili/meilisearch:v1.40.0"
+		cfg.Services.Meilisearch.DataVolume = "stack_meilisearch_data"
+		cfg.Connection.MeilisearchMasterKey = "meili-master-key-123"
+		cfg.Ports.Meilisearch = 17700
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{
+				Stdout: `[{"Id":"meili123456","Names":["local-meilisearch"],"Image":"getmeili/meilisearch:v1.40.0","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":17700,"container_port":7700,"protocol":"tcp"}],"CreatedAt":"now"}]`,
+			}, nil
+		}
+		d.cockpitStatus = func(context.Context) system.CockpitState {
+			return system.CockpitState{State: "not installed"}
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "services")
+	if err != nil {
+		t.Fatalf("services returned error: %v", err)
+	}
+
+	for _, fragment := range []string{
+		"🔎 Meilisearch",
+		"Container: local-meilisearch",
+		"Image: docker.io/getmeili/meilisearch:v1.40.0",
+		"Data volume: stack_meilisearch_data",
+		"Port: 17700 -> 7700",
+		"URL: http://devbox:17700",
+		"Master key: meili-master-key-123",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("services output missing %q:\n%s", fragment, stdout)
+		}
+	}
+}
+
+func TestServicesJSONIncludesMeilisearchWhenEnabled(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Setup.IncludeMeilisearch = true
+		cfg.Services.Meilisearch.DataVolume = "stack_meilisearch_data"
+		cfg.Connection.MeilisearchMasterKey = "meili-master-key-123"
+		cfg.Ports.Meilisearch = 17700
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{
+				Stdout: `[{"Id":"meili123456","Names":["local-meilisearch"],"Image":"getmeili/meilisearch:v1.40.0","Status":"Up 5 minutes","State":"running","Ports":[{"host_port":17700,"container_port":7700,"protocol":"tcp"}],"CreatedAt":"now"}]`,
+			}, nil
+		}
+		d.cockpitStatus = func(context.Context) system.CockpitState {
+			return system.CockpitState{State: "not installed"}
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "services", "--json")
+	if err != nil {
+		t.Fatalf("services --json returned error: %v", err)
+	}
+
+	var services []runtimeService
+	if err := json.Unmarshal([]byte(stdout), &services); err != nil {
+		t.Fatalf("parse services json: %v\n%s", err, stdout)
+	}
+
+	var meili runtimeService
+	found := false
+	for _, service := range services {
+		if service.Name == "meilisearch" {
+			meili = service
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected meilisearch runtime service in %+v", services)
+	}
+	if meili.URL != "http://devbox:17700" || meili.DataVolume != "stack_meilisearch_data" {
+		t.Fatalf("unexpected meilisearch runtime service: %+v", meili)
+	}
+	if meili.ExternalPort != 17700 || meili.InternalPort != 7700 {
+		t.Fatalf("unexpected meilisearch port config: %+v", meili)
+	}
+	if meili.MasterKey != "" {
+		t.Fatalf("expected meilisearch master key to stay out of json output, got %+v", meili)
+	}
+}
+
 func TestServicesJSONKeepsDefaultInternalPortsWhenContainersAreMissing(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
@@ -500,6 +596,34 @@ func TestServicesCopyUsesClipboardForSeaweedFSTargets(t *testing.T) {
 		t.Fatalf("unexpected copied secret key: %v", copied)
 	}
 	if !strings.Contains(stdout, "copied SeaweedFS secret key to clipboard") {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestServicesCopyUsesClipboardForMeilisearchAPIKey(t *testing.T) {
+	var copied string
+
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Setup.IncludeMeilisearch = true
+		cfg.Connection.MeilisearchMasterKey = "meili-master-key-123"
+		cfg.ApplyDerivedFields()
+
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.copyToClipboard = func(_ context.Context, _ system.Runner, value string) error {
+			copied = value
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "services", "--copy", "meilisearch-api-key")
+	if err != nil {
+		t.Fatalf("services --copy meilisearch-api-key returned error: %v", err)
+	}
+	if copied != "meili-master-key-123" {
+		t.Fatalf("unexpected copied value: %q", copied)
+	}
+	if !strings.Contains(stdout, "copied Meilisearch API key to clipboard") {
 		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }

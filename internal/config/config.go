@@ -34,16 +34,18 @@ type StackConfig struct {
 }
 
 type ServicesConfig struct {
-	PostgresContainer  string                 `yaml:"postgres_container"`
-	RedisContainer     string                 `yaml:"redis_container"`
-	NATSContainer      string                 `yaml:"nats_container"`
-	SeaweedFSContainer string                 `yaml:"seaweedfs_container"`
-	PgAdminContainer   string                 `yaml:"pgadmin_container"`
-	Postgres           PostgresServiceConfig  `yaml:"postgres"`
-	Redis              RedisServiceConfig     `yaml:"redis"`
-	NATS               NATSServiceConfig      `yaml:"nats"`
-	SeaweedFS          SeaweedFSServiceConfig `yaml:"seaweedfs"`
-	PgAdmin            PgAdminServiceConfig   `yaml:"pgadmin"`
+	PostgresContainer    string                   `yaml:"postgres_container"`
+	RedisContainer       string                   `yaml:"redis_container"`
+	NATSContainer        string                   `yaml:"nats_container"`
+	SeaweedFSContainer   string                   `yaml:"seaweedfs_container"`
+	MeilisearchContainer string                   `yaml:"meilisearch_container"`
+	PgAdminContainer     string                   `yaml:"pgadmin_container"`
+	Postgres             PostgresServiceConfig    `yaml:"postgres"`
+	Redis                RedisServiceConfig       `yaml:"redis"`
+	NATS                 NATSServiceConfig        `yaml:"nats"`
+	SeaweedFS            SeaweedFSServiceConfig   `yaml:"seaweedfs"`
+	Meilisearch          MeilisearchServiceConfig `yaml:"meilisearch"`
+	PgAdmin              PgAdminServiceConfig     `yaml:"pgadmin"`
 }
 
 type PostgresServiceConfig struct {
@@ -70,6 +72,11 @@ type SeaweedFSServiceConfig struct {
 	VolumeSizeLimitMB int    `yaml:"volume_size_limit_mb"`
 }
 
+type MeilisearchServiceConfig struct {
+	Image      string `yaml:"image"`
+	DataVolume string `yaml:"data_volume"`
+}
+
 type PgAdminServiceConfig struct {
 	Image      string `yaml:"image"`
 	DataVolume string `yaml:"data_volume"`
@@ -77,31 +84,34 @@ type PgAdminServiceConfig struct {
 }
 
 type ConnectionConfig struct {
-	Host               string `yaml:"host"`
-	PostgresDatabase   string `yaml:"postgres_database"`
-	PostgresUsername   string `yaml:"postgres_username"`
-	PostgresPassword   string `yaml:"postgres_password"`
-	RedisPassword      string `yaml:"redis_password"`
-	NATSToken          string `yaml:"nats_token"`
-	SeaweedFSAccessKey string `yaml:"seaweedfs_access_key"`
-	SeaweedFSSecretKey string `yaml:"seaweedfs_secret_key"`
-	PgAdminEmail       string `yaml:"pgadmin_email"`
-	PgAdminPassword    string `yaml:"pgadmin_password"`
+	Host                 string `yaml:"host"`
+	PostgresDatabase     string `yaml:"postgres_database"`
+	PostgresUsername     string `yaml:"postgres_username"`
+	PostgresPassword     string `yaml:"postgres_password"`
+	RedisPassword        string `yaml:"redis_password"`
+	NATSToken            string `yaml:"nats_token"`
+	SeaweedFSAccessKey   string `yaml:"seaweedfs_access_key"`
+	SeaweedFSSecretKey   string `yaml:"seaweedfs_secret_key"`
+	MeilisearchMasterKey string `yaml:"meilisearch_master_key"`
+	PgAdminEmail         string `yaml:"pgadmin_email"`
+	PgAdminPassword      string `yaml:"pgadmin_password"`
 }
 
 type PortsConfig struct {
-	Postgres  int `yaml:"postgres"`
-	Redis     int `yaml:"redis"`
-	NATS      int `yaml:"nats"`
-	SeaweedFS int `yaml:"seaweedfs"`
-	PgAdmin   int `yaml:"pgadmin"`
-	Cockpit   int `yaml:"cockpit"`
+	Postgres    int `yaml:"postgres"`
+	Redis       int `yaml:"redis"`
+	NATS        int `yaml:"nats"`
+	SeaweedFS   int `yaml:"seaweedfs"`
+	Meilisearch int `yaml:"meilisearch"`
+	PgAdmin     int `yaml:"pgadmin"`
+	Cockpit     int `yaml:"cockpit"`
 }
 
 type URLsConfig struct {
-	SeaweedFS string `yaml:"seaweedfs"`
-	Cockpit   string `yaml:"cockpit"`
-	PgAdmin   string `yaml:"pgadmin"`
+	SeaweedFS   string `yaml:"seaweedfs"`
+	Meilisearch string `yaml:"meilisearch"`
+	Cockpit     string `yaml:"cockpit"`
+	PgAdmin     string `yaml:"pgadmin"`
 }
 
 type BehaviorConfig struct {
@@ -116,6 +126,7 @@ type SetupConfig struct {
 	InstallCockpit       bool `yaml:"install_cockpit"`
 	IncludeNATS          bool `yaml:"include_nats"`
 	IncludeSeaweedFS     bool `yaml:"include_seaweedfs"`
+	IncludeMeilisearch   bool `yaml:"include_meilisearch"`
 	IncludePgAdmin       bool `yaml:"include_pgadmin"`
 	ScaffoldDefaultStack bool `yaml:"scaffold_default_stack"`
 }
@@ -220,6 +231,9 @@ func (c *Config) ApplyDerivedFields() {
 	if c.Connection.SeaweedFSSecretKey == "" {
 		c.Connection.SeaweedFSSecretKey = "stackctlsecret"
 	}
+	if c.Connection.MeilisearchMasterKey == "" {
+		c.Connection.MeilisearchMasterKey = "stackctl-meili-master-key"
+	}
 	if c.Connection.PgAdminEmail == "" {
 		c.Connection.PgAdminEmail = "admin@example.com"
 	}
@@ -275,6 +289,16 @@ func (c *Config) ApplyDerivedFields() {
 		c.Services.SeaweedFS.VolumeSizeLimitMB = 1024
 	}
 
+	if c.Services.Meilisearch.Image == "" {
+		c.Services.Meilisearch.Image = "docker.io/getmeili/meilisearch:v1.40.0"
+	}
+	if c.Services.MeilisearchContainer == "" {
+		c.Services.MeilisearchContainer = defaultMeilisearchContainerName(c.Stack.Name)
+	}
+	if c.Services.Meilisearch.DataVolume == "" {
+		c.Services.Meilisearch.DataVolume = defaultMeilisearchVolumeName(c.Stack.Name)
+	}
+
 	if c.Services.PgAdmin.Image == "" {
 		c.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:latest"
 	}
@@ -290,6 +314,9 @@ func (c *Config) ApplyDerivedFields() {
 	}
 	if c.Ports.SeaweedFS > 0 {
 		c.URLs.SeaweedFS = fmt.Sprintf("http://%s:%d", c.Connection.Host, c.Ports.SeaweedFS)
+	}
+	if c.Ports.Meilisearch > 0 {
+		c.URLs.Meilisearch = fmt.Sprintf("http://%s:%d", c.Connection.Host, c.Ports.Meilisearch)
 	}
 	if c.Ports.PgAdmin > 0 {
 		c.URLs.PgAdmin = fmt.Sprintf("http://%s:%d", c.Connection.Host, c.Ports.PgAdmin)
@@ -315,6 +342,10 @@ func (c Config) SeaweedFSEnabled() bool {
 	return c.Setup.IncludeSeaweedFS
 }
 
+func (c Config) MeilisearchEnabled() bool {
+	return c.Setup.IncludeMeilisearch
+}
+
 func (c Config) PgAdminEnabled() bool {
 	return c.Setup.IncludePgAdmin
 }
@@ -335,6 +366,9 @@ func (c Config) EnabledStackServiceCount() int {
 		count++
 	}
 	if c.SeaweedFSEnabled() {
+		count++
+	}
+	if c.MeilisearchEnabled() {
 		count++
 	}
 	if c.PgAdminEnabled() {

@@ -365,6 +365,53 @@ func TestServicesViewShowsSeaweedFSRuntimeDetails(t *testing.T) {
 	}
 }
 
+func TestServicesViewShowsMeilisearchRuntimeDetails(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	current := updatedModel.(Model)
+
+	snapshot := Snapshot{
+		StackName: "dev-stack",
+		Services: []Service{
+			{
+				Name:          "meilisearch",
+				DisplayName:   "Meilisearch",
+				Status:        "running",
+				ContainerName: "local-meilisearch",
+				Image:         "docker.io/getmeili/meilisearch:v1.40.0",
+				DataVolume:    "meilisearch_data",
+				Host:          "devbox",
+				ExternalPort:  17700,
+				InternalPort:  7700,
+				URL:           "http://devbox:17700",
+				MasterKey:     "meili-master-key-123",
+			},
+		},
+	}
+
+	updatedModel, _ = current.Update(snapshotMsg{snapshot: snapshot})
+	current = updatedModel.(Model)
+	current = navigateToSection(t, current, servicesSection)
+
+	view := current.currentContent()
+	for _, fragment := range []string{
+		"Meilisearch",
+		"Container: local-meilisearch",
+		"Data volume: meilisearch_data",
+		"Host port: 17700",
+		"Container port: 7700",
+		"URL: http://devbox:17700",
+		"Master key: ****",
+	} {
+		if !collapsedContainsTest(view, fragment) {
+			t.Fatalf("expected meilisearch services view to contain %q:\n%s", fragment, view)
+		}
+	}
+	if strings.Contains(view, "meili-master-key-123") {
+		t.Fatalf("expected meilisearch master key to be masked by default:\n%s", view)
+	}
+}
+
 func TestModelTogglesCompactLayout(t *testing.T) {
 	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -2524,6 +2571,44 @@ func TestConfigSectionScaffoldWarnsForExternalStacks(t *testing.T) {
 	}
 }
 
+func TestConfigSectionAllowsManualScaffoldWhenAutoScaffoldDisabled(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Setup.ScaffoldDefaultStack = false
+	scaffoldCalls := 0
+	manager := configTestManager()
+	manager.SaveConfig = func(string, configpkg.Config) error { return nil }
+	manager.ScaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+		scaffoldCalls++
+		return configpkg.ScaffoldResult{StackDir: cfg.Stack.Dir, ComposePath: configpkg.ComposePath(cfg), WroteCompose: true}, nil
+	}
+
+	model := NewFullModel(func() (Snapshot, error) {
+		return configSnapshot(cfg, ConfigSourceLoaded, ""), nil
+	}, nil, nil, &manager)
+	current := loadConfigSnapshotModel(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""))
+	current = navigateToSection(t, current, configSection)
+
+	updatedModel, cmd := current.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
+	current = updatedModel.(Model)
+	if current.banner != nil {
+		t.Fatalf("expected manual scaffold to proceed without a warning banner, got %+v", current.banner)
+	}
+	if cmd == nil {
+		t.Fatal("expected scaffold command")
+	}
+
+	msg, ok := cmd().(configOperationMsg)
+	if !ok {
+		t.Fatalf("expected configOperationMsg, got %T", cmd())
+	}
+	if msg.Err != nil {
+		t.Fatalf("expected scaffold to succeed, got %+v", msg)
+	}
+	if scaffoldCalls != 1 {
+		t.Fatalf("expected one scaffold call, got %d", scaffoldCalls)
+	}
+}
+
 func TestConfigSectionHidesUnavailableScaffoldActionForExternalStacks(t *testing.T) {
 	cfg := configpkg.Default()
 	cfg.Stack.Managed = false
@@ -2629,6 +2714,7 @@ func TestSelectedFieldEffectDifferentiatesRepresentativeFields(t *testing.T) {
 		contains string
 	}{
 		{key: "services.redis.maxmemory_policy", contains: "Redis eviction policy"},
+		{key: "connection.meilisearch_master_key", contains: "Meilisearch master key"},
 		{key: "behavior.startup_timeout_seconds", contains: "how long stackctl waits"},
 		{key: "tui.auto_refresh_interval_seconds", contains: "future TUI sessions"},
 		{key: "system.package_manager", contains: "package manager"},

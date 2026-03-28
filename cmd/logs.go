@@ -22,7 +22,7 @@ func newLogsCmd() *cobra.Command {
 		Example: "  stackctl logs\n" +
 			"  stackctl logs --watch\n" +
 			"  stackctl logs --service postgres\n" +
-			"  stackctl logs --service seaweedfs --tail 200 --watch",
+			"  stackctl logs --service meilisearch --tail 200 --watch",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -62,7 +62,7 @@ func newLogsCmd() *cobra.Command {
 
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Follow logs")
 	cmd.Flags().IntVarP(&tail, "tail", "n", 100, "Number of log lines to show")
-	cmd.Flags().StringVarP(&service, "service", "s", "", "Filter logs to a single service (postgres|pg, redis|rd, nats, seaweedfs|seaweed, pgadmin)")
+	cmd.Flags().StringVarP(&service, "service", "s", "", "Filter logs to a single service (postgres|pg, redis|rd, nats, seaweedfs|seaweed, meilisearch|meili, pgadmin)")
 	cmd.Flags().StringVar(&since, "since", "", "Show logs since a relative time or timestamp")
 	mustRegisterFlagCompletion(cmd, "service", completeLogsServiceFlag)
 
