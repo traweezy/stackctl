@@ -220,10 +220,106 @@ jobs:
       - name: Run integration tests
         run: go test ./integration -tags=integration -count=1
 
+  journey-smoke:
+    name: Test / journey smoke
+    runs-on: ubuntu-latest
+    needs: [fmt-check, vet, lint, mod-tidy-check]
+    env:
+      PODMAN_COMPOSE_PROVIDER: podman-compose
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Podman runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman podman-compose
+          podman --version
+          podman compose version
+
+      - name: Run PTY smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/journey-smoke
+          go test ./cmd \
+            -run 'TestConfigInitInteractivePTYCustomizesConfig|TestTUIConfigPTYCanCreateAndScaffoldFromScratch|TestTUIOverviewPTYLaunchesWithConfig' \
+            -count=1 \
+            -v | tee .tmp/journey-smoke/pty.log
+
+      - name: Run TUI render smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/journey-smoke
+          go test ./internal/tui \
+            -run 'TestOverviewExpandedLayoutShowsPathsAndManagedMode|TestViewCanDisableAltScreenForAutomation' \
+            -count=1 \
+            -v | tee .tmp/journey-smoke/tui-render.log
+
+      - name: Run integration smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/journey-smoke
+          go test ./integration \
+            -tags=integration \
+            -run 'TestSetupNonInteractiveManagedLifecycleSmoke|TestManagedStackStartFailsFastWhenHostPortBusy|TestExternalStackMetadataSmoke|TestNamedStackSelectionAndPathResolution|TestNamedStackSingleRunningStackGuard' \
+            -count=1 \
+            -v | tee .tmp/journey-smoke/integration.log
+
+      - name: Write journey smoke summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Journey smoke"
+            echo
+            echo "- PTY smoke: \`go test ./cmd -run 'TestConfigInitInteractivePTYCustomizesConfig|TestTUIConfigPTYCanCreateAndScaffoldFromScratch|TestTUIOverviewPTYLaunchesWithConfig' -count=1 -v\`"
+            echo "- TUI render smoke: \`go test ./internal/tui -run 'TestOverviewExpandedLayoutShowsPathsAndManagedMode|TestViewCanDisableAltScreenForAutomation' -count=1 -v\`"
+            echo "- Integration smoke: \`go test ./integration -tags=integration -run 'TestSetupNonInteractiveManagedLifecycleSmoke|TestManagedStackStartFailsFastWhenHostPortBusy|TestExternalStackMetadataSmoke|TestNamedStackSelectionAndPathResolution|TestNamedStackSingleRunningStackGuard' -count=1 -v\`"
+            echo "- Logs artifact: \`journey-smoke-logs\`"
+            echo
+            if [ -f .tmp/journey-smoke/pty.log ]; then
+              echo "### PTY smoke tail"
+              echo '```text'
+              tail -n 40 .tmp/journey-smoke/pty.log
+              echo '```'
+              echo
+            fi
+            if [ -f .tmp/journey-smoke/tui-render.log ]; then
+              echo "### TUI render smoke tail"
+              echo '```text'
+              tail -n 40 .tmp/journey-smoke/tui-render.log
+              echo '```'
+              echo
+            fi
+            if [ -f .tmp/journey-smoke/integration.log ]; then
+              echo "### Integration smoke tail"
+              echo '```text'
+              tail -n 60 .tmp/journey-smoke/integration.log
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload journey smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journey-smoke-logs
+          path: .tmp/journey-smoke
+          retention-days: 7
+
   build:
     name: Build / binary
     runs-on: ubuntu-latest
-    needs: [unit-tests, race-tests, integration-tests]
+    needs: [unit-tests, race-tests, integration-tests, journey-smoke]
     steps:
       - name: Checkout
         uses: actions/checkout@v5

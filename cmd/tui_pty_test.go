@@ -117,6 +117,39 @@ func TestTUIConfigPTYCanTypeNAndSave(t *testing.T) {
 	}
 }
 
+func TestTUIOverviewPTYLaunchesWithConfig(t *testing.T) {
+	binaryPath := testutil.BuildStackctlBinary(t)
+	configRoot := t.TempDir()
+	dataRoot := t.TempDir()
+	t.Setenv("HOME", dataRoot)
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+	env := cliTestEnv(t, configRoot, dataRoot)
+
+	cfg := configpkg.Default()
+	cfg.Connection.Host = "devbox"
+	cfg.ApplyDerivedFields()
+
+	configPath := filepath.Join(configRoot, "stackctl", "config.yaml")
+	if err := configpkg.Save(configPath, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	if _, err := configpkg.ScaffoldManagedStack(cfg, true); err != nil {
+		t.Fatalf("scaffold managed stack: %v", err)
+	}
+
+	output, err := runStackctlPTYSteps(t, binaryPath, env, []ptyStep{
+		{Delay: 1500 * time.Millisecond, Input: ""},
+	}, "tui")
+	if err != nil {
+		t.Fatalf("tui returned error: %v\n%s", err, output)
+	}
+
+	if !strings.Contains(output, "\x1b[?1049h") || !strings.Contains(output, "\x1b[?1049l") {
+		t.Fatalf("expected TUI PTY smoke to enter and exit full-screen mode:\n%s", output)
+	}
+}
+
 type ptyStep struct {
 	Delay time.Duration
 	Input string

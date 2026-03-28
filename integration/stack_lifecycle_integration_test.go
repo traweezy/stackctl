@@ -32,6 +32,8 @@ type runtimeServiceJSON struct {
 	Host            string `json:"host"`
 	ExternalPort    int    `json:"external_port"`
 	InternalPort    int    `json:"internal_port"`
+	PortListening   bool   `json:"port_listening"`
+	PortConflict    bool   `json:"port_conflict"`
 	Database        string `json:"database"`
 	MaintenanceDB   string `json:"maintenance_database"`
 	Email           string `json:"email"`
@@ -67,39 +69,7 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	}
 
 	suffix := strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
-	cfg := configpkg.Default()
-	cfg.Stack.Name = "itest-" + suffix
-	stackDir, err := configpkg.ManagedStackDir(cfg.Stack.Name)
-	if err != nil {
-		t.Fatalf("resolve managed stack dir: %v", err)
-	}
-	cfg.Stack.Dir = stackDir
-	cfg.Services.PostgresContainer = "stackctl-it-postgres-" + suffix
-	cfg.Services.RedisContainer = "stackctl-it-redis-" + suffix
-	cfg.Services.NATSContainer = "stackctl-it-nats-" + suffix
-	cfg.Services.PgAdminContainer = "stackctl-it-pgadmin-" + suffix
-	cfg.Services.Postgres.DataVolume = "stackctl_it_postgres_data_" + suffix
-	cfg.Services.Redis.DataVolume = "stackctl_it_redis_data_" + suffix
-	cfg.Services.Redis.AppendOnly = true
-	cfg.Services.Redis.SavePolicy = "900 1 300 10"
-	cfg.Services.Redis.MaxMemoryPolicy = "allkeys-lru"
-	cfg.Services.PgAdmin.DataVolume = "stackctl_it_pgadmin_data_" + suffix
-	cfg.Services.PgAdmin.ServerMode = true
-	cfg.Connection.Host = "127.0.0.1"
-	cfg.Connection.PostgresDatabase = "stackdb"
-	cfg.Connection.PostgresUsername = "stackuser"
-	cfg.Connection.PostgresPassword = "stackpass"
-	cfg.Connection.RedisPassword = "redispass"
-	cfg.Connection.NATSToken = "natspass"
-	cfg.Connection.PgAdminEmail = "pgadmin@example.com"
-	cfg.Connection.PgAdminPassword = "pgsecret"
-	cfg.Ports.Postgres = freePort(t)
-	cfg.Ports.Redis = freePort(t)
-	cfg.Ports.NATS = freePort(t)
-	cfg.Ports.PgAdmin = freePort(t)
-	cfg.Ports.Cockpit = freePort(t)
-	cfg.Behavior.StartupTimeoutSec = 240
-	cfg.ApplyDerivedFields()
+	cfg := integrationManagedLifecycleConfig(t, "itest-"+suffix, suffix)
 
 	if _, err := configpkg.ScaffoldManagedStack(cfg, true); err != nil {
 		t.Fatalf("scaffold managed compose file: %v", err)
@@ -514,6 +484,335 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	}
 }
 
+func TestSetupNonInteractiveManagedLifecycleSmoke(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("integration tests require Linux")
+	}
+
+	binaryPath := testutil.BuildStackctlBinary(t)
+	configRoot := t.TempDir()
+	dataRoot, err := os.MkdirTemp("", "stackctl-itest-data-*")
+	if err != nil {
+		t.Fatalf("create integration data dir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	requirePodmanCompose(t)
+
+	env := []string{
+		"XDG_CONFIG_HOME=" + configRoot,
+		"XDG_DATA_HOME=" + dataRoot,
+	}
+
+	t.Cleanup(func() {
+		_, _ = runStackctl(binaryPath, env, "reset", "--volumes", "--force")
+		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		_ = os.RemoveAll(dataRoot)
+	})
+
+	setupOutput, err := runStackctl(binaryPath, env, "setup", "--non-interactive")
+	if err != nil {
+		t.Fatalf("setup --non-interactive returned error: %v\n%s", err, setupOutput)
+	}
+	for _, fragment := range []string{
+		"created default config",
+		"Next steps:",
+		"stackctl start",
+		"stackctl services",
+		"stackctl env --export",
+		"stackctl connect",
+		"stackctl tui",
+	} {
+		if !strings.Contains(setupOutput, fragment) {
+			t.Fatalf("setup output missing %q:\n%s", fragment, setupOutput)
+		}
+	}
+
+	configPath := filepath.Join(configRoot, "stackctl", "config.yaml")
+	cfg, err := configpkg.Load(configPath)
+	if err != nil {
+		t.Fatalf("load setup config: %v", err)
+	}
+
+	suffix := strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
+	applyManagedIntegrationRuntimeConfig(t, &cfg, "setup-"+suffix)
+	cfg.Connection.Host = "127.0.0.1"
+	cfg.Behavior.StartupTimeoutSec = 240
+	cfg.ApplyDerivedFields()
+	if err := configpkg.Save(configPath, cfg); err != nil {
+		t.Fatalf("save customized setup config: %v", err)
+	}
+
+	startOutput, err := runStackctl(binaryPath, env, "start")
+	if err != nil {
+		statusOutput, _ := runStackctl(binaryPath, env, "status", "--json")
+		servicesOutput, _ := runStackctl(binaryPath, env, "services")
+		t.Fatalf("start returned error: %v\n%s\nstatus --json:\n%s\nservices:\n%s", err, startOutput, statusOutput, servicesOutput)
+	}
+	if !strings.Contains(startOutput, "stack started") {
+		t.Fatalf("unexpected start output:\n%s", startOutput)
+	}
+
+	statusOutput, err := runStackctl(binaryPath, env, "status", "--json")
+	if err != nil {
+		t.Fatalf("status --json returned error: %v\n%s", err, statusOutput)
+	}
+	var containers []system.Container
+	if err := json.Unmarshal([]byte(statusOutput), &containers); err != nil {
+		t.Fatalf("parse status json: %v\n%s", err, statusOutput)
+	}
+	if len(containers) != 4 {
+		t.Fatalf("expected 4 stack containers, got %d", len(containers))
+	}
+
+	servicesOutput, err := runStackctl(binaryPath, env, "services", "--json")
+	if err != nil {
+		t.Fatalf("services --json returned error: %v\n%s", err, servicesOutput)
+	}
+	var services []runtimeServiceJSON
+	if err := json.Unmarshal([]byte(servicesOutput), &services); err != nil {
+		t.Fatalf("parse services json: %v\n%s", err, servicesOutput)
+	}
+	servicesByName := make(map[string]runtimeServiceJSON, len(services))
+	for _, service := range services {
+		servicesByName[service.Name] = service
+	}
+	for _, serviceName := range []string{"postgres", "redis", "nats", "pgadmin"} {
+		if servicesByName[serviceName].Status != "running" {
+			t.Fatalf("expected %s to be running, got %+v", serviceName, servicesByName[serviceName])
+		}
+	}
+
+	healthOutput, err := runStackctl(binaryPath, env, "health")
+	if err != nil {
+		t.Fatalf("health returned error: %v\n%s", err, healthOutput)
+	}
+	for _, fragment := range []string{
+		"postgres port listening",
+		"redis port listening",
+		"nats port listening",
+		"pgadmin port listening",
+		"postgres running",
+		"redis running",
+		"nats running",
+		"pgadmin running",
+	} {
+		if !strings.Contains(healthOutput, fragment) {
+			t.Fatalf("health output missing %q:\n%s", fragment, healthOutput)
+		}
+	}
+
+	stopOutput, err := runStackctl(binaryPath, env, "stop")
+	if err != nil {
+		t.Fatalf("stop returned error: %v\n%s", err, stopOutput)
+	}
+	if !strings.Contains(stopOutput, "stack stopped") {
+		t.Fatalf("unexpected stop output:\n%s", stopOutput)
+	}
+}
+
+func TestManagedStackStartFailsFastWhenHostPortBusy(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("integration tests require Linux")
+	}
+
+	binaryPath := testutil.BuildStackctlBinary(t)
+	configRoot := t.TempDir()
+	dataRoot, err := os.MkdirTemp("", "stackctl-itest-data-*")
+	if err != nil {
+		t.Fatalf("create integration data dir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	requirePodmanCompose(t)
+
+	env := []string{
+		"XDG_CONFIG_HOME=" + configRoot,
+		"XDG_DATA_HOME=" + dataRoot,
+	}
+
+	suffix := strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
+	cfg := integrationManagedLifecycleConfig(t, "busy-"+suffix, "busy-"+suffix)
+	if _, err := configpkg.ScaffoldManagedStack(cfg, true); err != nil {
+		t.Fatalf("scaffold managed compose file: %v", err)
+	}
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
+	if err := configpkg.Save("", cfg); err != nil {
+		t.Fatalf("save integration config: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = runStackctl(binaryPath, env, "reset", "--volumes", "--force")
+		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		_ = os.RemoveAll(dataRoot)
+	})
+
+	blocker, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", cfg.Ports.Postgres))
+	if err != nil {
+		t.Fatalf("listen on postgres test port: %v", err)
+	}
+	defer func() { _ = blocker.Close() }()
+
+	startOutput, err := runStackctl(binaryPath, env, "start")
+	if err == nil {
+		t.Fatalf("expected start to fail when port %d is already busy:\n%s", cfg.Ports.Postgres, startOutput)
+	}
+	if !strings.Contains(startOutput, integrationPortConflictMessage("postgres", cfg.Ports.Postgres)) {
+		t.Fatalf("expected port conflict in start output:\n%s", startOutput)
+	}
+
+	statusOutput, err := runStackctl(binaryPath, env, "status", "--json")
+	if err != nil {
+		t.Fatalf("status --json returned error: %v\n%s", err, statusOutput)
+	}
+	var containers []system.Container
+	if err := json.Unmarshal([]byte(statusOutput), &containers); err != nil {
+		t.Fatalf("parse status json: %v\n%s", err, statusOutput)
+	}
+	if len(containers) != 0 {
+		t.Fatalf("expected no containers after failed start, got %d", len(containers))
+	}
+
+	servicesOutput, err := runStackctl(binaryPath, env, "services", "--json")
+	if err != nil {
+		t.Fatalf("services --json returned error: %v\n%s", err, servicesOutput)
+	}
+	var services []runtimeServiceJSON
+	if err := json.Unmarshal([]byte(servicesOutput), &services); err != nil {
+		t.Fatalf("parse services json: %v\n%s", err, servicesOutput)
+	}
+	servicesByName := make(map[string]runtimeServiceJSON, len(services))
+	for _, service := range services {
+		servicesByName[service.Name] = service
+	}
+	postgres := servicesByName["postgres"]
+	if postgres.Status != "missing" || !postgres.PortConflict {
+		t.Fatalf("expected postgres to report an external port conflict, got %+v", postgres)
+	}
+}
+
+func TestExternalStackMetadataSmoke(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("integration tests require Linux")
+	}
+
+	binaryPath := testutil.BuildStackctlBinary(t)
+	configRoot := t.TempDir()
+	dataRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	requirePodmanCompose(t)
+
+	env := []string{
+		"XDG_CONFIG_HOME=" + configRoot,
+		"XDG_DATA_HOME=" + dataRoot,
+	}
+
+	suffix := strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
+	externalDir := t.TempDir()
+
+	cfg := configpkg.DefaultForStack("external-" + suffix)
+	cfg.Stack.Managed = false
+	cfg.Setup.ScaffoldDefaultStack = false
+	cfg.Stack.Dir = externalDir
+	cfg.Stack.ComposeFile = "compose.yaml"
+	cfg.Setup.IncludePgAdmin = false
+	cfg.Setup.IncludeCockpit = false
+	cfg.Setup.InstallCockpit = false
+	applyManagedIntegrationRuntimeConfig(t, &cfg, "external-"+suffix)
+	cfg.Connection.Host = "devbox"
+	cfg.ApplyDerivedFields()
+
+	if err := configpkg.Save("", cfg); err != nil {
+		t.Fatalf("save external integration config: %v", err)
+	}
+
+	validateOutput, err := runStackctl(binaryPath, env, "config", "validate")
+	if err != nil {
+		t.Fatalf("config validate returned error: %v\n%s", err, validateOutput)
+	}
+	if !strings.Contains(validateOutput, "config is valid") {
+		t.Fatalf("unexpected config validate output:\n%s", validateOutput)
+	}
+
+	connectOutput, err := runStackctl(binaryPath, env, "connect")
+	if err != nil {
+		t.Fatalf("connect returned error: %v\n%s", err, connectOutput)
+	}
+	for _, fragment := range []string{
+		"postgres://stackuser:stackpass@devbox:" + strconv.Itoa(cfg.Ports.Postgres) + "/stackdb",
+		"redis://:redispass@devbox:" + strconv.Itoa(cfg.Ports.Redis),
+		"nats://natspass@devbox:" + strconv.Itoa(cfg.Ports.NATS),
+	} {
+		if !strings.Contains(connectOutput, fragment) {
+			t.Fatalf("connect output missing %q:\n%s", fragment, connectOutput)
+		}
+	}
+
+	envOutput, err := runStackctl(binaryPath, env, "env", "--export")
+	if err != nil {
+		t.Fatalf("env --export returned error: %v\n%s", err, envOutput)
+	}
+	for _, fragment := range []string{
+		"export STACKCTL_STACK='external-" + suffix + "'",
+		"export DATABASE_URL='postgres://stackuser:stackpass@devbox:" + strconv.Itoa(cfg.Ports.Postgres) + "/stackdb'",
+		"export REDIS_URL='redis://:redispass@devbox:" + strconv.Itoa(cfg.Ports.Redis) + "'",
+		"export NATS_URL='nats://natspass@devbox:" + strconv.Itoa(cfg.Ports.NATS) + "'",
+	} {
+		if !strings.Contains(envOutput, fragment) {
+			t.Fatalf("env output missing %q:\n%s", fragment, envOutput)
+		}
+	}
+
+	servicesOutput, err := runStackctl(binaryPath, env, "services", "--json")
+	if err != nil {
+		t.Fatalf("services --json returned error: %v\n%s", err, servicesOutput)
+	}
+	var services []runtimeServiceJSON
+	if err := json.Unmarshal([]byte(servicesOutput), &services); err != nil {
+		t.Fatalf("parse services json: %v\n%s", err, servicesOutput)
+	}
+	if len(services) != 3 {
+		t.Fatalf("expected 3 external services, got %d", len(services))
+	}
+	for _, service := range services {
+		if service.Status != "missing" {
+			t.Fatalf("expected external metadata services to stay missing, got %+v", service)
+		}
+	}
+	if postgres := services[0]; postgres.Name != "postgres" || postgres.DSN != "postgres://stackuser:stackpass@devbox:"+strconv.Itoa(cfg.Ports.Postgres)+"/stackdb" {
+		t.Fatalf("unexpected postgres service: %+v", postgres)
+	}
+	if redis := services[1]; redis.Name != "redis" || redis.DSN != "redis://:redispass@devbox:"+strconv.Itoa(cfg.Ports.Redis) {
+		t.Fatalf("unexpected redis service: %+v", redis)
+	}
+	if nats := services[2]; nats.Name != "nats" || nats.DSN != "nats://natspass@devbox:"+strconv.Itoa(cfg.Ports.NATS) {
+		t.Fatalf("unexpected nats service: %+v", nats)
+	}
+
+	portsOutput, err := runStackctl(binaryPath, env, "ports")
+	if err != nil {
+		t.Fatalf("ports returned error: %v\n%s", err, portsOutput)
+	}
+	for _, fragment := range []string{
+		"Postgres",
+		"Redis",
+		"NATS",
+		"devbox",
+		strconv.Itoa(cfg.Ports.Postgres) + " -> 5432",
+		strconv.Itoa(cfg.Ports.Redis) + " -> 6379",
+		strconv.Itoa(cfg.Ports.NATS) + " -> 4222",
+	} {
+		if !strings.Contains(portsOutput, fragment) {
+			t.Fatalf("ports output missing %q:\n%s", fragment, portsOutput)
+		}
+	}
+}
+
 func TestNamedStackSelectionAndPathResolution(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("integration tests require Linux")
@@ -886,6 +1185,62 @@ func requirePodmanCompose(t *testing.T) {
 	}
 }
 
+func integrationManagedLifecycleConfig(t *testing.T, stackName string, suffix string) configpkg.Config {
+	t.Helper()
+
+	cfg := configpkg.DefaultForStack(stackName)
+	stackDir, err := configpkg.ManagedStackDir(cfg.Stack.Name)
+	if err != nil {
+		t.Fatalf("resolve managed stack dir: %v", err)
+	}
+	cfg.Stack.Dir = stackDir
+	applyManagedIntegrationRuntimeConfig(t, &cfg, suffix)
+	cfg.ApplyDerivedFields()
+	return cfg
+}
+
+func applyManagedIntegrationRuntimeConfig(t *testing.T, cfg *configpkg.Config, suffix string) {
+	t.Helper()
+
+	cfg.Connection.Host = "127.0.0.1"
+	cfg.Connection.PostgresDatabase = "stackdb"
+	cfg.Connection.PostgresUsername = "stackuser"
+	cfg.Connection.PostgresPassword = "stackpass"
+	cfg.Connection.RedisPassword = "redispass"
+	cfg.Connection.NATSToken = "natspass"
+	cfg.Connection.PgAdminEmail = "pgadmin@example.com"
+	cfg.Connection.PgAdminPassword = "pgsecret"
+
+	cfg.Services.PostgresContainer = "stackctl-it-postgres-" + suffix
+	cfg.Services.RedisContainer = "stackctl-it-redis-" + suffix
+	cfg.Services.NATSContainer = "stackctl-it-nats-" + suffix
+	cfg.Services.PgAdminContainer = "stackctl-it-pgadmin-" + suffix
+	cfg.Services.Postgres.DataVolume = "stackctl_it_postgres_data_" + suffix
+	cfg.Services.Redis.DataVolume = "stackctl_it_redis_data_" + suffix
+	cfg.Services.Redis.AppendOnly = true
+	cfg.Services.Redis.SavePolicy = "900 1 300 10"
+	cfg.Services.Redis.MaxMemoryPolicy = "allkeys-lru"
+	cfg.Services.PgAdmin.DataVolume = "stackctl_it_pgadmin_data_" + suffix
+	cfg.Services.PgAdmin.ServerMode = true
+
+	if cfg.PostgresEnabled() {
+		cfg.Ports.Postgres = freePort(t)
+	}
+	if cfg.RedisEnabled() {
+		cfg.Ports.Redis = freePort(t)
+	}
+	if cfg.NATSEnabled() {
+		cfg.Ports.NATS = freePort(t)
+	}
+	if cfg.PgAdminEnabled() {
+		cfg.Ports.PgAdmin = freePort(t)
+	}
+	if cfg.CockpitEnabled() {
+		cfg.Ports.Cockpit = freePort(t)
+	}
+	cfg.Behavior.StartupTimeoutSec = 240
+}
+
 func integrationNATSOnlyStackConfig(t *testing.T, stackName string, token string) configpkg.Config {
 	t.Helper()
 
@@ -919,6 +1274,10 @@ func freePort(t *testing.T) int {
 	defer func() { _ = listener.Close() }()
 
 	return listener.Addr().(*net.TCPAddr).Port
+}
+
+func integrationPortConflictMessage(service string, port int) string {
+	return fmt.Sprintf("port %d is in use by another process or container, not %s", port, service)
 }
 
 func runStackctl(binaryPath string, env []string, args ...string) (string, error) {
