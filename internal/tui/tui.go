@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -723,7 +724,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
 		view := tea.NewView("Loading stackctl tui...")
-		view.AltScreen = true
+		view.AltScreen = tuiAltScreenEnabled()
 		return view
 	}
 
@@ -739,8 +740,12 @@ func (m Model) View() tea.View {
 	blocks = append(blocks, body, footer)
 
 	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, blocks...))
-	view.AltScreen = true
+	view.AltScreen = tuiAltScreenEnabled()
 	return view
+}
+
+func tuiAltScreenEnabled() bool {
+	return os.Getenv("STACKCTL_TUI_NO_ALT_SCREEN") != "1"
 }
 
 func (m Model) footerView() string {

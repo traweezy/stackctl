@@ -220,6 +220,17 @@ func TestRenderHeaderPadsAndColorizesStatus(t *testing.T) {
 	}
 }
 
+func TestViewCanDisableAltScreenForAutomation(t *testing.T) {
+	t.Setenv("STACKCTL_TUI_NO_ALT_SCREEN", "1")
+
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	view := updatedModel.(Model).View()
+	if view.AltScreen {
+		t.Fatal("expected automation mode to disable alt screen rendering")
+	}
+}
+
 func TestViewMasksSecretsUntilToggled(t *testing.T) {
 	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
