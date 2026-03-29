@@ -5,6 +5,8 @@ stdout 'Saved config to '
 exists .config/stackctl/config.yaml
 exists .local/share/stackctl/stacks/dev-stack/compose.yaml
 exists .local/share/stackctl/stacks/dev-stack/nats.conf
+exists .local/share/stackctl/stacks/dev-stack/pgadmin-servers.json
+exists .local/share/stackctl/stacks/dev-stack/pgpass
 
 exec stackctl config view
 stdout 'name: dev-stack'
@@ -57,6 +59,14 @@ services:
     image: "docker.io/library/postgres:16"
     container_name: "local-postgres"
     restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - "max_connections=100"
+      - -c
+      - "shared_buffers=128MB"
+      - -c
+      - "log_min_duration_statement=-1"
     environment:
       POSTGRES_USER: "app"
       POSTGRES_PASSWORD: "app"
@@ -100,10 +110,15 @@ services:
       PGADMIN_DEFAULT_EMAIL: "admin@example.com"
       PGADMIN_DEFAULT_PASSWORD: "admin"
       PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_SERVER_JSON_FILE: "/pgadmin4/servers.json"
+      PGADMIN_REPLACE_SERVERS_ON_STARTUP: "True"
+      PGPASS_FILE: "/tmp/pgpass"
     ports:
       - "8081:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
+      - ./pgpass:/tmp/pgpass:ro
     depends_on:
       - postgres
 
@@ -144,6 +159,7 @@ PGPORT='5432'
 PGDATABASE='app'
 PGUSER='app'
 PGPASSWORD='app'
+PGMAINTENANCE_DB='postgres'
 POSTGRES_HOST='localhost'
 POSTGRES_PORT='5432'
 POSTGRES_DB='app'

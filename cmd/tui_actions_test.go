@@ -180,13 +180,14 @@ func TestRunTUIActionDeleteManagedStackPurgesData(t *testing.T) {
 		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
 			return system.CommandResult{Stdout: "[]"}, nil
 		}
-		value.composeDownPath = func(_ context.Context, _ system.Runner, dir, composePath string, removeVolumes bool) error {
+		value.composeDown = func(_ context.Context, _ system.Runner, cfg configpkg.Config, removeVolumes bool) error {
 			composeDownCalled = true
-			if dir != "/tmp/stackctl-data/stacks/staging" || composePath != "/tmp/stackctl-data/stacks/staging/compose.yaml" || !removeVolumes {
-				t.Fatalf("unexpected compose down args: dir=%s compose=%s removeVolumes=%v", dir, composePath, removeVolumes)
+			if cfg.Stack.Dir != "/tmp/stackctl-data/stacks/staging" || !removeVolumes {
+				t.Fatalf("unexpected compose down args: cfg=%+v removeVolumes=%v", cfg.Stack, removeVolumes)
 			}
 			return nil
 		}
+		value.anyContainerExists = func(context.Context, []string) (bool, error) { return false, nil }
 		value.removeAll = func(path string) error {
 			removedData = path
 			return nil

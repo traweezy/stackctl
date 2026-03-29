@@ -1279,14 +1279,26 @@ func applyConfigCmd(manager *ConfigManager, runner ActionRunner, path string, pr
 }
 
 func scaffoldResultMessage(result configpkg.ScaffoldResult) string {
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 6)
 	if result.CreatedDir {
 		parts = append(parts, fmt.Sprintf("created managed stack directory %s", result.StackDir))
 	}
-	switch {
-	case result.WroteCompose:
+	if result.WroteCompose {
 		parts = append(parts, fmt.Sprintf("wrote managed compose file %s", result.ComposePath))
-	case result.AlreadyPresent:
+	}
+	if result.WroteNATSConfig {
+		parts = append(parts, fmt.Sprintf("wrote managed nats config file %s", result.NATSConfigPath))
+	}
+	if result.WroteRedisACL {
+		parts = append(parts, fmt.Sprintf("wrote managed redis ACL file %s", result.RedisACLPath))
+	}
+	if result.WrotePgAdminServers {
+		parts = append(parts, fmt.Sprintf("wrote managed pgAdmin server bootstrap file %s", result.PgAdminServersPath))
+	}
+	if result.WrotePGPass {
+		parts = append(parts, fmt.Sprintf("wrote managed pgpass file %s", result.PGPassPath))
+	}
+	if len(parts) == 0 && result.AlreadyPresent {
 		parts = append(parts, fmt.Sprintf("managed stack already exists at %s", result.ComposePath))
 	}
 	return strings.Join(parts, "  •  ")
@@ -1447,6 +1459,12 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Changes the Postgres volume name used for database storage."
 	case "services.postgres.maintenance_database":
 		return "Changes the maintenance database stackctl uses for database commands."
+	case "services.postgres.max_connections":
+		return "Changes the Postgres max_connections setting in the managed stack template."
+	case "services.postgres.shared_buffers":
+		return "Changes the Postgres shared_buffers setting in the managed stack template."
+	case "services.postgres.log_min_duration_statement_ms":
+		return "Changes the Postgres slow-query duration logging threshold in the managed stack template."
 	case "services.redis_container":
 		return "Changes the Redis service and container name stackctl targets."
 	case "services.redis.image":
@@ -1485,6 +1503,12 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Changes the pgAdmin volume name used for state and storage."
 	case "services.pgadmin.server_mode":
 		return "Turns pgAdmin server mode on or off."
+	case "services.pgadmin.bootstrap_postgres_server":
+		return "Controls whether stackctl bootstraps pgAdmin with the managed Postgres server."
+	case "services.pgadmin.bootstrap_server_name":
+		return "Changes the saved pgAdmin connection name used for Postgres bootstrap."
+	case "services.pgadmin.bootstrap_server_group":
+		return "Changes the pgAdmin server group used for Postgres bootstrap."
 	case "ports.postgres":
 		return "Changes the host port published for Postgres."
 	case "ports.redis":
@@ -1507,6 +1531,10 @@ func specificFieldEffect(spec configFieldSpec) string {
 		return "Changes the Postgres password in helpers and the managed stack bootstrap environment."
 	case "connection.redis_password":
 		return "Adds or removes Redis authentication in helpers and the managed stack runtime arguments."
+	case "connection.redis_acl_username":
+		return "Changes the Redis ACL username used in helpers and the managed ACL bootstrap file."
+	case "connection.redis_acl_password":
+		return "Changes the Redis ACL password used in helpers and the managed ACL bootstrap file."
 	case "connection.nats_token":
 		return "Changes the NATS token in helpers and the managed NATS configuration."
 	case "connection.meilisearch_master_key":
@@ -1635,6 +1663,9 @@ func redactConfigSecrets(cfg configpkg.Config) configpkg.Config {
 	}
 	if strings.TrimSpace(cfg.Connection.RedisPassword) != "" {
 		cfg.Connection.RedisPassword = maskedSecret
+	}
+	if strings.TrimSpace(cfg.Connection.RedisACLPassword) != "" {
+		cfg.Connection.RedisACLPassword = maskedSecret
 	}
 	if strings.TrimSpace(cfg.Connection.NATSToken) != "" {
 		cfg.Connection.NATSToken = maskedSecret
@@ -2042,6 +2073,29 @@ func positiveIntText(_ configpkg.Config, value string) error {
 	return nil
 }
 
+func parsePostgresLogDurationSetting(value string) (int, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, fmt.Errorf("value must not be empty")
+	}
+	if trimmed == "-1" {
+		return -1, nil
+	}
+	number, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return 0, fmt.Errorf("enter -1 or a positive number")
+	}
+	if number <= 0 {
+		return 0, fmt.Errorf("enter -1 or a positive number")
+	}
+	return number, nil
+}
+
+func validPostgresLogDurationSettingText(_ configpkg.Config, value string) error {
+	_, err := parsePostgresLogDurationSetting(value)
+	return err
+}
+
 func minLengthText(length int) func(configpkg.Config, string) error {
 	return func(_ configpkg.Config, value string) error {
 		if len(strings.TrimSpace(value)) < length {
@@ -2205,6 +2259,45 @@ var configFieldSpecs = []configFieldSpec{
 		GetString:     func(cfg configpkg.Config) string { return cfg.Services.Postgres.MaintenanceDatabase },
 		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.Postgres.MaintenanceDatabase }),
 		InputValidate: requiredText,
+	},
+	{
+		Key:           "services.postgres.max_connections",
+		Group:         "Services",
+		Label:         "Postgres max connections",
+		Description:   "The max_connections setting passed into the managed Postgres server.",
+		Kind:          configFieldInt,
+		GetString:     func(cfg configpkg.Config) string { return strconv.Itoa(cfg.Services.Postgres.MaxConnections) },
+		SetString:     intSetter(func(cfg *configpkg.Config) *int { return &cfg.Services.Postgres.MaxConnections }),
+		InputValidate: positiveIntText,
+	},
+	{
+		Key:           "services.postgres.shared_buffers",
+		Group:         "Services",
+		Label:         "Postgres shared buffers",
+		Description:   "The shared_buffers setting passed into the managed Postgres server.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.Postgres.SharedBuffers },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.Postgres.SharedBuffers }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:         "services.postgres.log_min_duration_statement_ms",
+		Group:       "Services",
+		Label:       "Postgres log min duration",
+		Description: "Set to -1 to disable query duration logging, or a positive threshold in milliseconds.",
+		Kind:        configFieldInt,
+		GetString: func(cfg configpkg.Config) string {
+			return strconv.Itoa(cfg.Services.Postgres.LogMinDurationStatementMS)
+		},
+		SetString: func(cfg *configpkg.Config, value string) error {
+			parsed, err := parsePostgresLogDurationSetting(value)
+			if err != nil {
+				return err
+			}
+			cfg.Services.Postgres.LogMinDurationStatementMS = parsed
+			return nil
+		},
+		InputValidate: validPostgresLogDurationSettingText,
 	},
 	{
 		Key:         "setup.include_redis",
@@ -2467,6 +2560,38 @@ var configFieldSpecs = []configFieldSpec{
 		},
 	},
 	{
+		Key:         "services.pgadmin.bootstrap_postgres_server",
+		Group:       "Services",
+		Label:       "pgAdmin bootstrap Postgres",
+		Description: "Generate pgAdmin bootstrap files for the managed Postgres service.",
+		Kind:        configFieldBool,
+		GetBool:     func(cfg configpkg.Config) bool { return cfg.Services.PgAdmin.BootstrapPostgresServer },
+		SetBool: func(cfg *configpkg.Config, value bool) error {
+			cfg.Services.PgAdmin.BootstrapPostgresServer = value
+			return nil
+		},
+	},
+	{
+		Key:           "services.pgadmin.bootstrap_server_name",
+		Group:         "Services",
+		Label:         "pgAdmin bootstrap server name",
+		Description:   "The saved pgAdmin connection name used for the managed Postgres bootstrap entry.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.PgAdmin.BootstrapServerName },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.PgAdmin.BootstrapServerName }),
+		InputValidate: requiredText,
+	},
+	{
+		Key:           "services.pgadmin.bootstrap_server_group",
+		Group:         "Services",
+		Label:         "pgAdmin bootstrap server group",
+		Description:   "The pgAdmin server group used for the managed Postgres bootstrap entry.",
+		Kind:          configFieldString,
+		GetString:     func(cfg configpkg.Config) string { return cfg.Services.PgAdmin.BootstrapServerGroup },
+		SetString:     stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Services.PgAdmin.BootstrapServerGroup }),
+		InputValidate: requiredText,
+	},
+	{
 		Key:           "ports.postgres",
 		Group:         "Ports",
 		Label:         "Postgres port",
@@ -2586,6 +2711,25 @@ var configFieldSpecs = []configFieldSpec{
 		Secret:      true,
 		GetString:   func(cfg configpkg.Config) string { return cfg.Connection.RedisPassword },
 		SetString:   stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.RedisPassword }),
+	},
+	{
+		Key:         "connection.redis_acl_username",
+		Group:       "Connections",
+		Label:       "Redis ACL username",
+		Description: "Optional named Redis ACL username for app connections. Leave empty to keep DSNs password-only.",
+		Kind:        configFieldString,
+		GetString:   func(cfg configpkg.Config) string { return cfg.Connection.RedisACLUsername },
+		SetString:   stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.RedisACLUsername }),
+	},
+	{
+		Key:         "connection.redis_acl_password",
+		Group:       "Connections",
+		Label:       "Redis ACL password",
+		Description: "Optional named Redis ACL password. Set this together with the Redis ACL username.",
+		Kind:        configFieldString,
+		Secret:      true,
+		GetString:   func(cfg configpkg.Config) string { return cfg.Connection.RedisACLPassword },
+		SetString:   stringSetter(func(cfg *configpkg.Config) *string { return &cfg.Connection.RedisACLPassword }),
 	},
 	{
 		Key:           "connection.nats_token",

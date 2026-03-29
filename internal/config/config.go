@@ -49,9 +49,12 @@ type ServicesConfig struct {
 }
 
 type PostgresServiceConfig struct {
-	Image               string `yaml:"image"`
-	DataVolume          string `yaml:"data_volume"`
-	MaintenanceDatabase string `yaml:"maintenance_database"`
+	Image                     string `yaml:"image"`
+	DataVolume                string `yaml:"data_volume"`
+	MaintenanceDatabase       string `yaml:"maintenance_database"`
+	MaxConnections            int    `yaml:"max_connections"`
+	SharedBuffers             string `yaml:"shared_buffers"`
+	LogMinDurationStatementMS int    `yaml:"log_min_duration_statement_ms"`
 }
 
 type RedisServiceConfig struct {
@@ -78,9 +81,12 @@ type MeilisearchServiceConfig struct {
 }
 
 type PgAdminServiceConfig struct {
-	Image      string `yaml:"image"`
-	DataVolume string `yaml:"data_volume"`
-	ServerMode bool   `yaml:"server_mode"`
+	Image                   string `yaml:"image"`
+	DataVolume              string `yaml:"data_volume"`
+	ServerMode              bool   `yaml:"server_mode"`
+	BootstrapPostgresServer bool   `yaml:"bootstrap_postgres_server"`
+	BootstrapServerName     string `yaml:"bootstrap_server_name"`
+	BootstrapServerGroup    string `yaml:"bootstrap_server_group"`
 }
 
 type ConnectionConfig struct {
@@ -89,6 +95,8 @@ type ConnectionConfig struct {
 	PostgresUsername     string `yaml:"postgres_username"`
 	PostgresPassword     string `yaml:"postgres_password"`
 	RedisPassword        string `yaml:"redis_password"`
+	RedisACLUsername     string `yaml:"redis_acl_username"`
+	RedisACLPassword     string `yaml:"redis_acl_password"`
 	NATSToken            string `yaml:"nats_token"`
 	SeaweedFSAccessKey   string `yaml:"seaweedfs_access_key"`
 	SeaweedFSSecretKey   string `yaml:"seaweedfs_secret_key"`
@@ -253,6 +261,15 @@ func (c *Config) ApplyDerivedFields() {
 	if c.Services.Postgres.MaintenanceDatabase == "" {
 		c.Services.Postgres.MaintenanceDatabase = "postgres"
 	}
+	if c.Services.Postgres.MaxConnections <= 0 {
+		c.Services.Postgres.MaxConnections = 100
+	}
+	if c.Services.Postgres.SharedBuffers == "" {
+		c.Services.Postgres.SharedBuffers = "128MB"
+	}
+	if c.Services.Postgres.LogMinDurationStatementMS == 0 {
+		c.Services.Postgres.LogMinDurationStatementMS = -1
+	}
 
 	if c.Services.Redis.Image == "" {
 		c.Services.Redis.Image = "docker.io/library/redis:7"
@@ -308,6 +325,12 @@ func (c *Config) ApplyDerivedFields() {
 	if c.Services.PgAdmin.DataVolume == "" {
 		c.Services.PgAdmin.DataVolume = defaultPgAdminVolumeName(c.Stack.Name)
 	}
+	if c.Services.PgAdmin.BootstrapServerName == "" {
+		c.Services.PgAdmin.BootstrapServerName = "Local Postgres"
+	}
+	if c.Services.PgAdmin.BootstrapServerGroup == "" {
+		c.Services.PgAdmin.BootstrapServerGroup = "Local"
+	}
 
 	if c.Ports.Cockpit > 0 {
 		c.URLs.Cockpit = fmt.Sprintf("https://%s:%d", c.Connection.Host, c.Ports.Cockpit)
@@ -348,6 +371,14 @@ func (c Config) MeilisearchEnabled() bool {
 
 func (c Config) PgAdminEnabled() bool {
 	return c.Setup.IncludePgAdmin
+}
+
+func (c Config) RedisACLEnabled() bool {
+	return strings.TrimSpace(c.Connection.RedisACLUsername) != "" && strings.TrimSpace(c.Connection.RedisACLPassword) != ""
+}
+
+func (c Config) PgAdminBootstrapEnabled() bool {
+	return c.PgAdminEnabled() && c.PostgresEnabled() && c.Services.PgAdmin.BootstrapPostgresServer
 }
 
 func (c Config) CockpitEnabled() bool {
@@ -403,6 +434,24 @@ func applyLegacySetupDefaults(data []byte, cfg *Config) {
 	}
 	if !yamlPathPresent(&root, "setup", "scaffold_default_stack") {
 		cfg.Setup.ScaffoldDefaultStack = true
+	}
+	if !yamlPathPresent(&root, "services", "postgres", "max_connections") {
+		cfg.Services.Postgres.MaxConnections = 100
+	}
+	if !yamlPathPresent(&root, "services", "postgres", "shared_buffers") {
+		cfg.Services.Postgres.SharedBuffers = "128MB"
+	}
+	if !yamlPathPresent(&root, "services", "postgres", "log_min_duration_statement_ms") {
+		cfg.Services.Postgres.LogMinDurationStatementMS = -1
+	}
+	if !yamlPathPresent(&root, "services", "pgadmin", "bootstrap_server_name") {
+		cfg.Services.PgAdmin.BootstrapServerName = "Local Postgres"
+	}
+	if !yamlPathPresent(&root, "services", "pgadmin", "bootstrap_server_group") {
+		cfg.Services.PgAdmin.BootstrapServerGroup = "Local"
+	}
+	if !yamlPathPresent(&root, "services", "pgadmin", "bootstrap_postgres_server") {
+		cfg.Services.PgAdmin.BootstrapPostgresServer = true
 	}
 }
 

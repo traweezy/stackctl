@@ -107,6 +107,9 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	cfg.Services.Postgres.Image = "docker.io/library/postgres:17"
 	cfg.Services.Postgres.DataVolume = "stack_postgres_data"
 	cfg.Services.Postgres.MaintenanceDatabase = "template1"
+	cfg.Services.Postgres.MaxConnections = 250
+	cfg.Services.Postgres.SharedBuffers = "256MB"
+	cfg.Services.Postgres.LogMinDurationStatementMS = 500
 	cfg.Connection.PostgresUsername = "stackuser"
 	cfg.Connection.PostgresPassword = "stackpass"
 	cfg.Connection.PostgresDatabase = "stackdb"
@@ -121,6 +124,9 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	cfg.Services.PgAdmin.Image = "docker.io/dpage/pgadmin4:9"
 	cfg.Services.PgAdmin.DataVolume = "stack_pgadmin_data"
 	cfg.Services.PgAdmin.ServerMode = true
+	cfg.Services.PgAdmin.BootstrapPostgresServer = true
+	cfg.Services.PgAdmin.BootstrapServerName = "Stack Postgres"
+	cfg.Services.PgAdmin.BootstrapServerGroup = "Stack"
 	cfg.Connection.PgAdminEmail = "pgadmin@example.com"
 	cfg.Connection.PgAdminPassword = "pgsecret"
 	cfg.Ports.Postgres = 15432
@@ -155,6 +161,9 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "POSTGRES_DB: \"stackdb\"") {
 		t.Fatalf("expected rendered postgres database, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "\"max_connections=250\"") || !strings.Contains(string(data), "\"shared_buffers=256MB\"") || !strings.Contains(string(data), "\"log_min_duration_statement=500\"") {
+		t.Fatalf("expected rendered postgres tuning command, got: %s", string(data))
 	}
 	if !strings.Contains(string(data), "\"15432:5432\"") {
 		t.Fatalf("expected rendered postgres port mapping, got: %s", string(data))
@@ -198,6 +207,12 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	if !strings.Contains(string(data), "PGADMIN_CONFIG_SERVER_MODE: \"True\"") {
 		t.Fatalf("expected rendered pgadmin server mode, got: %s", string(data))
 	}
+	if !strings.Contains(string(data), "PGADMIN_SERVER_JSON_FILE: \"/pgadmin4/servers.json\"") || !strings.Contains(string(data), "PGPASS_FILE: \"/tmp/pgpass\"") {
+		t.Fatalf("expected rendered pgadmin bootstrap env, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "./pgadmin-servers.json:/pgadmin4/servers.json:ro") || !strings.Contains(string(data), "./pgpass:/tmp/pgpass:ro") {
+		t.Fatalf("expected rendered pgadmin bootstrap mounts, got: %s", string(data))
+	}
 
 	natsConfigData, err := os.ReadFile(result.NATSConfigPath)
 	if err != nil {
@@ -205,6 +220,22 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	}
 	if !strings.Contains(string(natsConfigData), "token: \"natssecret\"") {
 		t.Fatalf("expected rendered nats token, got: %s", string(natsConfigData))
+	}
+
+	serversData, err := os.ReadFile(result.PgAdminServersPath)
+	if err != nil {
+		t.Fatalf("read pgadmin bootstrap servers file: %v", err)
+	}
+	if !strings.Contains(string(serversData), "\"Name\": \"Stack Postgres\"") || !strings.Contains(string(serversData), "\"Group\": \"Stack\"") {
+		t.Fatalf("expected rendered pgadmin bootstrap servers file, got: %s", string(serversData))
+	}
+
+	pgPassData, err := os.ReadFile(result.PGPassPath)
+	if err != nil {
+		t.Fatalf("read pgpass bootstrap file: %v", err)
+	}
+	if strings.TrimSpace(string(pgPassData)) != "postgres:5432:*:stackuser:stackpass" {
+		t.Fatalf("unexpected pgpass content: %s", string(pgPassData))
 	}
 }
 
@@ -448,6 +479,48 @@ func TestScaffoldManagedStackOmitsRedisAuthWhenPasswordIsBlank(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "--appendonly") || !strings.Contains(string(data), "\"no\"") {
 		t.Fatalf("expected redis defaults to stay rendered, got: %s", string(data))
+	}
+}
+
+func TestScaffoldManagedStackAddsRedisACLWhenConfigured(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	cfg.Connection.RedisPassword = "defaultpass"
+	cfg.Connection.RedisACLUsername = "app"
+	cfg.Connection.RedisACLPassword = "apppass"
+
+	result, err := ScaffoldManagedStack(cfg, false)
+	if err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(result.ComposePath)
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "user: \"0:0\"") || !strings.Contains(text, "--aclfile") || !strings.Contains(text, "./redis.acl:/usr/local/etc/redis/users.acl:ro") {
+		t.Fatalf("expected redis ACL command and mount, got: %s", text)
+	}
+	if strings.Contains(text, "--requirepass") {
+		t.Fatalf("expected redis ACL bootstrap to replace requirepass, got: %s", text)
+	}
+
+	aclData, err := os.ReadFile(result.RedisACLPath)
+	if err != nil {
+		t.Fatalf("read redis ACL file: %v", err)
+	}
+	aclText := string(aclData)
+	if !strings.Contains(aclText, "user default on >defaultpass ~* &* +@all") || !strings.Contains(aclText, "user app on >apppass ~* &* +@all") {
+		t.Fatalf("unexpected redis ACL content: %s", aclText)
+	}
+	info, err := os.Stat(result.RedisACLPath)
+	if err != nil {
+		t.Fatalf("stat redis ACL file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o644 {
+		t.Fatalf("expected redis ACL mode 0644, got %o", got)
 	}
 }
 

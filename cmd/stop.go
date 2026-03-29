@@ -30,12 +30,12 @@ func newStopCmd() *cobra.Command {
 			}
 
 			target := lifecycleTargetLabel(services)
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusStop, fmt.Sprintf("stopping %s...", strings.ToLower(target))); err != nil {
+			if err := statusLine(cmd, output.StatusStop, fmt.Sprintf("stopping %s...", strings.ToLower(target))); err != nil {
 				return err
 			}
 			switch {
 			case len(services) == 0:
-				err = deps.composeDown(context.Background(), runnerFor(cmd), cfg, false)
+				err = composeDownAndWait(context.Background(), runnerFor(cmd), cfg, false)
 			default:
 				err = deps.composeStopServices(context.Background(), runnerFor(cmd), cfg, services)
 			}
@@ -43,7 +43,7 @@ func newStopCmd() *cobra.Command {
 				return err
 			}
 
-			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("%s stopped", target))
+			return statusLine(cmd, output.StatusOK, fmt.Sprintf("%s stopped", target))
 		},
 	}
 }

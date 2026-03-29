@@ -62,7 +62,7 @@ func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config
 		}
 	}
 
-	issues := deps.validateConfig(cfg)
+	issues := filterAutoScaffoldValidationIssues(cfg, deps.validateConfig(cfg))
 	if len(issues) > 0 {
 		if err := printValidationIssues(cmd, issues); err != nil {
 			return configpkg.Config{}, err
@@ -296,11 +296,16 @@ type runtimeService struct {
 	SecretKey         string `json:"-"`
 	Username          string `json:"username,omitempty"`
 	Password          string `json:"-"`
+	MaxConnections    int    `json:"max_connections,omitempty"`
+	SharedBuffers     string `json:"shared_buffers,omitempty"`
+	LogMinDurationMS  int    `json:"log_min_duration_statement_ms,omitempty"`
 	AppendOnly        *bool  `json:"appendonly,omitempty"`
 	SavePolicy        string `json:"save_policy,omitempty"`
 	MaxMemoryPolicy   string `json:"maxmemory_policy,omitempty"`
 	VolumeSizeLimitMB int    `json:"volume_size_limit_mb,omitempty"`
 	ServerMode        string `json:"server_mode,omitempty"`
+	BootstrapServer   string `json:"bootstrap_server,omitempty"`
+	BootstrapGroup    string `json:"bootstrap_server_group,omitempty"`
 	Endpoint          string `json:"endpoint,omitempty"`
 	URL               string `json:"url,omitempty"`
 	DSN               string `json:"dsn,omitempty"`
@@ -607,6 +612,25 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 				return err
 			}
 		}
+		if service.MaxConnections > 0 {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Max connections: %d\n", service.MaxConnections); err != nil {
+				return err
+			}
+		}
+		if service.SharedBuffers != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Shared buffers: %s\n", service.SharedBuffers); err != nil {
+				return err
+			}
+		}
+		if service.LogMinDurationMS != 0 {
+			label := fmt.Sprintf("%d ms", service.LogMinDurationMS)
+			if service.LogMinDurationMS < 0 {
+				label = "disabled"
+			}
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Log min duration: %s\n", label); err != nil {
+				return err
+			}
+		}
 		if service.AppendOnly != nil {
 			appendOnlyValue := "disabled"
 			if *service.AppendOnly {
@@ -633,6 +657,16 @@ func printServicesInfo(cmd *cobra.Command, cfg configpkg.Config) error {
 		}
 		if service.ServerMode != "" {
 			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Server mode: %s\n", service.ServerMode); err != nil {
+				return err
+			}
+		}
+		if service.BootstrapServer != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Bootstrap server: %s\n", service.BootstrapServer); err != nil {
+				return err
+			}
+		}
+		if service.BootstrapGroup != "" {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "  Bootstrap group: %s\n", service.BootstrapGroup); err != nil {
 				return err
 			}
 		}
@@ -901,8 +935,13 @@ func redisDSN(cfg configpkg.Config) string {
 		Scheme: "redis",
 		Host:   fmt.Sprintf("%s:%d", cfg.Connection.Host, cfg.Ports.Redis),
 	}
-	if cfg.Connection.RedisPassword != "" {
-		target.User = url.UserPassword("", cfg.Connection.RedisPassword)
+	username := activeRedisUsername(cfg)
+	password := activeRedisPassword(cfg)
+	switch {
+	case username != "" && password != "":
+		target.User = url.UserPassword(username, password)
+	case password != "":
+		target.User = url.UserPassword("", password)
 	}
 
 	return target.String()
@@ -934,6 +973,20 @@ func meilisearchURL(cfg configpkg.Config) string {
 	}
 
 	return fmt.Sprintf("http://%s:%d", cfg.Connection.Host, cfg.Ports.Meilisearch)
+}
+
+func activeRedisUsername(cfg configpkg.Config) string {
+	if cfg.RedisACLEnabled() {
+		return cfg.Connection.RedisACLUsername
+	}
+	return ""
+}
+
+func activeRedisPassword(cfg configpkg.Config) string {
+	if cfg.RedisACLEnabled() {
+		return cfg.Connection.RedisACLPassword
+	}
+	return cfg.Connection.RedisPassword
 }
 
 func containerStatus(containerByName map[string]system.Container, containerName string) string {

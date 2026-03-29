@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": {{ printf "%q" .Services.PgAdmin.BootstrapServerName }},
+      "Group": {{ printf "%q" .Services.PgAdmin.BootstrapServerGroup }},
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": {{ printf "%q" .Services.Postgres.MaintenanceDatabase }},
+      "Username": {{ printf "%q" .Connection.PostgresUsername }},
+      "SSLMode": "prefer",
+      "PassFile": "/tmp/pgpass"
+    }
+  }
+}

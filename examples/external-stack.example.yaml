@@ -19,6 +19,9 @@ services:
     image: docker.io/library/postgres:16
     data_volume: postgres_data
     maintenance_database: postgres
+    max_connections: 100
+    shared_buffers: 128MB
+    log_min_duration_statement_ms: -1
   redis:
     image: docker.io/library/redis:7
     data_volume: redis_data
@@ -38,6 +41,9 @@ services:
     image: docker.io/dpage/pgadmin4:latest
     data_volume: pgadmin_data
     server_mode: false
+    bootstrap_postgres_server: true
+    bootstrap_server_name: Local Postgres
+    bootstrap_server_group: Local
 
 connection:
   host: localhost
@@ -45,6 +51,8 @@ connection:
   postgres_username: app
   postgres_password: app
   redis_password: ""
+  redis_acl_username: ""
+  redis_acl_password: ""
   nats_token: stackctl
   seaweedfs_access_key: stackctl
   seaweedfs_secret_key: stackctlsecret

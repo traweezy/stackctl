@@ -89,6 +89,7 @@ func Validate(cfg Config) []ValidationIssue {
 			"services.postgres.image":                cfg.Services.Postgres.Image,
 			"services.postgres.data_volume":          cfg.Services.Postgres.DataVolume,
 			"services.postgres.maintenance_database": cfg.Services.Postgres.MaintenanceDatabase,
+			"services.postgres.shared_buffers":       cfg.Services.Postgres.SharedBuffers,
 			"connection.postgres_database":           cfg.Connection.PostgresDatabase,
 			"connection.postgres_username":           cfg.Connection.PostgresUsername,
 			"connection.postgres_password":           cfg.Connection.PostgresPassword,
@@ -96,6 +97,12 @@ func Validate(cfg Config) []ValidationIssue {
 			if strings.TrimSpace(value) == "" {
 				issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
 			}
+		}
+		if cfg.Services.Postgres.MaxConnections <= 0 {
+			issues = append(issues, ValidationIssue{Field: "services.postgres.max_connections", Message: "must be greater than zero"})
+		}
+		if cfg.Services.Postgres.LogMinDurationStatementMS != -1 && cfg.Services.Postgres.LogMinDurationStatementMS <= 0 {
+			issues = append(issues, ValidationIssue{Field: "services.postgres.log_min_duration_statement_ms", Message: "must be -1 or greater than zero"})
 		}
 	}
 
@@ -109,6 +116,27 @@ func Validate(cfg Config) []ValidationIssue {
 		} {
 			if strings.TrimSpace(value) == "" {
 				issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
+			}
+		}
+		username := strings.TrimSpace(cfg.Connection.RedisACLUsername)
+		password := strings.TrimSpace(cfg.Connection.RedisACLPassword)
+		switch {
+		case username == "" && password == "":
+		case username == "" || password == "":
+			issues = append(issues, ValidationIssue{Field: "connection.redis_acl_username", Message: "redis ACL username and password must be set together"})
+			issues = append(issues, ValidationIssue{Field: "connection.redis_acl_password", Message: "redis ACL username and password must be set together"})
+		default:
+			if strings.EqualFold(username, "default") {
+				issues = append(issues, ValidationIssue{Field: "connection.redis_acl_username", Message: "use connection.redis_password for the default Redis user"})
+			}
+			if hasWhitespace(username) {
+				issues = append(issues, ValidationIssue{Field: "connection.redis_acl_username", Message: "must not contain whitespace"})
+			}
+			if hasWhitespace(password) {
+				issues = append(issues, ValidationIssue{Field: "connection.redis_acl_password", Message: "must not contain whitespace"})
+			}
+			if strings.TrimSpace(cfg.Connection.RedisPassword) != "" && hasWhitespace(cfg.Connection.RedisPassword) {
+				issues = append(issues, ValidationIssue{Field: "connection.redis_password", Message: "must not contain whitespace when Redis ACL bootstrap is enabled"})
 			}
 		}
 	}
@@ -170,6 +198,19 @@ func Validate(cfg Config) []ValidationIssue {
 				issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
 			}
 		}
+		if cfg.Services.PgAdmin.BootstrapPostgresServer {
+			if !cfg.PostgresEnabled() {
+				issues = append(issues, ValidationIssue{Field: "services.pgadmin.bootstrap_postgres_server", Message: "requires Postgres to be enabled"})
+			}
+			for field, value := range map[string]string{
+				"services.pgadmin.bootstrap_server_name":  cfg.Services.PgAdmin.BootstrapServerName,
+				"services.pgadmin.bootstrap_server_group": cfg.Services.PgAdmin.BootstrapServerGroup,
+			} {
+				if strings.TrimSpace(value) == "" {
+					issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
+				}
+			}
+		}
 	}
 
 	if cfg.PostgresEnabled() && (cfg.Ports.Postgres < 1 || cfg.Ports.Postgres > 65535) {
@@ -215,4 +256,8 @@ func ValidateOrError(cfg Config) error {
 	}
 
 	return ValidationError{Issues: issues}
+}
+
+func hasWhitespace(value string) bool {
+	return strings.ContainsAny(value, " \t\r\n")
 }

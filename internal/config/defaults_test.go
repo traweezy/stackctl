@@ -57,6 +57,24 @@ func TestDefaultConfigHasDerivedURLs(t *testing.T) {
 	if cfg.Connection.PgAdminPassword != "admin" {
 		t.Fatalf("unexpected pgadmin password: %s", cfg.Connection.PgAdminPassword)
 	}
+	if cfg.Services.Postgres.MaxConnections != 100 {
+		t.Fatalf("unexpected postgres max connections: %d", cfg.Services.Postgres.MaxConnections)
+	}
+	if cfg.Services.Postgres.SharedBuffers != "128MB" {
+		t.Fatalf("unexpected postgres shared buffers: %s", cfg.Services.Postgres.SharedBuffers)
+	}
+	if cfg.Services.Postgres.LogMinDurationStatementMS != -1 {
+		t.Fatalf("unexpected postgres log duration default: %d", cfg.Services.Postgres.LogMinDurationStatementMS)
+	}
+	if !cfg.Services.PgAdmin.BootstrapPostgresServer {
+		t.Fatal("expected pgadmin postgres bootstrap to default on")
+	}
+	if cfg.Services.PgAdmin.BootstrapServerName != "Local Postgres" {
+		t.Fatalf("unexpected pgadmin bootstrap server name: %s", cfg.Services.PgAdmin.BootstrapServerName)
+	}
+	if cfg.Services.PgAdmin.BootstrapServerGroup != "Local" {
+		t.Fatalf("unexpected pgadmin bootstrap server group: %s", cfg.Services.PgAdmin.BootstrapServerGroup)
+	}
 }
 
 func TestDefaultForNamedStackUsesStackSpecificManagedDefaults(t *testing.T) {

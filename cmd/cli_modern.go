@@ -139,6 +139,13 @@ func completeExecArgs(_ *cobra.Command, args []string, toComplete string) ([]cob
 	return completeStackServiceArgs(nil, args, toComplete)
 }
 
+func completeRunArgs(cmd *cobra.Command, args []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
+	if cmd.ArgsLenAtDash() >= 0 {
+		return nil, cobra.ShellCompDirectiveDefault
+	}
+	return completeStackServiceArgs(cmd, args, toComplete)
+}
+
 func completeLogsServiceFlag(_ *cobra.Command, _ []string, toComplete string) ([]cobra.Completion, cobra.ShellCompDirective) {
 	completions := make([]cobra.Completion, 0, len(serviceDefinitions()))
 	for _, definition := range completionServiceDefinitions() {

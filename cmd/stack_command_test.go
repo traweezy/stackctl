@@ -154,7 +154,7 @@ func TestStackDeletePurgeManagedStackRemovesDataAndResetsSelection(t *testing.T)
 		}
 		d.stat = func(path string) (os.FileInfo, error) {
 			switch path {
-			case "/tmp/stackctl/stacks/staging.yaml", "/tmp/stackctl/compose.yaml":
+			case "/tmp/stackctl/stacks/staging.yaml", "/tmp/stackctl-data/stacks/staging/compose.yaml":
 				return fakeFileInfo{name: filepath.Base(path)}, nil
 			default:
 				return nil, os.ErrNotExist
@@ -165,16 +165,20 @@ func TestStackDeletePurgeManagedStackRemovesDataAndResetsSelection(t *testing.T)
 			cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
 			return cfg, nil
 		}
+		d.composePath = func(cfg configpkg.Config) string {
+			return cfg.Stack.Dir + "/compose.yaml"
+		}
 		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
 			return system.CommandResult{Stdout: "[]"}, nil
 		}
-		d.composeDownPath = func(_ context.Context, _ system.Runner, dir, composePath string, removeVolumes bool) error {
+		d.composeDown = func(_ context.Context, _ system.Runner, cfg configpkg.Config, removeVolumes bool) error {
 			composeDownCalled = true
-			if dir != "/tmp/stackctl-data/stacks/staging" || composePath != "/tmp/stackctl/compose.yaml" || !removeVolumes {
-				t.Fatalf("unexpected compose down args: dir=%s compose=%s removeVolumes=%v", dir, composePath, removeVolumes)
+			if cfg.Stack.Dir != "/tmp/stackctl-data/stacks/staging" || !removeVolumes {
+				t.Fatalf("unexpected compose down args: cfg=%+v removeVolumes=%v", cfg.Stack, removeVolumes)
 			}
 			return nil
 		}
+		d.anyContainerExists = func(context.Context, []string) (bool, error) { return false, nil }
 		d.removeAll = func(path string) error {
 			removedData = path
 			return nil

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,7 +20,7 @@ import (
 
 func TestDefaultCommandDepsProvidesHooks(t *testing.T) {
 	value := defaultCommandDeps()
-	if value.configDirPath == nil || value.configFilePath == nil || value.configFilePathForStack == nil || value.knownConfigPaths == nil || value.currentStackName == nil || value.setCurrentStackName == nil || value.composeUp == nil || value.composeUpServices == nil || value.composeStopServices == nil || value.composeExec == nil || value.removeFile == nil || value.removeAll == nil || value.mkdirAll == nil || value.rename == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
+	if value.configDirPath == nil || value.configFilePath == nil || value.configFilePathForStack == nil || value.knownConfigPaths == nil || value.currentStackName == nil || value.setCurrentStackName == nil || value.composeUp == nil || value.composeUpServices == nil || value.composeStopServices == nil || value.composeExec == nil || value.runExternalCommand == nil || value.removeFile == nil || value.removeAll == nil || value.mkdirAll == nil || value.rename == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
 		t.Fatal("default command deps should initialize function hooks")
 	}
 }
@@ -498,6 +499,51 @@ func TestStartFailsWhenHostPortIsAlreadyBusy(t *testing.T) {
 	}
 }
 
+func TestStartAllowsPendingManagedScaffoldValidationIssues(t *testing.T) {
+	var scaffolded bool
+	var started bool
+
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Behavior.WaitForServicesStart = false
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.validateConfig = func(configpkg.Config) []configpkg.ValidationIssue {
+			return []configpkg.ValidationIssue{
+				{Field: "stack.dir", Message: fmt.Sprintf("directory does not exist: %s", cfg.Stack.Dir)},
+				{Field: "stack.compose_file", Message: fmt.Sprintf("file does not exist: %s", configpkg.ComposePath(cfg))},
+			}
+		}
+		d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) { return true, nil }
+		d.scaffoldManagedStack = func(cfg configpkg.Config, _ bool) (configpkg.ScaffoldResult, error) {
+			scaffolded = true
+			return configpkg.ScaffoldResult{
+				StackDir:     cfg.Stack.Dir,
+				ComposePath:  configpkg.ComposePath(cfg),
+				WroteCompose: true,
+			}, nil
+		}
+		d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+			started = true
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "start")
+	if err != nil {
+		t.Fatalf("start returned error: %v", err)
+	}
+	if !scaffolded {
+		t.Fatal("expected start to scaffold pending managed stack files")
+	}
+	if !started {
+		t.Fatal("expected start to continue into compose up")
+	}
+	if !strings.Contains(stdout, "wrote managed compose file") {
+		t.Fatalf("expected start output to include scaffold status:\n%s", stdout)
+	}
+}
+
 func TestStartServiceWithWaitDisabledFailsWhenContainerExitsImmediately(t *testing.T) {
 	cfg := configpkg.Default()
 	cfg.Behavior.WaitForServicesStart = false
@@ -734,6 +780,83 @@ func TestRestartRunsDownUpWaitAndPrintsEndpoints(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "Cockpit\n  https://localhost:9090") {
 		t.Fatalf("restart should print connection info: %s", stdout)
+	}
+}
+
+func TestResetWaitsForContainersToBeRemoved(t *testing.T) {
+	originalTimeout := downWaitTimeout
+	originalInterval := downWaitInterval
+	downWaitTimeout = 50 * time.Millisecond
+	downWaitInterval = time.Millisecond
+	t.Cleanup(func() {
+		downWaitTimeout = originalTimeout
+		downWaitInterval = originalInterval
+	})
+
+	checks := 0
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.anyContainerExists = func(context.Context, []string) (bool, error) {
+			checks++
+			return checks < 2, nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "reset", "--force")
+	if err != nil {
+		t.Fatalf("reset returned error: %v", err)
+	}
+	if checks < 2 {
+		t.Fatalf("expected reset to poll for container removal, got %d checks", checks)
+	}
+	if !strings.Contains(stdout, "✅ stack reset") {
+		t.Fatalf("unexpected reset output: %s", stdout)
+	}
+}
+
+func TestRestartWaitsForContainersToBeRemovedBeforeStartingAgain(t *testing.T) {
+	originalTimeout := downWaitTimeout
+	originalInterval := downWaitInterval
+	downWaitTimeout = 50 * time.Millisecond
+	downWaitInterval = time.Millisecond
+	t.Cleanup(func() {
+		downWaitTimeout = originalTimeout
+		downWaitInterval = originalInterval
+	})
+
+	existsChecks := 0
+	upCalled := false
+
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.anyContainerExists = func(context.Context, []string) (bool, error) {
+			existsChecks++
+			return existsChecks < 2, nil
+		}
+		d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+			upCalled = true
+			if existsChecks < 2 {
+				t.Fatalf("composeUp called before containers were removed")
+			}
+			return nil
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
+		d.waitForPort = func(context.Context, int, time.Duration) error { return nil }
+	})
+
+	if _, _, err := executeRoot(t, "restart"); err != nil {
+		t.Fatalf("restart returned error: %v", err)
+	}
+	if !upCalled {
+		t.Fatal("expected restart to start the stack again")
+	}
+	if existsChecks < 2 {
+		t.Fatalf("expected restart to poll for container removal, got %d checks", existsChecks)
 	}
 }
 

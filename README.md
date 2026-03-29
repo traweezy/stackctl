@@ -230,6 +230,8 @@ config:
 - Postgres username: `app`
 - Postgres password: `app`
 - Redis password: disabled by default
+- Redis ACL username: disabled by default
+- Redis ACL password: disabled by default
 - NATS token: `stackctl`
 - SeaweedFS access key: `stackctl`
 - SeaweedFS secret key: `stackctlsecret`
@@ -265,11 +267,16 @@ Managed service defaults also include:
 - Postgres image: `docker.io/library/postgres:16`
 - Postgres data volume: `postgres_data`
 - Postgres maintenance database for admin helpers: `postgres`
+- Postgres max connections: `100`
+- Postgres shared buffers: `128MB`
+- Postgres slow-query logging threshold: disabled (`-1`)
 - Redis image: `docker.io/library/redis:7`
 - Redis data volume: `redis_data`
 - Redis appendonly persistence: disabled
 - Redis save policy: `3600 1 300 100 60 10000`
 - Redis maxmemory policy: `noeviction`
+- Redis ACL scaffold: disabled unless `redis_acl_username` and
+  `redis_acl_password` are both set
 - NATS image: `docker.io/library/nats:2.12.5`
 - SeaweedFS image:
   `docker.io/chrislusf/seaweedfs:4.17@sha256:186de7ef977a20343ee9a5544073f081976a29e2d29ecf8379891e7bf177fbe9`
@@ -281,6 +288,9 @@ Managed service defaults also include:
 - pgAdmin image: `docker.io/dpage/pgadmin4:latest`
 - pgAdmin data volume: `pgadmin_data`
 - pgAdmin server mode: disabled
+- pgAdmin bootstrap Postgres server: enabled
+- pgAdmin bootstrap server name: `Local Postgres`
+- pgAdmin bootstrap server group: `Local`
 
 Change them with `stackctl config edit` or by editing the current stack config
 returned by `stackctl config path`. For named stacks, select the target first
@@ -300,6 +310,12 @@ By default, `stackctl` uses standard Linux user directories:
   `~/.local/share/stackctl/stacks/dev-stack/compose.yaml`
 - managed NATS config file:
   `~/.local/share/stackctl/stacks/dev-stack/nats.conf`
+- managed Redis ACL file when Redis ACL auth is enabled:
+  `~/.local/share/stackctl/stacks/dev-stack/redis.acl`
+- managed pgAdmin bootstrap server file when pgAdmin bootstrap is enabled:
+  `~/.local/share/stackctl/stacks/dev-stack/pgadmin-servers.json`
+- managed pgpass file when pgAdmin bootstrap is enabled:
+  `~/.local/share/stackctl/stacks/dev-stack/pgpass`
 
 If `XDG_DATA_HOME` is set, managed stack data is stored under
 `$XDG_DATA_HOME/stackctl` instead.
@@ -325,9 +341,9 @@ In managed mode:
 - `stackctl` owns the stack directory
 - `stackctl config scaffold` can create or refresh the managed stack files
 - the managed compose file is rendered from your config values, including
-  Postgres credentials, optional Redis auth, the NATS token, optional
-  SeaweedFS S3 credentials, the optional Meilisearch master key, and pgAdmin
-  login details
+  Postgres credentials and tuning, optional Redis auth and ACL users, the
+  NATS token, optional SeaweedFS S3 credentials, the optional Meilisearch
+  master key, and pgAdmin login/bootstrap details
 
 This is the default and the easiest way to get started.
 
@@ -399,8 +415,10 @@ Root flags:
 | Flag | Meaning |
 | --- | --- |
 | `--stack` | Select a named stack config for this command only. The default stack uses `~/.config/stackctl/config.yaml`; named stacks use `~/.config/stackctl/stacks/<name>.yaml`. |
+| `-v`, `--verbose` | Print extra lifecycle detail for commands that emit progress |
+| `-q`, `--quiet` | Suppress non-essential progress output |
 | `-h`, `--help` | Show help for `stackctl` |
-| `-v`, `--version` | Print the short version string |
+| `--version` | Print the short version string |
 
 Selection precedence is:
 
@@ -768,13 +786,13 @@ Edit the current config using the interactive wizard.
 This is the easiest way to change service credentials, optional Redis auth,
 the managed NATS token, optional SeaweedFS S3 credentials, managed-stack
 ports, the optional Meilisearch master key, Postgres maintenance-db behavior,
-Redis persistence and memory settings, SeaweedFS volume sizing, pgAdmin server
-mode, and service image/data-volume settings without editing compose files
-manually. All managed services can also be enabled or disabled here. The
-wizard now starts with stack mode and a checkbox-style service picker, then
-only shows configuration pages for the services you selected. Each page
-includes inline hints so the common fields read more like the TUI than raw
-YAML keys.
+Redis persistence, ACL, and memory settings, SeaweedFS volume sizing, pgAdmin
+server mode and bootstrap settings, and service image/data-volume settings
+without editing compose files manually. All managed services can also be
+enabled or disabled here. The wizard now starts with stack mode and a
+checkbox-style service picker, then only shows configuration pages for the
+services you selected. Each page includes inline hints so the common fields
+read more like the TUI than raw YAML keys.
 
 If you want a full-screen workflow with diff preview, save/reset, and managed
 stack scaffolding in one place, use the `Config` section inside `stackctl tui`.
@@ -797,16 +815,19 @@ Flags:
 Service settings available in the config and wizard:
 
 - Postgres: enabled flag, image, data volume, maintenance database, database,
-  username, password, container name, and host port
-- Redis: enabled flag, image, data volume, password, appendonly persistence,
-  save policy, maxmemory policy, container name, and host port
+  username, password, max-connections, shared-buffers, slow-query threshold,
+  container name, and host port
+- Redis: enabled flag, image, data volume, password, ACL username/password,
+  appendonly persistence, save policy, maxmemory policy, container name, and
+  host port
 - NATS: enabled flag, image, auth token, container name, and host port
 - SeaweedFS: enabled flag, image, data volume, volume size limit, access key,
   secret key, container name, and host port
 - Meilisearch: enabled flag, image, data volume, master key, container name,
   and host port
 - pgAdmin: enabled flag, image, data volume, email, password, server mode,
-  container name, and host port
+  bootstrap Postgres server toggle, bootstrap server name/group, container
+  name, and host port
 - Cockpit: enabled flag, install-on-setup flag, and host port
 
 #### `stackctl config validate`
@@ -847,6 +868,10 @@ Flags:
 #### `stackctl config scaffold`
 
 Create or refresh the managed stack files from embedded templates.
+
+For managed stacks this can write the compose file plus any auxiliary files
+required by enabled features such as `nats.conf`, `redis.acl`,
+`pgadmin-servers.json`, and `pgpass`.
 
 Examples:
 
@@ -932,7 +957,8 @@ Flags: `-h`, `--help` only.
 ### `stackctl status`
 
 Show container status for this stack. Use this when you want the raw container
-view.
+view. `--verbose` is inherited from the root command, so extra detail is
+available on every command that supports progress-style output.
 
 Examples:
 
@@ -947,7 +973,6 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-j`, `--json` | Print container status as JSON |
-| `-v`, `--verbose` | Show extra container details |
 
 ### `stackctl services`
 
@@ -998,6 +1023,8 @@ Supported copy targets:
 - `postgres-password`
 - `postgres-database`
 - `redis-password`
+- `redis-username`
+- `redis-default-password`
 - `nats-token`
 - `seaweedfs-access-key`
 - `seaweedfs-secret-key`
@@ -1034,6 +1061,34 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `--no-tty` | Disable TTY allocation for the exec session |
+
+### `stackctl run`
+
+Run a host command with the same stack-aware environment variables exposed by
+`stackctl env`.
+
+By default `stackctl run` ensures the selected services are started and ready
+before launching the host command. When you do not pass service names, it uses
+every enabled stack-managed service. Use `--no-start` when the command should
+fail unless those services are already ready, and `--dry-run` when you want to
+inspect the selected services plus injected environment without launching
+anything.
+
+Examples:
+
+```bash
+stackctl run -- go test ./...
+stackctl run postgres redis -- air
+stackctl run --no-start postgres -- make dev
+stackctl run --dry-run -- npm run dev
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--dry-run` | Print the selected services, command, and injected environment without running anything |
+| `--no-start` | Fail instead of starting services when they are not already ready |
 
 ### `stackctl db shell`
 
@@ -1104,6 +1159,50 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-f`, `--force` | Skip confirmation before dropping and recreating the database |
+
+### `stackctl snapshot save`
+
+Export the managed stack's persistent service volumes into a tar archive for
+local backup or state handoff workflows.
+
+Snapshot save is only available for managed stacks, and it only includes
+services that currently have persistent managed volumes configured:
+Postgres, Redis, SeaweedFS, Meilisearch, and pgAdmin.
+
+Examples:
+
+```bash
+stackctl snapshot save local-stack.tar
+stackctl snapshot save local-stack.tar --stop
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--stop` | Stop the running stack before exporting managed volumes |
+
+### `stackctl snapshot restore`
+
+Replace the managed stack's persistent service volumes from a snapshot archive.
+
+The archive must match the current stack's persistent service set. Restore is
+only available for managed stacks, and it is intentionally destructive because
+it replaces the current managed volumes.
+
+Examples:
+
+```bash
+stackctl snapshot restore local-stack.tar --force
+stackctl snapshot restore local-stack.tar --stop --force
+```
+
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--stop` | Stop the running stack before replacing managed volumes |
+| `-f`, `--force` | Skip confirmation before replacing managed volumes |
 
 ### `stackctl ports`
 
@@ -1272,7 +1371,7 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `-f`, `--force` | Skip confirmation for destructive reset |
-| `-v`, `--volumes` | Remove volumes while stopping the stack |
+| `--volumes` | Remove volumes while stopping the stack |
 
 ### `stackctl factory-reset`
 
@@ -1336,6 +1435,7 @@ If you only remember a few commands, these are the ones most people will use:
 - `stackctl services`: see the full runtime picture
 - `stackctl connect`: copy DSNs, URLs, and endpoint credentials quickly
 - `stackctl env`: print shell-ready env vars or JSON for app wiring
+- `stackctl run -- go test ./...`: launch a host command with stack-aware env
 - `stackctl stack list`: see every configured stack and which one is active
 - `stackctl stack use staging`: switch your saved default stack cleanly
 - `stackctl services --copy postgres`: send a ready-to-use value straight to the clipboard
@@ -1345,6 +1445,8 @@ If you only remember a few commands, these are the ones most people will use:
 - `stackctl db dump`: export the local database as SQL
 - `stackctl db restore`: replay a SQL dump into the local database
 - `stackctl db reset`: recreate the configured database cleanly
+- `stackctl snapshot save local-stack.tar`: capture managed service state
+- `stackctl snapshot restore local-stack.tar --force`: restore managed state
 - `stackctl ports`: check host-to-service port mappings quickly
 - `stackctl factory-reset`: wipe stackctl's local state and start over cleanly
 - `stackctl logs --watch`: keep a live log tail open while developing
@@ -1458,6 +1560,8 @@ For local development on `stackctl` itself:
 
 ```bash
 go test ./...
+go test -race ./...
+go vet ./...
 go test ./integration -tags=integration -count=1
 go build ./...
 go run . --help
@@ -1504,6 +1608,8 @@ Available today:
 - Cockpit
 - configurable Postgres database, username, password, and ports
 - optional Redis auth that flows through generated compose and DSNs
+- optional Redis ACL auth with generated ACL scaffolding, DSNs, copy targets,
+  `env`, and `services` support
 - configurable NATS auth token and port that flow through managed scaffolding,
   DSNs, and helper commands
 - optional SeaweedFS S3 endpoint with access key, secret key, volume sizing,
@@ -1516,7 +1622,10 @@ Available today:
   TUI config editor
 - service-level image, data-volume, and tuning settings in `stackctl config`
 - configurable Postgres maintenance-database settings for admin helpers
+- configurable Postgres max-connections, shared-buffers, and slow-query
+  logging settings for the managed instance
 - configurable Redis persistence and maxmemory policy settings
+- pgAdmin bootstrap helpers that pre-register the managed Postgres service
 - configurable pgAdmin server-mode settings
 - named stacks via `--stack` or `STACKCTL_STACK`, with stack-specific managed
   paths, container names, and volume names
@@ -1532,12 +1641,18 @@ Available today:
 - `stackctl env` for app-ready environment variables with shell-export and JSON
   output modes
 - `stackctl exec <service> -- <command...>` for in-container workflows
+- `stackctl run [service...] -- <command...>` for host-side app launches with
+  stack-aware environment and readiness checks
 - `stackctl db shell` for one-step Postgres access
 - `stackctl db dump`, `stackctl db restore`, and `stackctl db reset`
   for repeatable local database workflows
+- `stackctl snapshot save` and `stackctl snapshot restore`
+  for managed-volume backup and restore workflows
 - `stackctl ports` for quick port inspection
 - DANGEROUS `stackctl factory-reset` for a full local clean slate
 - `stackctl doctor --fix` for supported automatic environment remediation
+- root-level `--verbose` and `--quiet` output controls across lifecycle and
+  progress-reporting commands
 - live Podman integration coverage for the managed-stack lifecycle
 
 Current CLI surface:
@@ -1552,6 +1667,8 @@ Current CLI surface:
 - `ports`
 - `db`
 - `exec`
+- `run`
+- `snapshot`
 - `logs`
 - `health`
 - `connect`
@@ -1567,10 +1684,6 @@ Current CLI surface:
 These are strong follow-ups once the high-priority local stack and helper
 commands are in place.
 
-- deeper service controls such as Redis ACL users, richer Postgres tuning,
-  and pgAdmin server bootstrap helpers
-- `stackctl run ...` to launch an app with stack-aware context
-- snapshot save and restore commands for dev-state workflows
 - broader installer support beyond `apt`-based systems
 - more explicit verbosity and quiet controls across runtime commands
 

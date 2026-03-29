@@ -57,21 +57,24 @@ func serviceDefinitions() []serviceDefinition {
 			WaitOnStart:         true,
 			BuildRuntime: func(_ context.Context, cfg configpkg.Config, containerByName map[string]system.Container) runtimeService {
 				return runtimeService{
-					Name:          "postgres",
-					Icon:          "🗄️",
-					DisplayName:   "Postgres",
-					Status:        containerStatus(containerByName, cfg.Services.PostgresContainer),
-					ContainerName: cfg.Services.PostgresContainer,
-					Image:         cfg.Services.Postgres.Image,
-					DataVolume:    cfg.Services.Postgres.DataVolume,
-					Host:          cfg.Connection.Host,
-					ExternalPort:  cfg.Ports.Postgres,
-					InternalPort:  resolvedContainerInternalPort(containerByName, cfg.Services.PostgresContainer, cfg.Ports.Postgres, 5432),
-					Database:      cfg.Connection.PostgresDatabase,
-					MaintenanceDB: cfg.Services.Postgres.MaintenanceDatabase,
-					Username:      cfg.Connection.PostgresUsername,
-					Password:      cfg.Connection.PostgresPassword,
-					DSN:           postgresDSN(cfg),
+					Name:             "postgres",
+					Icon:             "🗄️",
+					DisplayName:      "Postgres",
+					Status:           containerStatus(containerByName, cfg.Services.PostgresContainer),
+					ContainerName:    cfg.Services.PostgresContainer,
+					Image:            cfg.Services.Postgres.Image,
+					DataVolume:       cfg.Services.Postgres.DataVolume,
+					Host:             cfg.Connection.Host,
+					ExternalPort:     cfg.Ports.Postgres,
+					InternalPort:     resolvedContainerInternalPort(containerByName, cfg.Services.PostgresContainer, cfg.Ports.Postgres, 5432),
+					Database:         cfg.Connection.PostgresDatabase,
+					MaintenanceDB:    cfg.Services.Postgres.MaintenanceDatabase,
+					Username:         cfg.Connection.PostgresUsername,
+					Password:         cfg.Connection.PostgresPassword,
+					MaxConnections:   cfg.Services.Postgres.MaxConnections,
+					SharedBuffers:    cfg.Services.Postgres.SharedBuffers,
+					LogMinDurationMS: cfg.Services.Postgres.LogMinDurationStatementMS,
+					DSN:              postgresDSN(cfg),
 				}
 			},
 			ConnectionEntries: func(cfg configpkg.Config) []connectionEntry {
@@ -86,6 +89,7 @@ func serviceDefinitions() []serviceDefinition {
 					{Name: "PGDATABASE", Value: cfg.Connection.PostgresDatabase},
 					{Name: "PGUSER", Value: cfg.Connection.PostgresUsername},
 					{Name: "PGPASSWORD", Value: cfg.Connection.PostgresPassword},
+					{Name: "PGMAINTENANCE_DB", Value: cfg.Services.Postgres.MaintenanceDatabase},
 					{Name: "POSTGRES_HOST", Value: cfg.Connection.Host},
 					{Name: "POSTGRES_PORT", Value: fmt.Sprintf("%d", cfg.Ports.Postgres)},
 					{Name: "POSTGRES_DB", Value: cfg.Connection.PostgresDatabase},
@@ -166,7 +170,8 @@ func serviceDefinitions() []serviceDefinition {
 					Host:            cfg.Connection.Host,
 					ExternalPort:    cfg.Ports.Redis,
 					InternalPort:    resolvedContainerInternalPort(containerByName, cfg.Services.RedisContainer, cfg.Ports.Redis, 6379),
-					Password:        cfg.Connection.RedisPassword,
+					Username:        activeRedisUsername(cfg),
+					Password:        activeRedisPassword(cfg),
 					AppendOnly:      boolPointer(cfg.Services.Redis.AppendOnly),
 					SavePolicy:      cfg.Services.Redis.SavePolicy,
 					MaxMemoryPolicy: cfg.Services.Redis.MaxMemoryPolicy,
@@ -177,12 +182,19 @@ func serviceDefinitions() []serviceDefinition {
 				return []connectionEntry{{Name: "Redis", Value: redisDSN(cfg)}}
 			},
 			EnvEntries: func(cfg configpkg.Config) []envEntry {
-				return []envEntry{
+				entries := []envEntry{
 					{Name: "REDIS_URL", Value: redisDSN(cfg)},
 					{Name: "REDIS_HOST", Value: cfg.Connection.Host},
 					{Name: "REDIS_PORT", Value: fmt.Sprintf("%d", cfg.Ports.Redis)},
-					{Name: "REDIS_PASSWORD", Value: cfg.Connection.RedisPassword},
+					{Name: "REDIS_PASSWORD", Value: activeRedisPassword(cfg)},
 				}
+				if username := activeRedisUsername(cfg); username != "" {
+					entries = append(entries, envEntry{Name: "REDIS_USERNAME", Value: username})
+				}
+				if cfg.RedisACLEnabled() && cfg.Connection.RedisPassword != "" {
+					entries = append(entries, envEntry{Name: "REDIS_DEFAULT_PASSWORD", Value: cfg.Connection.RedisPassword})
+				}
+				return entries
 			},
 			CopyTargets: func() []serviceCopySpec {
 				return []serviceCopySpec{
@@ -204,6 +216,34 @@ func serviceDefinitions() []serviceDefinition {
 						Resolve: func(cfg configpkg.Config) (string, error) {
 							if !cfg.RedisEnabled() {
 								return "", errors.New("redis is not enabled in this stack")
+							}
+							return activeRedisPassword(cfg), nil
+						},
+					},
+					{
+						PrimaryAlias: "redis-username",
+						Aliases:      []string{"redisusername"},
+						Label:        "Redis username",
+						Resolve: func(cfg configpkg.Config) (string, error) {
+							if !cfg.RedisEnabled() {
+								return "", errors.New("redis is not enabled in this stack")
+							}
+							if !cfg.RedisACLEnabled() {
+								return "", errors.New("redis ACL auth is not enabled in this stack")
+							}
+							return cfg.Connection.RedisACLUsername, nil
+						},
+					},
+					{
+						PrimaryAlias: "redis-default-password",
+						Aliases:      []string{"redisdefaultpassword"},
+						Label:        "Redis default-user password",
+						Resolve: func(cfg configpkg.Config) (string, error) {
+							if !cfg.RedisEnabled() {
+								return "", errors.New("redis is not enabled in this stack")
+							}
+							if !cfg.RedisACLEnabled() || cfg.Connection.RedisPassword == "" {
+								return "", errors.New("redis default-user password is not configured in this stack")
 							}
 							return cfg.Connection.RedisPassword, nil
 						},
@@ -471,7 +511,19 @@ func serviceDefinitions() []serviceDefinition {
 					Email:         cfg.Connection.PgAdminEmail,
 					Password:      cfg.Connection.PgAdminPassword,
 					ServerMode:    pgAdminModeLabel(cfg.Services.PgAdmin.ServerMode),
-					URL:           cfg.URLs.PgAdmin,
+					BootstrapServer: func() string {
+						if !cfg.PgAdminBootstrapEnabled() {
+							return ""
+						}
+						return cfg.Services.PgAdmin.BootstrapServerName
+					}(),
+					BootstrapGroup: func() string {
+						if !cfg.PgAdminBootstrapEnabled() {
+							return ""
+						}
+						return cfg.Services.PgAdmin.BootstrapServerGroup
+					}(),
+					URL: cfg.URLs.PgAdmin,
 				}
 			},
 			ConnectionEntries: func(cfg configpkg.Config) []connectionEntry {

@@ -40,6 +40,9 @@ func NewRootCmd(app *App) *cobra.Command {
 		Version:                    app.Version,
 		SuggestionsMinimumDistance: 2,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if rootOutput.Verbose && rootOutput.Quiet {
+				return fmt.Errorf("--verbose and --quiet cannot be used together")
+			}
 			selected := strings.TrimSpace(stackName)
 			if selected == "" {
 				var err error
@@ -59,6 +62,8 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.SetHelpCommandGroupID(commandGroupUtility)
 	cmd.SetCompletionCommandGroupID(commandGroupUtility)
 	cmd.PersistentFlags().StringVar(&stackName, "stack", "", "Select a named stack config (overrides STACKCTL_STACK and the saved current stack)")
+	cmd.PersistentFlags().BoolVarP(&rootOutput.Verbose, "verbose", "v", false, "Print extra lifecycle detail")
+	cmd.PersistentFlags().BoolVarP(&rootOutput.Quiet, "quiet", "q", false, "Suppress non-essential progress output")
 	mustRegisterFlagCompletion(cmd, "stack", completeConfiguredStackNames)
 
 	startCmd := newStartCmd()
@@ -95,6 +100,10 @@ func NewRootCmd(app *App) *cobra.Command {
 	dbCmd.GroupID = commandGroupOperate
 	execCmd := newExecCmd()
 	execCmd.GroupID = commandGroupOperate
+	runCmd := newRunCmd()
+	runCmd.GroupID = commandGroupOperate
+	snapshotCmd := newSnapshotCmd()
+	snapshotCmd.GroupID = commandGroupOperate
 
 	setupCmd := newSetupCmd()
 	setupCmd.GroupID = commandGroupConfig
@@ -118,6 +127,8 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.AddCommand(portsCmd)
 	cmd.AddCommand(dbCmd)
 	cmd.AddCommand(execCmd)
+	cmd.AddCommand(runCmd)
+	cmd.AddCommand(snapshotCmd)
 	cmd.AddCommand(logsCmd)
 	cmd.AddCommand(openCmd)
 	cmd.AddCommand(healthCmd)

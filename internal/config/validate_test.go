@@ -118,6 +118,100 @@ func TestValidateRejectsInvalidMeilisearchValues(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidPostgresTuningValues(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	if err := validateWithDir(cfg.Stack.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ComposePath(cfg), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.Services.Postgres.MaxConnections = 0
+	cfg.Services.Postgres.SharedBuffers = ""
+	cfg.Services.Postgres.LogMinDurationStatementMS = -2
+
+	issues := Validate(cfg)
+	fields := map[string]bool{}
+	for _, issue := range issues {
+		fields[issue.Field] = true
+	}
+	for _, field := range []string{
+		"services.postgres.max_connections",
+		"services.postgres.shared_buffers",
+		"services.postgres.log_min_duration_statement_ms",
+	} {
+		if !fields[field] {
+			t.Fatalf("expected validation issue for %s, got %v", field, issues)
+		}
+	}
+}
+
+func TestValidateRejectsInvalidRedisACLValues(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	if err := validateWithDir(cfg.Stack.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ComposePath(cfg), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.Connection.RedisACLUsername = "default"
+	cfg.Connection.RedisACLPassword = "named pass"
+	cfg.Connection.RedisPassword = "default pass"
+
+	issues := Validate(cfg)
+	fields := map[string]bool{}
+	for _, issue := range issues {
+		fields[issue.Field] = true
+	}
+	for _, field := range []string{
+		"connection.redis_acl_username",
+		"connection.redis_acl_password",
+		"connection.redis_password",
+	} {
+		if !fields[field] {
+			t.Fatalf("expected validation issue for %s, got %v", field, issues)
+		}
+	}
+}
+
+func TestValidateRejectsPgAdminBootstrapWithoutPostgres(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	if err := validateWithDir(cfg.Stack.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ComposePath(cfg), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.Setup.IncludePostgres = false
+	cfg.Services.PgAdmin.BootstrapPostgresServer = true
+	cfg.Services.PgAdmin.BootstrapServerName = ""
+	cfg.Services.PgAdmin.BootstrapServerGroup = ""
+
+	issues := Validate(cfg)
+	fields := map[string]bool{}
+	for _, issue := range issues {
+		fields[issue.Field] = true
+	}
+	for _, field := range []string{
+		"services.pgadmin.bootstrap_postgres_server",
+		"services.pgadmin.bootstrap_server_name",
+		"services.pgadmin.bootstrap_server_group",
+	} {
+		if !fields[field] {
+			t.Fatalf("expected validation issue for %s, got %v", field, issues)
+		}
+	}
+}
+
 func TestValidateAllowsExternalStackWithoutComposeFile(t *testing.T) {
 	cfg := Default()
 	cfg.Stack.Managed = false

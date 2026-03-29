@@ -40,6 +40,7 @@ type commandDeps struct {
 	runDoctor                 func(context.Context) (doctorpkg.Report, error)
 	commandExists             func(string) bool
 	podmanComposeAvail        func(context.Context) bool
+	runExternalCommand        func(context.Context, system.Runner, string, []string) error
 	openURL                   func(context.Context, system.Runner, string) error
 	copyToClipboard           func(context.Context, system.Runner, string) error
 	installPackages           func(context.Context, system.Runner, string, []string) ([]string, error)
@@ -92,6 +93,7 @@ func defaultCommandDeps() commandDeps {
 		runDoctor:                 doctorpkg.Run,
 		commandExists:             system.CommandExists,
 		podmanComposeAvail:        system.PodmanComposeAvailable,
+		runExternalCommand:        system.RunExternalCommand,
 		openURL:                   system.OpenURL,
 		copyToClipboard:           system.CopyToClipboard,
 		installPackages:           system.InstallPackages,

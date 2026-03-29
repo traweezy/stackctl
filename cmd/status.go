@@ -9,7 +9,6 @@ import (
 )
 
 func newStatusCmd() *cobra.Command {
-	var verbose bool
 	var jsonOutput bool
 
 	cmd := &cobra.Command{
@@ -47,11 +46,10 @@ func newStatusCmd() *cobra.Command {
 				return err
 			}
 
-			return printStatusTable(cmd, containers, verbose)
+			return printStatusTable(cmd, containers, verboseRequested(cmd))
 		},
 	}
 
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show extra container details")
 	cmd.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Print container status as JSON")
 
 	return cmd

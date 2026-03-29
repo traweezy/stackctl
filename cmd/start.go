@@ -40,7 +40,10 @@ func newStartCmd() *cobra.Command {
 			}
 
 			target := lifecycleTargetLabel(services)
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusStart, fmt.Sprintf("starting %s...", strings.ToLower(target))); err != nil {
+			if err := verboseLine(cmd, fmt.Sprintf("Using compose file %s", deps.composePath(cfg))); err != nil {
+				return err
+			}
+			if err := statusLine(cmd, output.StatusStart, fmt.Sprintf("starting %s...", strings.ToLower(target))); err != nil {
 				return err
 			}
 			switch {
@@ -68,13 +71,16 @@ func newStartCmd() *cobra.Command {
 				}
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("%s started", target)); err != nil {
+			if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("%s started", target)); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+			if err := blankLine(cmd); err != nil {
 				return err
 			}
 
+			if quietRequested(cmd) {
+				return nil
+			}
 			if len(services) > 0 {
 				return printConnectionEntries(cmd, selectedConnectionEntries(cfg, services))
 			}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
+	"github.com/traweezy/stackctl/internal/system"
 )
 
 type activeLocalStack struct {
@@ -15,6 +16,9 @@ type activeLocalStack struct {
 	Path     string
 	Services []string
 }
+
+var downWaitTimeout = 15 * time.Second
+var downWaitInterval = 200 * time.Millisecond
 
 func resolveTargetStackServices(cfg configpkg.Config, args []string) ([]string, error) {
 	if len(args) == 0 {
@@ -311,4 +315,41 @@ func runningStackServices(ctx context.Context, cfg configpkg.Config) ([]string, 
 	}
 
 	return running, nil
+}
+
+func composeDownAndWait(ctx context.Context, runner system.Runner, cfg configpkg.Config, removeVolumes bool) error {
+	if err := deps.composeDown(ctx, runner, cfg, removeVolumes); err != nil {
+		return err
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, downWaitTimeout)
+	defer cancel()
+
+	return waitForStackContainersRemoved(waitCtx, cfg)
+}
+
+func waitForStackContainersRemoved(ctx context.Context, cfg configpkg.Config) error {
+	names := stackContainerNames(cfg)
+	if len(names) == 0 {
+		return nil
+	}
+
+	ticker := time.NewTicker(downWaitInterval)
+	defer ticker.Stop()
+
+	for {
+		exists, err := deps.anyContainerExists(ctx, names)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("stack containers were not removed completely: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }

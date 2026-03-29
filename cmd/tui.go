@@ -285,49 +285,7 @@ func buildTUIStackProfiles(ctx context.Context) []stacktui.StackProfile {
 }
 
 func validateTUIConfig(cfg configpkg.Config) []configpkg.ValidationIssue {
-	return filterTUIValidationIssues(cfg, deps.validateConfig(cfg))
-}
-
-func filterTUIValidationIssues(cfg configpkg.Config, issues []configpkg.ValidationIssue) []configpkg.ValidationIssue {
-	if len(issues) == 0 {
-		return nil
-	}
-
-	filtered := make([]configpkg.ValidationIssue, 0, len(issues))
-	for _, issue := range issues {
-		if pendingManagedScaffoldIssue(cfg, issue) {
-			continue
-		}
-		filtered = append(filtered, issue)
-	}
-
-	return filtered
-}
-
-func pendingManagedScaffoldIssue(cfg configpkg.Config, issue configpkg.ValidationIssue) bool {
-	if !cfg.Stack.Managed || !cfg.Setup.ScaffoldDefaultStack {
-		return false
-	}
-
-	normalized := cfg
-	normalized.ApplyDerivedFields()
-
-	expectedDir, err := configpkg.ManagedStackDir(normalized.Stack.Name)
-	if err != nil {
-		return false
-	}
-	if normalized.Stack.Dir != expectedDir || normalized.Stack.ComposeFile != configpkg.DefaultComposeFileName {
-		return false
-	}
-
-	switch issue.Field {
-	case "stack.dir":
-		return issue.Message == fmt.Sprintf("directory does not exist: %s", normalized.Stack.Dir)
-	case "stack.compose_file":
-		return issue.Message == fmt.Sprintf("file does not exist: %s", configpkg.ComposePath(normalized))
-	default:
-		return false
-	}
+	return filterAutoScaffoldValidationIssues(cfg, deps.validateConfig(cfg))
 }
 
 type tuiLogWatchCommand struct {

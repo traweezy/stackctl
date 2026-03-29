@@ -285,6 +285,38 @@ func TestConfigScaffoldRunsHelperWhenAutoScaffoldDisabled(t *testing.T) {
 	}
 }
 
+func TestConfigScaffoldReportsAuxiliaryManagedFiles(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.scaffoldManagedStack = func(cfg configpkg.Config, force bool) (configpkg.ScaffoldResult, error) {
+			return configpkg.ScaffoldResult{
+				StackDir:            cfg.Stack.Dir,
+				ComposePath:         configpkg.ComposePath(cfg),
+				RedisACLPath:        configpkg.RedisACLPath(cfg),
+				PgAdminServersPath:  configpkg.PgAdminServersPath(cfg),
+				PGPassPath:          configpkg.PGPassPath(cfg),
+				WroteRedisACL:       true,
+				WrotePgAdminServers: true,
+				WrotePGPass:         true,
+			}, nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "config", "scaffold")
+	if err != nil {
+		t.Fatalf("config scaffold returned error: %v", err)
+	}
+	for _, fragment := range []string{
+		"wrote managed redis ACL file",
+		"wrote managed pgAdmin server bootstrap file",
+		"wrote managed pgpass file",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("expected stdout to contain %q:\n%s", fragment, stdout)
+		}
+	}
+}
+
 func TestMissingConfigHint(t *testing.T) {
 	err := missingConfigHint(configpkg.ErrNotFound)
 	if err == nil || !strings.Contains(err.Error(), "stackctl setup") {

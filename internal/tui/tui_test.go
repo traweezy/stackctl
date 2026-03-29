@@ -2304,14 +2304,14 @@ func TestConfigSectionScrollsFieldListWithoutLosingFooter(t *testing.T) {
 	current := loadConfigSnapshotModelSized(t, model, configSnapshot(cfg, ConfigSourceLoaded, ""), 120, 24)
 	current = navigateToSection(t, current, configSection)
 
-	for range 20 {
+	for range 24 {
 		updatedModel, _ := current.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 		current = updatedModel.(Model)
 	}
 
 	view := current.View().Content
 	for _, fragment := range []string{
-		"Redis / Save policy",
+		"Redis / Maxmemory policy",
 		"ctrl+s save/apply",
 		"q quit",
 	} {
@@ -3226,6 +3226,31 @@ func TestConfigSectionPreservesDirtyDraftAcrossSnapshotRefresh(t *testing.T) {
 	current = updatedModel.(Model)
 	if current.configEditor.draft.Stack.Name != "dev-stack-ops" {
 		t.Fatalf("expected dirty draft to survive refresh, got %+v", current.configEditor.draft.Stack)
+	}
+}
+
+func TestScaffoldResultMessageIncludesAuxiliaryFiles(t *testing.T) {
+	cfg := configpkg.Default()
+	result := configpkg.ScaffoldResult{
+		StackDir:            cfg.Stack.Dir,
+		ComposePath:         configpkg.ComposePath(cfg),
+		RedisACLPath:        configpkg.RedisACLPath(cfg),
+		PgAdminServersPath:  configpkg.PgAdminServersPath(cfg),
+		PGPassPath:          configpkg.PGPassPath(cfg),
+		WroteRedisACL:       true,
+		WrotePgAdminServers: true,
+		WrotePGPass:         true,
+	}
+
+	message := scaffoldResultMessage(result)
+	for _, fragment := range []string{
+		"wrote managed redis ACL file",
+		"wrote managed pgAdmin server bootstrap file",
+		"wrote managed pgpass file",
+	} {
+		if !strings.Contains(message, fragment) {
+			t.Fatalf("expected scaffold message to contain %q: %s", fragment, message)
+		}
 	}
 }
 

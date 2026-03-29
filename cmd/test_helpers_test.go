@@ -53,6 +53,7 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 	testDeps.runDoctor = func(context.Context) (doctorpkg.Report, error) { return doctorpkg.Report{}, nil }
 	testDeps.commandExists = func(string) bool { return true }
 	testDeps.podmanComposeAvail = func(context.Context) bool { return true }
+	testDeps.runExternalCommand = func(context.Context, system.Runner, string, []string) error { return nil }
 	testDeps.openURL = func(context.Context, system.Runner, string) error { return nil }
 	testDeps.copyToClipboard = func(context.Context, system.Runner, string) error { return nil }
 	testDeps.installPackages = func(context.Context, system.Runner, string, []string) ([]string, error) { return nil, nil }

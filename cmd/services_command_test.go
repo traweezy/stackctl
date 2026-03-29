@@ -68,6 +68,9 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		"Maintenance DB: template1",
 		"Username: stackuser",
 		"Password: stackpass",
+		"Max connections: 100",
+		"Shared buffers: 128MB",
+		"Log min duration: disabled",
 		"DSN: postgres://stackuser:stackpass@devbox:15432/stackdb",
 		"⚡ Redis",
 		"Container: local-redis",
@@ -91,6 +94,8 @@ func TestServicesPrintsDetailedRuntimeInfo(t *testing.T) {
 		"Email: pgadmin@example.com",
 		"Password: pgsecret",
 		"Server mode: enabled",
+		"Bootstrap server: Local Postgres",
+		"Bootstrap group: Local",
 		"URL: http://devbox:18081",
 		"🖥️ Cockpit",
 		"URL: https://devbox:19090",
@@ -224,7 +229,7 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 	if services[0].Name != "postgres" || services[0].DSN != "postgres://stackuser:stackpass@devbox:15432/stackdb" {
 		t.Fatalf("unexpected postgres service: %+v", services[0])
 	}
-	if services[0].Image != "docker.io/library/postgres:17" || services[0].DataVolume != "stack_postgres_data" || services[0].MaintenanceDB != "template1" {
+	if services[0].Image != "docker.io/library/postgres:17" || services[0].DataVolume != "stack_postgres_data" || services[0].MaintenanceDB != "template1" || services[0].MaxConnections != 100 || services[0].SharedBuffers != "128MB" || services[0].LogMinDurationMS != -1 {
 		t.Fatalf("unexpected postgres config: %+v", services[0])
 	}
 	if services[1].Name != "redis" || services[1].DSN != "redis://:redispass@devbox:16379" {
@@ -242,7 +247,7 @@ func TestServicesJSONPrintsStructuredRuntimeInfo(t *testing.T) {
 	if services[3].Name != "pgadmin" || services[3].Email != "pgadmin@example.com" || services[3].URL != "http://devbox:18081" {
 		t.Fatalf("unexpected pgadmin service: %+v", services[3])
 	}
-	if services[3].Image != "docker.io/dpage/pgadmin4:9" || services[3].DataVolume != "stack_pgadmin_data" || services[3].ServerMode != "enabled" {
+	if services[3].Image != "docker.io/dpage/pgadmin4:9" || services[3].DataVolume != "stack_pgadmin_data" || services[3].ServerMode != "enabled" || services[3].BootstrapServer != "Local Postgres" || services[3].BootstrapGroup != "Local" {
 		t.Fatalf("unexpected pgadmin config: %+v", services[3])
 	}
 	if services[4].Name != "cockpit" || services[4].URL != "https://devbox:19090" || services[4].Status != "running" {

@@ -13,6 +13,9 @@ const (
 	DefaultStackName       = "dev-stack"
 	DefaultComposeFileName = "compose.yaml"
 	DefaultNATSConfigName  = "nats.conf"
+	DefaultRedisACLName    = "redis.acl"
+	DefaultPgAdminServers  = "pgadmin-servers.json"
+	DefaultPGPassName      = "pgpass"
 	StackNameEnvVar        = "STACKCTL_STACK"
 	CurrentStackFileName   = "current-stack"
 )
@@ -253,6 +256,18 @@ func ComposePath(cfg Config) string {
 
 func NATSConfigPath(cfg Config) string {
 	return filepath.Join(cfg.Stack.Dir, DefaultNATSConfigName)
+}
+
+func RedisACLPath(cfg Config) string {
+	return filepath.Join(cfg.Stack.Dir, DefaultRedisACLName)
+}
+
+func PgAdminServersPath(cfg Config) string {
+	return filepath.Join(cfg.Stack.Dir, DefaultPgAdminServers)
+}
+
+func PGPassPath(cfg Config) string {
+	return filepath.Join(cfg.Stack.Dir, DefaultPGPassName)
 }
 
 func normalizeStackName(name string) string {

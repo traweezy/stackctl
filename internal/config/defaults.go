@@ -13,8 +13,11 @@ func DefaultForStack(stackName string) Config {
 		},
 		Services: ServicesConfig{
 			Postgres: PostgresServiceConfig{
-				Image:               "docker.io/library/postgres:16",
-				MaintenanceDatabase: "postgres",
+				Image:                     "docker.io/library/postgres:16",
+				MaintenanceDatabase:       "postgres",
+				MaxConnections:            100,
+				SharedBuffers:             "128MB",
+				LogMinDurationStatementMS: -1,
 			},
 			Redis: RedisServiceConfig{
 				Image:           "docker.io/library/redis:7",
@@ -33,8 +36,11 @@ func DefaultForStack(stackName string) Config {
 				Image: "docker.io/getmeili/meilisearch:v1.40.0",
 			},
 			PgAdmin: PgAdminServiceConfig{
-				Image:      "docker.io/dpage/pgadmin4:latest",
-				ServerMode: false,
+				Image:                   "docker.io/dpage/pgadmin4:latest",
+				ServerMode:              false,
+				BootstrapPostgresServer: true,
+				BootstrapServerName:     "Local Postgres",
+				BootstrapServerGroup:    "Local",
 			},
 		},
 		Connection: ConnectionConfig{
@@ -43,6 +49,8 @@ func DefaultForStack(stackName string) Config {
 			PostgresUsername:     "app",
 			PostgresPassword:     "app",
 			RedisPassword:        "",
+			RedisACLUsername:     "",
+			RedisACLPassword:     "",
 			NATSToken:            "stackctl",
 			SeaweedFSAccessKey:   "stackctl",
 			SeaweedFSSecretKey:   "stackctlsecret",

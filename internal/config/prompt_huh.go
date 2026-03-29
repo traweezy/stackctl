@@ -44,57 +44,65 @@ var (
 )
 
 type wizardState struct {
-	StackName             string
-	StackMode             string
-	ExternalStackDir      string
-	ExternalComposeFile   string
-	AllowMissingStackDir  bool
-	Services              []string
-	IncludeCockpit        bool
-	InstallCockpit        bool
-	WaitForServicesStart  bool
-	StartupTimeoutSec     string
-	PackageManager        string
-	PostgresContainer     string
-	PostgresImage         string
-	PostgresDataVolume    string
-	PostgresMaintenanceDB string
-	PostgresPort          string
-	PostgresDatabase      string
-	PostgresUsername      string
-	PostgresPassword      string
-	RedisContainer        string
-	RedisImage            string
-	RedisDataVolume       string
-	RedisAppendOnly       bool
-	RedisSavePolicy       string
-	RedisMaxMemoryPolicy  string
-	RedisPort             string
-	RedisPassword         string
-	NATSContainer         string
-	NATSImage             string
-	NATSPort              string
-	NATSToken             string
-	SeaweedFSContainer    string
-	SeaweedFSImage        string
-	SeaweedFSDataVolume   string
-	SeaweedFSVolumeSizeMB string
-	SeaweedFSPort         string
-	SeaweedFSAccessKey    string
-	SeaweedFSSecretKey    string
-	MeilisearchContainer  string
-	MeilisearchImage      string
-	MeilisearchDataVolume string
-	MeilisearchPort       string
-	MeilisearchMasterKey  string
-	PgAdminContainer      string
-	PgAdminImage          string
-	PgAdminDataVolume     string
-	PgAdminServerMode     bool
-	PgAdminPort           string
-	PgAdminEmail          string
-	PgAdminPassword       string
-	CockpitPort           string
+	StackName                      string
+	StackMode                      string
+	ExternalStackDir               string
+	ExternalComposeFile            string
+	AllowMissingStackDir           bool
+	Services                       []string
+	IncludeCockpit                 bool
+	InstallCockpit                 bool
+	WaitForServicesStart           bool
+	StartupTimeoutSec              string
+	PackageManager                 string
+	PostgresContainer              string
+	PostgresImage                  string
+	PostgresDataVolume             string
+	PostgresMaintenanceDB          string
+	PostgresMaxConnections         string
+	PostgresSharedBuffers          string
+	PostgresLogDurationMS          string
+	PostgresPort                   string
+	PostgresDatabase               string
+	PostgresUsername               string
+	PostgresPassword               string
+	RedisContainer                 string
+	RedisImage                     string
+	RedisDataVolume                string
+	RedisAppendOnly                bool
+	RedisSavePolicy                string
+	RedisMaxMemoryPolicy           string
+	RedisPort                      string
+	RedisPassword                  string
+	RedisACLUsername               string
+	RedisACLPassword               string
+	NATSContainer                  string
+	NATSImage                      string
+	NATSPort                       string
+	NATSToken                      string
+	SeaweedFSContainer             string
+	SeaweedFSImage                 string
+	SeaweedFSDataVolume            string
+	SeaweedFSVolumeSizeMB          string
+	SeaweedFSPort                  string
+	SeaweedFSAccessKey             string
+	SeaweedFSSecretKey             string
+	MeilisearchContainer           string
+	MeilisearchImage               string
+	MeilisearchDataVolume          string
+	MeilisearchPort                string
+	MeilisearchMasterKey           string
+	PgAdminContainer               string
+	PgAdminImage                   string
+	PgAdminDataVolume              string
+	PgAdminServerMode              bool
+	PgAdminBootstrapPostgresServer bool
+	PgAdminBootstrapServerName     string
+	PgAdminBootstrapServerGroup    string
+	PgAdminPort                    string
+	PgAdminEmail                   string
+	PgAdminPassword                string
+	CockpitPort                    string
 }
 
 type wizardStepID string
@@ -166,55 +174,63 @@ func newWizardState(cfg Config) wizardState {
 	}
 
 	state := wizardState{
-		StackName:             cfg.Stack.Name,
-		StackMode:             mode,
-		ExternalStackDir:      cfg.Stack.Dir,
-		ExternalComposeFile:   cfg.Stack.ComposeFile,
-		IncludeCockpit:        cfg.Setup.IncludeCockpit,
-		InstallCockpit:        cfg.Setup.InstallCockpit,
-		WaitForServicesStart:  cfg.Behavior.WaitForServicesStart,
-		StartupTimeoutSec:     strconv.Itoa(cfg.Behavior.StartupTimeoutSec),
-		PackageManager:        cfg.System.PackageManager,
-		PostgresContainer:     cfg.Services.PostgresContainer,
-		PostgresImage:         cfg.Services.Postgres.Image,
-		PostgresDataVolume:    cfg.Services.Postgres.DataVolume,
-		PostgresMaintenanceDB: cfg.Services.Postgres.MaintenanceDatabase,
-		PostgresPort:          strconv.Itoa(cfg.Ports.Postgres),
-		PostgresDatabase:      cfg.Connection.PostgresDatabase,
-		PostgresUsername:      cfg.Connection.PostgresUsername,
-		PostgresPassword:      cfg.Connection.PostgresPassword,
-		RedisContainer:        cfg.Services.RedisContainer,
-		RedisImage:            cfg.Services.Redis.Image,
-		RedisDataVolume:       cfg.Services.Redis.DataVolume,
-		RedisAppendOnly:       cfg.Services.Redis.AppendOnly,
-		RedisSavePolicy:       cfg.Services.Redis.SavePolicy,
-		RedisMaxMemoryPolicy:  cfg.Services.Redis.MaxMemoryPolicy,
-		RedisPort:             strconv.Itoa(cfg.Ports.Redis),
-		RedisPassword:         cfg.Connection.RedisPassword,
-		NATSContainer:         cfg.Services.NATSContainer,
-		NATSImage:             cfg.Services.NATS.Image,
-		NATSPort:              strconv.Itoa(cfg.Ports.NATS),
-		NATSToken:             cfg.Connection.NATSToken,
-		SeaweedFSContainer:    cfg.Services.SeaweedFSContainer,
-		SeaweedFSImage:        cfg.Services.SeaweedFS.Image,
-		SeaweedFSDataVolume:   cfg.Services.SeaweedFS.DataVolume,
-		SeaweedFSVolumeSizeMB: strconv.Itoa(cfg.Services.SeaweedFS.VolumeSizeLimitMB),
-		SeaweedFSPort:         strconv.Itoa(cfg.Ports.SeaweedFS),
-		SeaweedFSAccessKey:    cfg.Connection.SeaweedFSAccessKey,
-		SeaweedFSSecretKey:    cfg.Connection.SeaweedFSSecretKey,
-		MeilisearchContainer:  cfg.Services.MeilisearchContainer,
-		MeilisearchImage:      cfg.Services.Meilisearch.Image,
-		MeilisearchDataVolume: cfg.Services.Meilisearch.DataVolume,
-		MeilisearchPort:       strconv.Itoa(cfg.Ports.Meilisearch),
-		MeilisearchMasterKey:  cfg.Connection.MeilisearchMasterKey,
-		PgAdminContainer:      cfg.Services.PgAdminContainer,
-		PgAdminImage:          cfg.Services.PgAdmin.Image,
-		PgAdminDataVolume:     cfg.Services.PgAdmin.DataVolume,
-		PgAdminServerMode:     cfg.Services.PgAdmin.ServerMode,
-		PgAdminPort:           strconv.Itoa(cfg.Ports.PgAdmin),
-		PgAdminEmail:          cfg.Connection.PgAdminEmail,
-		PgAdminPassword:       cfg.Connection.PgAdminPassword,
-		CockpitPort:           strconv.Itoa(cfg.Ports.Cockpit),
+		StackName:                      cfg.Stack.Name,
+		StackMode:                      mode,
+		ExternalStackDir:               cfg.Stack.Dir,
+		ExternalComposeFile:            cfg.Stack.ComposeFile,
+		IncludeCockpit:                 cfg.Setup.IncludeCockpit,
+		InstallCockpit:                 cfg.Setup.InstallCockpit,
+		WaitForServicesStart:           cfg.Behavior.WaitForServicesStart,
+		StartupTimeoutSec:              strconv.Itoa(cfg.Behavior.StartupTimeoutSec),
+		PackageManager:                 cfg.System.PackageManager,
+		PostgresContainer:              cfg.Services.PostgresContainer,
+		PostgresImage:                  cfg.Services.Postgres.Image,
+		PostgresDataVolume:             cfg.Services.Postgres.DataVolume,
+		PostgresMaintenanceDB:          cfg.Services.Postgres.MaintenanceDatabase,
+		PostgresMaxConnections:         strconv.Itoa(cfg.Services.Postgres.MaxConnections),
+		PostgresSharedBuffers:          cfg.Services.Postgres.SharedBuffers,
+		PostgresLogDurationMS:          strconv.Itoa(cfg.Services.Postgres.LogMinDurationStatementMS),
+		PostgresPort:                   strconv.Itoa(cfg.Ports.Postgres),
+		PostgresDatabase:               cfg.Connection.PostgresDatabase,
+		PostgresUsername:               cfg.Connection.PostgresUsername,
+		PostgresPassword:               cfg.Connection.PostgresPassword,
+		RedisContainer:                 cfg.Services.RedisContainer,
+		RedisImage:                     cfg.Services.Redis.Image,
+		RedisDataVolume:                cfg.Services.Redis.DataVolume,
+		RedisAppendOnly:                cfg.Services.Redis.AppendOnly,
+		RedisSavePolicy:                cfg.Services.Redis.SavePolicy,
+		RedisMaxMemoryPolicy:           cfg.Services.Redis.MaxMemoryPolicy,
+		RedisPort:                      strconv.Itoa(cfg.Ports.Redis),
+		RedisPassword:                  cfg.Connection.RedisPassword,
+		RedisACLUsername:               cfg.Connection.RedisACLUsername,
+		RedisACLPassword:               cfg.Connection.RedisACLPassword,
+		NATSContainer:                  cfg.Services.NATSContainer,
+		NATSImage:                      cfg.Services.NATS.Image,
+		NATSPort:                       strconv.Itoa(cfg.Ports.NATS),
+		NATSToken:                      cfg.Connection.NATSToken,
+		SeaweedFSContainer:             cfg.Services.SeaweedFSContainer,
+		SeaweedFSImage:                 cfg.Services.SeaweedFS.Image,
+		SeaweedFSDataVolume:            cfg.Services.SeaweedFS.DataVolume,
+		SeaweedFSVolumeSizeMB:          strconv.Itoa(cfg.Services.SeaweedFS.VolumeSizeLimitMB),
+		SeaweedFSPort:                  strconv.Itoa(cfg.Ports.SeaweedFS),
+		SeaweedFSAccessKey:             cfg.Connection.SeaweedFSAccessKey,
+		SeaweedFSSecretKey:             cfg.Connection.SeaweedFSSecretKey,
+		MeilisearchContainer:           cfg.Services.MeilisearchContainer,
+		MeilisearchImage:               cfg.Services.Meilisearch.Image,
+		MeilisearchDataVolume:          cfg.Services.Meilisearch.DataVolume,
+		MeilisearchPort:                strconv.Itoa(cfg.Ports.Meilisearch),
+		MeilisearchMasterKey:           cfg.Connection.MeilisearchMasterKey,
+		PgAdminContainer:               cfg.Services.PgAdminContainer,
+		PgAdminImage:                   cfg.Services.PgAdmin.Image,
+		PgAdminDataVolume:              cfg.Services.PgAdmin.DataVolume,
+		PgAdminServerMode:              cfg.Services.PgAdmin.ServerMode,
+		PgAdminBootstrapPostgresServer: cfg.Services.PgAdmin.BootstrapPostgresServer,
+		PgAdminBootstrapServerName:     cfg.Services.PgAdmin.BootstrapServerName,
+		PgAdminBootstrapServerGroup:    cfg.Services.PgAdmin.BootstrapServerGroup,
+		PgAdminPort:                    strconv.Itoa(cfg.Ports.PgAdmin),
+		PgAdminEmail:                   cfg.Connection.PgAdminEmail,
+		PgAdminPassword:                cfg.Connection.PgAdminPassword,
+		CockpitPort:                    strconv.Itoa(cfg.Ports.Cockpit),
 	}
 
 	if cfg.Setup.IncludePostgres {
@@ -365,6 +381,21 @@ func buildWizardForm(state *wizardState) *huh.Form {
 				Value(&state.PostgresMaintenanceDB).
 				Validate(nonEmpty),
 			huh.NewInput().
+				Title("Postgres max connections").
+				Description("Passed to Postgres as max_connections for the managed local instance.").
+				Value(&state.PostgresMaxConnections).
+				Validate(validPositiveIntText),
+			huh.NewInput().
+				Title("Postgres shared buffers").
+				Description("Passed to Postgres as shared_buffers. Use PostgreSQL memory syntax such as 128MB or 256MB.").
+				Value(&state.PostgresSharedBuffers).
+				Validate(nonEmpty),
+			huh.NewInput().
+				Title("Postgres log min duration (ms)").
+				Description("Set to -1 to disable query duration logging, or a positive threshold in milliseconds.").
+				Value(&state.PostgresLogDurationMS).
+				Validate(validPostgresLogDurationText),
+			huh.NewInput().
 				Title("Postgres port").
 				Description("Host port exposed for Postgres and used in the DSN shown by `stackctl connect`.").
 				Value(&state.PostgresPort).
@@ -431,6 +462,15 @@ func buildWizardForm(state *wizardState) *huh.Form {
 				Title("Redis password").
 				Description("Optional. Leave blank to keep Redis auth disabled.").
 				Value(&state.RedisPassword).
+				EchoMode(huh.EchoModePassword),
+			huh.NewInput().
+				Title("Redis ACL username").
+				Description("Optional. Set this and the ACL password to bootstrap a named Redis ACL user for app connections.").
+				Value(&state.RedisACLUsername),
+			huh.NewInput().
+				Title("Redis ACL password").
+				Description("Optional. Leave blank unless you also set a Redis ACL username.").
+				Value(&state.RedisACLPassword).
 				EchoMode(huh.EchoModePassword),
 		).
 			Title("Redis").
@@ -558,6 +598,20 @@ func buildWizardForm(state *wizardState) *huh.Form {
 				Title("Run pgAdmin in server mode").
 				Description("Enable this when you want pgAdmin's multi-server behavior instead of the lighter desktop-style mode.").
 				Value(&state.PgAdminServerMode),
+			huh.NewConfirm().
+				Title("Bootstrap pgAdmin with the local Postgres server").
+				Description("Preload the managed Postgres instance into pgAdmin using a generated servers.json and pgpass file.").
+				Value(&state.PgAdminBootstrapPostgresServer),
+			huh.NewInput().
+				Title("pgAdmin bootstrap server name").
+				Description("The saved pgAdmin connection name for the managed Postgres instance.").
+				Value(&state.PgAdminBootstrapServerName).
+				Validate(nonEmpty),
+			huh.NewInput().
+				Title("pgAdmin bootstrap server group").
+				Description("The pgAdmin server group used for the managed Postgres bootstrap entry.").
+				Value(&state.PgAdminBootstrapServerGroup).
+				Validate(nonEmpty),
 			huh.NewInput().
 				Title("pgAdmin port").
 				Description("Host port exposed for the pgAdmin web UI.").
@@ -794,6 +848,15 @@ func (s wizardState) toConfig(base Config) (Config, error) {
 	cfg.Services.Postgres.Image = strings.TrimSpace(s.PostgresImage)
 	cfg.Services.Postgres.DataVolume = strings.TrimSpace(s.PostgresDataVolume)
 	cfg.Services.Postgres.MaintenanceDatabase = strings.TrimSpace(s.PostgresMaintenanceDB)
+	cfg.Services.Postgres.MaxConnections, err = parsePositiveInt(s.PostgresMaxConnections)
+	if err != nil {
+		return Config{}, fmt.Errorf("postgres max connections: %w", err)
+	}
+	cfg.Services.Postgres.SharedBuffers = strings.TrimSpace(s.PostgresSharedBuffers)
+	cfg.Services.Postgres.LogMinDurationStatementMS, err = parsePostgresLogDurationMS(s.PostgresLogDurationMS)
+	if err != nil {
+		return Config{}, fmt.Errorf("postgres log min duration: %w", err)
+	}
 	cfg.Connection.PostgresDatabase = strings.TrimSpace(s.PostgresDatabase)
 	cfg.Connection.PostgresUsername = strings.TrimSpace(s.PostgresUsername)
 	cfg.Connection.PostgresPassword = strings.TrimSpace(s.PostgresPassword)
@@ -809,6 +872,8 @@ func (s wizardState) toConfig(base Config) (Config, error) {
 	cfg.Services.Redis.SavePolicy = strings.TrimSpace(s.RedisSavePolicy)
 	cfg.Services.Redis.MaxMemoryPolicy = strings.TrimSpace(s.RedisMaxMemoryPolicy)
 	cfg.Connection.RedisPassword = strings.TrimSpace(s.RedisPassword)
+	cfg.Connection.RedisACLUsername = strings.TrimSpace(s.RedisACLUsername)
+	cfg.Connection.RedisACLPassword = strings.TrimSpace(s.RedisACLPassword)
 	cfg.Ports.Redis, err = parsePort(s.RedisPort)
 	if err != nil {
 		return Config{}, fmt.Errorf("redis port: %w", err)
@@ -849,6 +914,9 @@ func (s wizardState) toConfig(base Config) (Config, error) {
 	cfg.Services.PgAdmin.Image = strings.TrimSpace(s.PgAdminImage)
 	cfg.Services.PgAdmin.DataVolume = strings.TrimSpace(s.PgAdminDataVolume)
 	cfg.Services.PgAdmin.ServerMode = s.PgAdminServerMode
+	cfg.Services.PgAdmin.BootstrapPostgresServer = s.PgAdminBootstrapPostgresServer && cfg.Setup.IncludePostgres
+	cfg.Services.PgAdmin.BootstrapServerName = strings.TrimSpace(s.PgAdminBootstrapServerName)
+	cfg.Services.PgAdmin.BootstrapServerGroup = strings.TrimSpace(s.PgAdminBootstrapServerGroup)
 	cfg.Connection.PgAdminEmail = strings.TrimSpace(s.PgAdminEmail)
 	cfg.Connection.PgAdminPassword = strings.TrimSpace(s.PgAdminPassword)
 	cfg.Ports.PgAdmin, err = parsePort(s.PgAdminPort)
@@ -971,6 +1039,24 @@ func parsePositiveInt(value string) (int, error) {
 	return parsed, nil
 }
 
+func parsePostgresLogDurationMS(value string) (int, error) {
+	trimmed := strings.TrimSpace(value)
+	if err := nonEmpty(trimmed); err != nil {
+		return 0, err
+	}
+	if trimmed == "-1" {
+		return -1, nil
+	}
+	parsed, err := strconv.Atoi(trimmed)
+	if err != nil {
+		return 0, fmt.Errorf("enter -1 or a positive number")
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("enter -1 or a positive number")
+	}
+	return parsed, nil
+}
+
 func validPortText(value string) error {
 	_, err := parsePort(value)
 	return err
@@ -978,6 +1064,11 @@ func validPortText(value string) error {
 
 func validPositiveIntText(value string) error {
 	_, err := parsePositiveInt(value)
+	return err
+}
+
+func validPostgresLogDurationText(value string) error {
+	_, err := parsePostgresLogDurationMS(value)
 	return err
 }
 

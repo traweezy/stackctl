@@ -43,18 +43,18 @@ func newResetCmd() *cobra.Command {
 			if volumes {
 				action = "resetting stack and removing volumes..."
 			}
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusReset, action); err != nil {
+			if err := statusLine(cmd, output.StatusReset, action); err != nil {
 				return err
 			}
-			if err := deps.composeDown(context.Background(), runnerFor(cmd), cfg, volumes); err != nil {
+			if err := composeDownAndWait(context.Background(), runnerFor(cmd), cfg, volumes); err != nil {
 				return err
 			}
 
-			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "stack reset")
+			return statusLine(cmd, output.StatusOK, "stack reset")
 		},
 	}
 
-	cmd.Flags().BoolVarP(&volumes, "volumes", "v", false, "Remove volumes while stopping the stack")
+	cmd.Flags().BoolVar(&volumes, "volumes", false, "Remove volumes while stopping the stack")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation for destructive reset")
 
 	return cmd

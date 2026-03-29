@@ -12,13 +12,19 @@ import (
 )
 
 type ScaffoldResult struct {
-	StackDir        string
-	ComposePath     string
-	NATSConfigPath  string
-	CreatedDir      bool
-	WroteCompose    bool
-	WroteNATSConfig bool
-	AlreadyPresent  bool
+	StackDir            string
+	ComposePath         string
+	NATSConfigPath      string
+	RedisACLPath        string
+	PgAdminServersPath  string
+	PGPassPath          string
+	CreatedDir          bool
+	WroteCompose        bool
+	WroteNATSConfig     bool
+	WroteRedisACL       bool
+	WrotePgAdminServers bool
+	WrotePGPass         bool
+	AlreadyPresent      bool
 }
 
 func ManagedStackNeedsScaffold(cfg Config) (bool, error) {
@@ -47,15 +53,50 @@ func ManagedStackNeedsScaffold(cfg Config) (bool, error) {
 			return true, nil
 		}
 	}
+	if cfg.RedisACLEnabled() {
+		redisACLData, err := renderManagedRedisACL(cfg)
+		if err != nil {
+			return false, err
+		}
+		if needsWrite, err := scaffoldFileNeedsWrite(RedisACLPath(cfg), redisACLData); err != nil {
+			return false, fmt.Errorf("inspect redis ACL file %s: %w", RedisACLPath(cfg), err)
+		} else if needsWrite {
+			return true, nil
+		}
+	}
+	if cfg.PgAdminBootstrapEnabled() {
+		serversData, err := renderManagedPgAdminServers(cfg)
+		if err != nil {
+			return false, err
+		}
+		if needsWrite, err := scaffoldFileNeedsWrite(PgAdminServersPath(cfg), serversData); err != nil {
+			return false, fmt.Errorf("inspect pgAdmin server bootstrap file %s: %w", PgAdminServersPath(cfg), err)
+		} else if needsWrite {
+			return true, nil
+		}
+
+		pgPassData, err := renderManagedPGPass(cfg)
+		if err != nil {
+			return false, err
+		}
+		if needsWrite, err := scaffoldFileNeedsWrite(PGPassPath(cfg), pgPassData); err != nil {
+			return false, fmt.Errorf("inspect pgpass bootstrap file %s: %w", PGPassPath(cfg), err)
+		} else if needsWrite {
+			return true, nil
+		}
+	}
 
 	return false, nil
 }
 
 func ScaffoldManagedStack(cfg Config, force bool) (ScaffoldResult, error) {
 	result := ScaffoldResult{
-		StackDir:       cfg.Stack.Dir,
-		ComposePath:    ComposePath(cfg),
-		NATSConfigPath: NATSConfigPath(cfg),
+		StackDir:           cfg.Stack.Dir,
+		ComposePath:        ComposePath(cfg),
+		NATSConfigPath:     NATSConfigPath(cfg),
+		RedisACLPath:       RedisACLPath(cfg),
+		PgAdminServersPath: PgAdminServersPath(cfg),
+		PGPassPath:         PGPassPath(cfg),
 	}
 
 	if !cfg.Stack.Managed {
@@ -108,8 +149,44 @@ func ScaffoldManagedStack(cfg Config, force bool) (ScaffoldResult, error) {
 		}
 		result.WroteNATSConfig = wroteNATSConfig
 	}
+	if cfg.RedisACLEnabled() {
+		redisACLData, err := renderManagedRedisACL(cfg)
+		if err != nil {
+			return result, err
+		}
+		wroteRedisACL, err := writeScaffoldFile(result.RedisACLPath, redisACLData, force)
+		if err != nil {
+			return result, fmt.Errorf("write redis ACL file %s: %w", result.RedisACLPath, err)
+		}
+		result.WroteRedisACL = wroteRedisACL
+	}
+	if cfg.PgAdminBootstrapEnabled() {
+		serversData, err := renderManagedPgAdminServers(cfg)
+		if err != nil {
+			return result, err
+		}
+		wroteServers, err := writeScaffoldFile(result.PgAdminServersPath, serversData, force)
+		if err != nil {
+			return result, fmt.Errorf("write pgAdmin server bootstrap file %s: %w", result.PgAdminServersPath, err)
+		}
+		result.WrotePgAdminServers = wroteServers
 
-	result.AlreadyPresent = !result.WroteCompose && !result.WroteNATSConfig
+		pgPassData, err := renderManagedPGPass(cfg)
+		if err != nil {
+			return result, err
+		}
+		wrotePGPass, err := writeScaffoldFile(result.PGPassPath, pgPassData, force)
+		if err != nil {
+			return result, fmt.Errorf("write pgpass bootstrap file %s: %w", result.PGPassPath, err)
+		}
+		result.WrotePGPass = wrotePGPass
+	}
+
+	result.AlreadyPresent = !result.WroteCompose &&
+		!result.WroteNATSConfig &&
+		!result.WroteRedisACL &&
+		!result.WrotePgAdminServers &&
+		!result.WrotePGPass
 
 	return result, nil
 }
@@ -141,6 +218,54 @@ func renderManagedNATSConfig(cfg Config) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, cfg); err != nil {
 		return nil, fmt.Errorf("render managed nats template: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+func renderManagedRedisACL(cfg Config) ([]byte, error) {
+	cfg.ApplyDerivedFields()
+
+	tmpl, err := template.New("dev-stack-redis-acl").Option("missingkey=error").Parse(string(embedded.DevStackRedisACL()))
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded redis ACL template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, cfg); err != nil {
+		return nil, fmt.Errorf("render managed redis ACL template: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+func renderManagedPgAdminServers(cfg Config) ([]byte, error) {
+	cfg.ApplyDerivedFields()
+
+	tmpl, err := template.New("dev-stack-pgadmin-servers").Option("missingkey=error").Parse(string(embedded.DevStackPgAdminServers()))
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded pgAdmin server template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, cfg); err != nil {
+		return nil, fmt.Errorf("render managed pgAdmin server template: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+func renderManagedPGPass(cfg Config) ([]byte, error) {
+	cfg.ApplyDerivedFields()
+
+	tmpl, err := template.New("dev-stack-pgpass").Option("missingkey=error").Parse(string(embedded.DevStackPGPass()))
+	if err != nil {
+		return nil, fmt.Errorf("parse embedded pgpass template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, cfg); err != nil {
+		return nil, fmt.Errorf("render managed pgpass template: %w", err)
 	}
 
 	return buf.Bytes(), nil
@@ -196,9 +321,17 @@ func writeScaffoldFile(path string, data []byte, force bool) (bool, error) {
 		return false, err
 	}
 
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := os.WriteFile(path, data, scaffoldFileMode(path)); err != nil {
 		return false, err
 	}
 
 	return true, nil
+}
+
+func scaffoldFileMode(path string) os.FileMode {
+	if filepath.Base(path) == DefaultRedisACLName {
+		return 0o644
+	}
+
+	return 0o600
 }

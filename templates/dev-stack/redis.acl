@@ -1,0 +1,6 @@
+{{- if .Connection.RedisPassword }}
+user default on >{{ .Connection.RedisPassword }} ~* &* +@all
+{{- else }}
+user default off
+{{- end }}
+user {{ .Connection.RedisACLUsername }} on >{{ .Connection.RedisACLPassword }} ~* &* +@all

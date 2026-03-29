@@ -163,7 +163,7 @@ func newDBDumpCmd() *cobra.Command {
 				return nil
 			}
 
-			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("wrote database dump to %s", outputPath))
+			return statusLine(cmd, output.StatusOK, fmt.Sprintf("wrote database dump to %s", outputPath))
 		},
 	}
 
@@ -221,7 +221,7 @@ func newDBRestoreCmd() *cobra.Command {
 				source = "stdin"
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, fmt.Sprintf("restoring database from %s...", source)); err != nil {
+			if err := statusLine(cmd, output.StatusInfo, fmt.Sprintf("restoring database from %s...", source)); err != nil {
 				return err
 			}
 
@@ -248,7 +248,7 @@ func newDBRestoreCmd() *cobra.Command {
 				return err
 			}
 
-			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "database restore completed")
+			return statusLine(cmd, output.StatusOK, "database restore completed")
 		},
 	}
 
@@ -292,7 +292,7 @@ func newDBResetCmd() *cobra.Command {
 				}
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusReset, fmt.Sprintf("resetting database %s...", cfg.Connection.PostgresDatabase)); err != nil {
+			if err := statusLine(cmd, output.StatusReset, fmt.Sprintf("resetting database %s...", cfg.Connection.PostgresDatabase)); err != nil {
 				return err
 			}
 
@@ -351,7 +351,7 @@ func newDBResetCmd() *cobra.Command {
 				}
 			}
 
-			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("database %s reset", cfg.Connection.PostgresDatabase))
+			return statusLine(cmd, output.StatusOK, fmt.Sprintf("database %s reset", cfg.Connection.PostgresDatabase))
 		},
 	}
 

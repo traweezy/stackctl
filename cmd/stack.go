@@ -680,7 +680,7 @@ func purgeManagedStackLocalStateQuiet(ctx context.Context, cfg configpkg.Config)
 
 	composePath := deps.composePath(cfg)
 	if stackComposeFileExists(composePath) {
-		if err := deps.composeDownPath(ctx, quietRunner(), cfg.Stack.Dir, composePath, true); err != nil {
+		if err := composeDownAndWait(ctx, quietRunner(), cfg, true); err != nil {
 			return "", fmt.Errorf("tear down managed stack %s: %w", cfg.Stack.Name, err)
 		}
 	}

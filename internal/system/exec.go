@@ -46,6 +46,28 @@ func (r Runner) Run(ctx context.Context, dir, name string, args ...string) error
 	return nil
 }
 
+func RunExternalCommand(ctx context.Context, runner Runner, dir string, commandArgs []string) error {
+	if len(commandArgs) == 0 {
+		return errors.New("no command specified")
+	}
+
+	// #nosec G204 -- the command is supplied explicitly by the local CLI user.
+	command := exec.CommandContext(ctx, commandArgs[0], commandArgs[1:]...)
+	command.Dir = dir
+	command.Stdin = runner.Stdin
+	command.Stdout = runner.Stdout
+	command.Stderr = runner.Stderr
+	if len(runner.Env) > 0 {
+		command.Env = mergeEnv(os.Environ(), runner.Env)
+	}
+
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("run %s: %w", formatCommand(commandArgs[0], commandArgs[1:]), err)
+	}
+
+	return nil
+}
+
 func (r Runner) Capture(ctx context.Context, dir, name string, args ...string) (string, error) {
 	result, err := CaptureResult(ctx, dir, name, args...)
 	if err != nil {

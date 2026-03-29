@@ -41,6 +41,7 @@ func TestEnvPrintsShellAssignmentsFromConfig(t *testing.T) {
 		"DATABASE_URL='postgres://app:p%40ss%27word@devbox:5432/app'",
 		"PGHOST='devbox'",
 		"POSTGRES_PASSWORD='p@ss'\"'\"'word'",
+		"PGMAINTENANCE_DB='postgres'",
 		"# Redis",
 		"REDIS_PASSWORD=''",
 		"# SeaweedFS",
@@ -54,6 +55,34 @@ func TestEnvPrintsShellAssignmentsFromConfig(t *testing.T) {
 	}
 	if strings.Contains(stdout, "# NATS") || strings.Contains(stdout, "# Cockpit") {
 		t.Fatalf("did not expect unselected env groups:\n%s", stdout)
+	}
+}
+
+func TestEnvUsesRedisACLUserWhenConfigured(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.Host = "devbox"
+		cfg.Connection.RedisPassword = "defaultpass"
+		cfg.Connection.RedisACLUsername = "app"
+		cfg.Connection.RedisACLPassword = "apppass"
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+	})
+
+	stdout, _, err := executeRoot(t, "env", "redis")
+	if err != nil {
+		t.Fatalf("env returned error: %v", err)
+	}
+
+	for _, fragment := range []string{
+		"REDIS_URL='redis://app:apppass@devbox:6379'",
+		"REDIS_USERNAME='app'",
+		"REDIS_PASSWORD='apppass'",
+		"REDIS_DEFAULT_PASSWORD='defaultpass'",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("expected env output to contain %q:\n%s", fragment, stdout)
+		}
 	}
 }
 

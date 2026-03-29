@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -12,6 +13,13 @@ import (
 	"github.com/traweezy/stackctl/internal/output"
 	"github.com/traweezy/stackctl/internal/system"
 )
+
+type rootOutputOptions struct {
+	Verbose bool
+	Quiet   bool
+}
+
+var rootOutput rootOutputOptions
 
 func runnerFor(cmd *cobra.Command) system.Runner {
 	return system.Runner{
@@ -44,7 +52,7 @@ func confirmWithPrompt(cmd *cobra.Command, message string, defaultYes bool) (boo
 }
 
 func userCancelled(cmd *cobra.Command, message string) error {
-	return output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, message)
+	return statusLine(cmd, output.StatusInfo, message)
 }
 
 func printValidationIssues(cmd *cobra.Command, issues []configpkg.ValidationIssue) error {
@@ -55,6 +63,48 @@ func printValidationIssues(cmd *cobra.Command, issues []configpkg.ValidationIssu
 	}
 
 	return nil
+}
+
+func filterAutoScaffoldValidationIssues(cfg configpkg.Config, issues []configpkg.ValidationIssue) []configpkg.ValidationIssue {
+	if len(issues) == 0 {
+		return nil
+	}
+
+	filtered := make([]configpkg.ValidationIssue, 0, len(issues))
+	for _, issue := range issues {
+		if pendingManagedScaffoldIssue(cfg, issue) {
+			continue
+		}
+		filtered = append(filtered, issue)
+	}
+
+	return filtered
+}
+
+func pendingManagedScaffoldIssue(cfg configpkg.Config, issue configpkg.ValidationIssue) bool {
+	if !cfg.Stack.Managed || !cfg.Setup.ScaffoldDefaultStack {
+		return false
+	}
+
+	normalized := cfg
+	normalized.ApplyDerivedFields()
+
+	expectedDir, err := configpkg.ManagedStackDir(normalized.Stack.Name)
+	if err != nil {
+		return false
+	}
+	if normalized.Stack.Dir != expectedDir || normalized.Stack.ComposeFile != configpkg.DefaultComposeFileName {
+		return false
+	}
+
+	switch issue.Field {
+	case "stack.dir":
+		return issue.Message == fmt.Sprintf("directory does not exist: %s", normalized.Stack.Dir)
+	case "stack.compose_file":
+		return issue.Message == fmt.Sprintf("file does not exist: %s", configpkg.ComposePath(normalized))
+	default:
+		return false
+	}
 }
 
 func managedStackPrompt(cfg configpkg.Config) string {
@@ -75,17 +125,37 @@ func scaffoldManagedStack(cmd *cobra.Command, cfg configpkg.Config, force bool) 
 	}
 
 	if result.CreatedDir {
-		if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("created managed stack directory %s", result.StackDir)); err != nil {
+		if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("created managed stack directory %s", result.StackDir)); err != nil {
 			return err
 		}
 	}
 	if result.WroteCompose {
-		if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("wrote managed compose file %s", result.ComposePath)); err != nil {
+		if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("wrote managed compose file %s", result.ComposePath)); err != nil {
+			return err
+		}
+	}
+	if result.WroteNATSConfig {
+		if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("wrote managed nats config file %s", result.NATSConfigPath)); err != nil {
+			return err
+		}
+	}
+	if result.WroteRedisACL {
+		if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("wrote managed redis ACL file %s", result.RedisACLPath)); err != nil {
+			return err
+		}
+	}
+	if result.WrotePgAdminServers {
+		if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("wrote managed pgAdmin server bootstrap file %s", result.PgAdminServersPath)); err != nil {
+			return err
+		}
+	}
+	if result.WrotePGPass {
+		if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("wrote managed pgpass file %s", result.PGPassPath)); err != nil {
 			return err
 		}
 	}
 	if result.AlreadyPresent {
-		return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("managed stack already exists at %s", result.ComposePath))
+		return statusLine(cmd, output.StatusOK, fmt.Sprintf("managed stack already exists at %s", result.ComposePath))
 	}
 
 	return nil
@@ -133,4 +203,49 @@ func fileDescriptor(file *os.File) (int, bool) {
 
 	// #nosec G115 -- fd is range-checked against the platform int size above.
 	return int(fd), true
+}
+
+func quietRequested(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return rootOutput.Quiet
+	}
+	value, err := cmd.Flags().GetBool("quiet")
+	if err == nil {
+		return value
+	}
+	return rootOutput.Quiet
+}
+
+func verboseRequested(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return rootOutput.Verbose
+	}
+	value, err := cmd.Flags().GetBool("verbose")
+	if err == nil {
+		return value
+	}
+	return rootOutput.Verbose
+}
+
+func statusLine(cmd *cobra.Command, status, message string) error {
+	if quietRequested(cmd) {
+		return nil
+	}
+	return output.StatusLine(cmd.OutOrStdout(), status, message)
+}
+
+func blankLine(cmd *cobra.Command) error {
+	if quietRequested(cmd) {
+		return nil
+	}
+	_, err := fmt.Fprintln(cmd.OutOrStdout())
+	return err
+}
+
+func verboseLine(cmd *cobra.Command, message string) error {
+	if quietRequested(cmd) || !verboseRequested(cmd) {
+		return nil
+	}
+	_, err := fmt.Fprintln(cmd.OutOrStdout(), strings.TrimSpace(message))
+	return err
 }

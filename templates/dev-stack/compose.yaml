@@ -6,6 +6,14 @@ services:
     image: {{ printf "%q" .Services.Postgres.Image }}
     container_name: {{ printf "%q" .Services.PostgresContainer }}
     restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - {{ printf "%q" (printf "max_connections=%d" .Services.Postgres.MaxConnections) }}
+      - -c
+      - {{ printf "%q" (printf "shared_buffers=%s" .Services.Postgres.SharedBuffers) }}
+      - -c
+      - {{ printf "%q" (printf "log_min_duration_statement=%d" .Services.Postgres.LogMinDurationStatementMS) }}
     environment:
       POSTGRES_USER: {{ printf "%q" .Connection.PostgresUsername }}
       POSTGRES_PASSWORD: {{ printf "%q" .Connection.PostgresPassword }}
@@ -21,9 +29,15 @@ services:
     image: {{ printf "%q" .Services.Redis.Image }}
     container_name: {{ printf "%q" .Services.RedisContainer }}
     restart: unless-stopped
+{{- if .RedisACLEnabled }}
+    user: "0:0"
+{{- end }}
     command:
       - redis-server
-{{- if .Connection.RedisPassword }}
+{{- if .RedisACLEnabled }}
+      - --aclfile
+      - /usr/local/etc/redis/users.acl
+{{- else if .Connection.RedisPassword }}
       - --requirepass
       - {{ printf "%q" .Connection.RedisPassword }}
 {{- end }}
@@ -41,6 +55,9 @@ services:
       - "{{ .Ports.Redis }}:6379"
     volumes:
       - {{ .Services.Redis.DataVolume }}:/data
+{{- if .RedisACLEnabled }}
+      - ./redis.acl:/usr/local/etc/redis/users.acl:ro
+{{- end }}
 {{- end }}
 
 {{- if .Setup.IncludeNATS }}
@@ -108,10 +125,19 @@ services:
 {{- else }}
       PGADMIN_CONFIG_SERVER_MODE: "False"
 {{- end }}
+{{- if .PgAdminBootstrapEnabled }}
+      PGADMIN_SERVER_JSON_FILE: "/pgadmin4/servers.json"
+      PGADMIN_REPLACE_SERVERS_ON_STARTUP: "True"
+      PGPASS_FILE: "/tmp/pgpass"
+{{- end }}
     ports:
       - "{{ .Ports.PgAdmin }}:80"
     volumes:
       - {{ .Services.PgAdmin.DataVolume }}:/var/lib/pgadmin
+{{- if .PgAdminBootstrapEnabled }}
+      - ./pgadmin-servers.json:/pgadmin4/servers.json:ro
+      - ./pgpass:/tmp/pgpass:ro
+{{- end }}
 {{- if .Setup.IncludePostgres }}
     depends_on:
       - postgres
