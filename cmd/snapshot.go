@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -38,6 +39,8 @@ type persistentVolumeSpec struct {
 	VolumeName   string
 	ArchiveEntry string
 }
+
+const maxSnapshotManifestBytes int64 = 1 << 20
 
 func newSnapshotCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -351,7 +354,13 @@ func podmanVolumeExists(ctx context.Context, name string) (bool, error) {
 }
 
 func writeSnapshotArchive(path string, manifest snapshotManifest, files map[string]string) error {
-	file, err := os.Create(path)
+	root, fileName, err := openSnapshotPathRoot(path)
+	if err != nil {
+		return fmt.Errorf("create snapshot archive %s: %w", path, err)
+	}
+	defer func() { _ = root.Close() }()
+
+	file, err := root.OpenFile(fileName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("create snapshot archive %s: %w", path, err)
 	}
@@ -382,7 +391,13 @@ func writeSnapshotArchive(path string, manifest snapshotManifest, files map[stri
 }
 
 func readSnapshotArchive(path string) (snapshotManifest, map[string]string, func(), error) {
-	file, err := os.Open(path)
+	root, fileName, err := openSnapshotPathRoot(path)
+	if err != nil {
+		return snapshotManifest{}, nil, nil, fmt.Errorf("open snapshot archive %s: %w", path, err)
+	}
+	defer func() { _ = root.Close() }()
+
+	file, err := root.Open(fileName)
 	if err != nil {
 		return snapshotManifest{}, nil, nil, fmt.Errorf("open snapshot archive %s: %w", path, err)
 	}
@@ -392,7 +407,15 @@ func readSnapshotArchive(path string) (snapshotManifest, map[string]string, func
 	if err != nil {
 		return snapshotManifest{}, nil, nil, fmt.Errorf("create snapshot extraction dir: %w", err)
 	}
-	cleanup := func() { _ = os.RemoveAll(tempDir) }
+	tempRoot, err := os.OpenRoot(tempDir)
+	if err != nil {
+		_ = os.RemoveAll(tempDir)
+		return snapshotManifest{}, nil, nil, fmt.Errorf("open snapshot extraction dir %s: %w", tempDir, err)
+	}
+	cleanup := func() {
+		_ = tempRoot.Close()
+		_ = os.RemoveAll(tempDir)
+	}
 
 	reader := tar.NewReader(file)
 	manifest := snapshotManifest{}
@@ -411,9 +434,23 @@ func readSnapshotArchive(path string) (snapshotManifest, map[string]string, func
 			continue
 		}
 
-		switch filepath.ToSlash(header.Name) {
+		entryName, err := normalizeSnapshotArchiveEntry(header.Name)
+		if err != nil {
+			cleanup()
+			return snapshotManifest{}, nil, nil, err
+		}
+
+		switch entryName {
 		case "manifest.json":
-			data, err := io.ReadAll(reader)
+			if header.Size < 0 {
+				cleanup()
+				return snapshotManifest{}, nil, nil, errors.New("snapshot manifest size is invalid")
+			}
+			if header.Size > maxSnapshotManifestBytes {
+				cleanup()
+				return snapshotManifest{}, nil, nil, fmt.Errorf("snapshot manifest exceeds %d bytes", maxSnapshotManifestBytes)
+			}
+			data, err := io.ReadAll(io.LimitReader(reader, header.Size))
 			if err != nil {
 				cleanup()
 				return snapshotManifest{}, nil, nil, fmt.Errorf("read snapshot manifest: %w", err)
@@ -423,22 +460,34 @@ func readSnapshotArchive(path string) (snapshotManifest, map[string]string, func
 				return snapshotManifest{}, nil, nil, fmt.Errorf("parse snapshot manifest: %w", err)
 			}
 		default:
-			targetPath := filepath.Join(tempDir, filepath.Base(header.Name))
-			targetFile, err := os.Create(targetPath)
+			targetName := filepath.FromSlash(entryName)
+			targetDir := filepath.Dir(targetName)
+			if targetDir != "." {
+				if err := tempRoot.MkdirAll(targetDir, 0o700); err != nil {
+					cleanup()
+					return snapshotManifest{}, nil, nil, fmt.Errorf("create extracted snapshot dir %s: %w", targetDir, err)
+				}
+			}
+			targetFile, err := tempRoot.OpenFile(targetName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 			if err != nil {
 				cleanup()
-				return snapshotManifest{}, nil, nil, fmt.Errorf("create extracted snapshot file %s: %w", targetPath, err)
+				return snapshotManifest{}, nil, nil, fmt.Errorf("create extracted snapshot file %s: %w", entryName, err)
 			}
-			if _, err := io.Copy(targetFile, reader); err != nil {
+			if header.Size < 0 {
 				_ = targetFile.Close()
 				cleanup()
-				return snapshotManifest{}, nil, nil, fmt.Errorf("extract snapshot entry %s: %w", header.Name, err)
+				return snapshotManifest{}, nil, nil, fmt.Errorf("snapshot entry %s has an invalid size", entryName)
+			}
+			if _, err := io.CopyN(targetFile, reader, header.Size); err != nil {
+				_ = targetFile.Close()
+				cleanup()
+				return snapshotManifest{}, nil, nil, fmt.Errorf("extract snapshot entry %s: %w", entryName, err)
 			}
 			if err := targetFile.Close(); err != nil {
 				cleanup()
-				return snapshotManifest{}, nil, nil, fmt.Errorf("close extracted snapshot file %s: %w", targetPath, err)
+				return snapshotManifest{}, nil, nil, fmt.Errorf("close extracted snapshot file %s: %w", entryName, err)
 			}
-			extracted[filepath.ToSlash(header.Name)] = targetPath
+			extracted[entryName] = filepath.Join(tempDir, targetName)
 		}
 	}
 
@@ -524,18 +573,31 @@ func writeTarEntry(writer *tar.Writer, name string, data []byte) error {
 }
 
 func writeTarFile(writer *tar.Writer, entryName, sourcePath string) error {
-	info, err := os.Stat(sourcePath)
+	normalizedEntryName, err := normalizeSnapshotArchiveEntry(entryName)
 	if err != nil {
 		return err
 	}
-	sourceFile, err := os.Open(sourcePath)
+	root, fileName, err := openSnapshotPathRoot(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+
+	info, err := root.Stat(fileName)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("snapshot payload %s is not a regular file", sourcePath)
+	}
+	sourceFile, err := root.Open(fileName)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = sourceFile.Close() }()
 
 	header := &tar.Header{
-		Name: entryName,
+		Name: normalizedEntryName,
 		Mode: 0o600,
 		Size: info.Size(),
 	}
@@ -544,4 +606,41 @@ func writeTarFile(writer *tar.Writer, entryName, sourcePath string) error {
 	}
 	_, err = io.Copy(writer, sourceFile)
 	return err
+}
+
+func openSnapshotPathRoot(name string) (*os.Root, string, error) {
+	cleaned := filepath.Clean(name)
+	base := filepath.Base(cleaned)
+	if base == "." || base == string(filepath.Separator) {
+		return nil, "", fmt.Errorf("invalid snapshot archive path %q", name)
+	}
+
+	root, err := os.OpenRoot(filepath.Dir(cleaned))
+	if err != nil {
+		return nil, "", err
+	}
+	return root, base, nil
+}
+
+func normalizeSnapshotArchiveEntry(name string) (string, error) {
+	trimmed := filepath.ToSlash(strings.TrimSpace(name))
+	for strings.HasPrefix(trimmed, "./") {
+		trimmed = strings.TrimPrefix(trimmed, "./")
+	}
+	if trimmed == "" {
+		return "", errors.New("snapshot archive entry name is empty")
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return "", fmt.Errorf("snapshot archive entry %q must be relative", name)
+	}
+
+	cleaned := pathpkg.Clean(trimmed)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("snapshot archive entry %q escapes the archive root", name)
+	}
+	if cleaned != trimmed {
+		return "", fmt.Errorf("snapshot archive entry %q must use a clean relative path", name)
+	}
+
+	return cleaned, nil
 }

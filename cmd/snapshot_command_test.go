@@ -172,6 +172,95 @@ func TestSnapshotRestoreRejectsMissingPayloadBeforeChangingVolumes(t *testing.T)
 	}
 }
 
+func TestReadSnapshotArchivePreservesNestedEntryPaths(t *testing.T) {
+	dir := t.TempDir()
+	payloadPath := filepath.Join(dir, "redis.tar")
+	if err := os.WriteFile(payloadPath, []byte("redis-volume"), 0o644); err != nil {
+		t.Fatalf("write snapshot payload: %v", err)
+	}
+
+	manifest := snapshotManifest{
+		Version:   1,
+		StackName: "dev-stack",
+		Volumes: []snapshotVolumeRecord{{
+			Service:    "redis",
+			SourceName: "redis_data",
+			Archive:    "volumes/redis.tar",
+		}},
+	}
+	archivePath := filepath.Join(dir, "snapshot.tar")
+	if err := writeSnapshotArchive(archivePath, manifest, map[string]string{"volumes/redis.tar": payloadPath}); err != nil {
+		t.Fatalf("write snapshot archive: %v", err)
+	}
+
+	restoredManifest, extracted, cleanup, err := readSnapshotArchive(archivePath)
+	if err != nil {
+		t.Fatalf("read snapshot archive: %v", err)
+	}
+	defer cleanup()
+
+	if restoredManifest.StackName != manifest.StackName || len(restoredManifest.Volumes) != 1 {
+		t.Fatalf("unexpected restored manifest: %+v", restoredManifest)
+	}
+
+	extractedPath := extracted["volumes/redis.tar"]
+	if extractedPath == "" {
+		t.Fatalf("expected extracted redis payload, got %+v", extracted)
+	}
+	data, err := os.ReadFile(extractedPath)
+	if err != nil {
+		t.Fatalf("read extracted snapshot payload: %v", err)
+	}
+	if string(data) != "redis-volume" {
+		t.Fatalf("unexpected extracted payload %q", string(data))
+	}
+}
+
+func TestReadSnapshotArchiveRejectsUnsafeEntryPaths(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "unsafe.tar")
+
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("create unsafe snapshot archive: %v", err)
+	}
+
+	writer := tar.NewWriter(file)
+	manifest := snapshotManifest{
+		Version:   1,
+		StackName: "dev-stack",
+		Volumes: []snapshotVolumeRecord{{
+			Service:    "redis",
+			SourceName: "redis_data",
+			Archive:    "../redis.tar",
+		}},
+	}
+	manifestData, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if err := writeTarEntry(writer, "manifest.json", manifestData); err != nil {
+		t.Fatalf("write manifest entry: %v", err)
+	}
+	if err := writeTarEntry(writer, "../redis.tar", []byte("payload")); err != nil {
+		t.Fatalf("write unsafe payload entry: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close archive file: %v", err)
+	}
+
+	_, _, cleanup, err := readSnapshotArchive(archivePath)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err == nil || !strings.Contains(err.Error(), "escapes the archive root") {
+		t.Fatalf("unexpected read snapshot archive error: %v", err)
+	}
+}
+
 func writeFakePodman(t *testing.T, dir, logPath string) {
 	t.Helper()
 
