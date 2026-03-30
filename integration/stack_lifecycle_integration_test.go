@@ -612,6 +612,284 @@ func TestSetupNonInteractiveManagedLifecycleSmoke(t *testing.T) {
 	}
 }
 
+func TestManagedRunSnapshotRedisACLAndPgAdminBootstrapSmoke(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("integration tests require Linux")
+	}
+
+	binaryPath := testutil.BuildStackctlBinary(t)
+	configRoot := t.TempDir()
+	dataRoot, err := os.MkdirTemp("", "stackctl-itest-data-*")
+	if err != nil {
+		t.Fatalf("create integration data dir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	requirePodmanCompose(t)
+
+	suffix := strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
+	stackName := "run-snapshot-" + suffix
+	env := []string{
+		"XDG_CONFIG_HOME=" + configRoot,
+		"XDG_DATA_HOME=" + dataRoot,
+		"STACKCTL_STACK=" + stackName,
+	}
+
+	cfg := configpkg.DefaultForStack(stackName)
+	cfg.Setup.IncludeNATS = false
+	cfg.Setup.IncludeCockpit = false
+	cfg.Setup.InstallCockpit = false
+	applyManagedIntegrationRuntimeConfig(t, &cfg, suffix)
+	cfg.Connection.RedisPassword = ""
+	cfg.Connection.RedisACLUsername = "appacl"
+	cfg.Connection.RedisACLPassword = "aclpass-" + suffix
+	cfg.Services.PgAdmin.BootstrapPostgresServer = true
+	cfg.Services.PgAdmin.BootstrapServerName = "Integration Postgres"
+	cfg.Services.PgAdmin.BootstrapServerGroup = "Integration"
+	cfg.ApplyDerivedFields()
+
+	configPath, err := configpkg.ConfigFilePathForStack(stackName)
+	if err != nil {
+		t.Fatalf("resolve stack config path: %v", err)
+	}
+	if err := configpkg.Save(configPath, cfg); err != nil {
+		t.Fatalf("save integration config: %v", err)
+	}
+
+	composePath := configpkg.ComposePath(cfg)
+	redisACLPath := configpkg.RedisACLPath(cfg)
+	pgAdminServersPath := configpkg.PgAdminServersPath(cfg)
+	pgPassPath := configpkg.PGPassPath(cfg)
+	snapshotPath := filepath.Join(t.TempDir(), stackName+".tar")
+
+	t.Cleanup(func() {
+		_, _ = runStackctl(binaryPath, env, "reset", "--volumes", "--force")
+		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		_ = os.RemoveAll(dataRoot)
+	})
+
+	dryRunOutput, err := runStackctl(binaryPath, env, "run", "--dry-run", "postgres", "redis", "--", "env")
+	if err != nil {
+		t.Fatalf("run --dry-run returned error: %v\n%s", err, dryRunOutput)
+	}
+	for _, fragment := range []string{
+		"Stack: " + stackName,
+		"Services: Postgres, Redis",
+		"Service mode: ensure running",
+		"export DATABASE_URL='postgres://stackuser:stackpass@127.0.0.1:" + strconv.Itoa(cfg.Ports.Postgres) + "/stackdb'",
+		"export REDIS_URL='redis://appacl:aclpass-" + suffix + "@127.0.0.1:" + strconv.Itoa(cfg.Ports.Redis) + "'",
+		"export REDIS_USERNAME='appacl'",
+	} {
+		if !strings.Contains(dryRunOutput, fragment) {
+			t.Fatalf("run --dry-run output missing %q:\n%s", fragment, dryRunOutput)
+		}
+	}
+	for _, path := range []string{composePath, redisACLPath, pgAdminServersPath, pgPassPath} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expected %s to stay absent after dry-run, got err=%v", path, err)
+		}
+	}
+
+	runOutput, err := runStackctl(binaryPath, env, "run", "postgres", "redis", "pgadmin", "--", "env")
+	if err != nil {
+		statusOutput, _ := runStackctl(binaryPath, env, "status", "--json")
+		servicesOutput, _ := runStackctl(binaryPath, env, "services")
+		t.Fatalf("run returned error: %v\n%s\nstatus --json:\n%s\nservices:\n%s", err, runOutput, statusOutput, servicesOutput)
+	}
+	for _, fragment := range []string{
+		"DATABASE_URL=postgres://stackuser:stackpass@127.0.0.1:" + strconv.Itoa(cfg.Ports.Postgres) + "/stackdb",
+		"REDIS_URL=redis://appacl:aclpass-" + suffix + "@127.0.0.1:" + strconv.Itoa(cfg.Ports.Redis),
+		"REDIS_USERNAME=appacl",
+		"PGADMIN_URL=http://127.0.0.1:" + strconv.Itoa(cfg.Ports.PgAdmin),
+	} {
+		if !strings.Contains(runOutput, fragment) {
+			t.Fatalf("run output missing %q:\n%s", fragment, runOutput)
+		}
+	}
+
+	for _, path := range []string{composePath, redisACLPath, pgAdminServersPath, pgPassPath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s after run scaffold: %v", path, err)
+		}
+	}
+
+	redisACLData, err := os.ReadFile(redisACLPath)
+	if err != nil {
+		t.Fatalf("read redis ACL file: %v", err)
+	}
+	for _, fragment := range []string{
+		"user default off",
+		"user appacl on >aclpass-" + suffix,
+	} {
+		if !strings.Contains(string(redisACLData), fragment) {
+			t.Fatalf("redis ACL scaffold missing %q:\n%s", fragment, string(redisACLData))
+		}
+	}
+
+	pgAdminServersData, err := os.ReadFile(pgAdminServersPath)
+	if err != nil {
+		t.Fatalf("read pgAdmin servers file: %v", err)
+	}
+	for _, fragment := range []string{
+		`"Name": "Integration Postgres"`,
+		`"Group": "Integration"`,
+		`"PassFile": "/tmp/pgpass"`,
+	} {
+		if !strings.Contains(string(pgAdminServersData), fragment) {
+			t.Fatalf("pgAdmin servers scaffold missing %q:\n%s", fragment, string(pgAdminServersData))
+		}
+	}
+
+	pgPassData, err := os.ReadFile(pgPassPath)
+	if err != nil {
+		t.Fatalf("read pgpass file: %v", err)
+	}
+	if strings.TrimSpace(string(pgPassData)) != "postgres:5432:*:stackuser:stackpass" {
+		t.Fatalf("unexpected pgpass contents: %q", string(pgPassData))
+	}
+
+	noStartRunOutput, err := runStackctl(binaryPath, env, "run", "--no-start", "postgres", "redis", "--", "env")
+	if err != nil {
+		t.Fatalf("run --no-start returned error: %v\n%s", err, noStartRunOutput)
+	}
+	for _, fragment := range []string{
+		"DATABASE_URL=postgres://stackuser:stackpass@127.0.0.1:" + strconv.Itoa(cfg.Ports.Postgres) + "/stackdb",
+		"REDIS_URL=redis://appacl:aclpass-" + suffix + "@127.0.0.1:" + strconv.Itoa(cfg.Ports.Redis),
+		"REDIS_USERNAME=appacl",
+	} {
+		if !strings.Contains(noStartRunOutput, fragment) {
+			t.Fatalf("run --no-start output missing %q:\n%s", fragment, noStartRunOutput)
+		}
+	}
+
+	servicesOutput, err := runStackctl(binaryPath, env, "services", "--json")
+	if err != nil {
+		t.Fatalf("services --json returned error: %v\n%s", err, servicesOutput)
+	}
+	var services []runtimeServiceJSON
+	if err := json.Unmarshal([]byte(servicesOutput), &services); err != nil {
+		t.Fatalf("parse services json: %v\n%s", err, servicesOutput)
+	}
+	servicesByName := make(map[string]runtimeServiceJSON, len(services))
+	for _, service := range services {
+		servicesByName[service.Name] = service
+	}
+	redisService := servicesByName["redis"]
+	if redisService.Status != "running" || redisService.Username != "appacl" || redisService.DSN != "redis://appacl:aclpass-"+suffix+"@127.0.0.1:"+strconv.Itoa(cfg.Ports.Redis) {
+		t.Fatalf("unexpected redis service metadata: %+v", redisService)
+	}
+
+	assertEventuallyCommand(t, 30*time.Second, func() error {
+		output, err := runStackctl(binaryPath, env, "exec", "redis", "--", "redis-cli", "--user", "appacl", "-a", "aclpass-"+suffix, "PING")
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(output, "PONG") {
+			return fmt.Errorf("unexpected redis ACL ping output: %q", output)
+		}
+		return nil
+	})
+
+	assertEventuallyCommand(t, 30*time.Second, func() error {
+		output, err := runStackctl(binaryPath, env, "exec", "pgadmin", "--", "printenv", "PGADMIN_SERVER_JSON_FILE", "PGPASS_FILE")
+		if err != nil {
+			return err
+		}
+		for _, fragment := range []string{
+			"/pgadmin4/servers.json",
+			"/tmp/pgpass",
+		} {
+			if !strings.Contains(output, fragment) {
+				return fmt.Errorf("pgAdmin bootstrap env missing %q: %s", fragment, output)
+			}
+		}
+		return nil
+	})
+
+	prepareSnapshotOutput, err := runStackctl(
+		binaryPath,
+		env,
+		"db",
+		"shell",
+		"--",
+		"-v", "ON_ERROR_STOP=1",
+		"-c", "CREATE TABLE IF NOT EXISTS snapshot_restore_test (id integer primary key, value text not null); TRUNCATE snapshot_restore_test; INSERT INTO snapshot_restore_test(id, value) VALUES (1, 'before')",
+	)
+	if err != nil {
+		t.Fatalf("prepare snapshot postgres data: %v\n%s", err, prepareSnapshotOutput)
+	}
+	prepareRedisOutput, err := runStackctl(binaryPath, env, "exec", "redis", "--", "redis-cli", "--user", "appacl", "-a", "aclpass-"+suffix, "SET", "snapshot:key", "before")
+	if err != nil {
+		t.Fatalf("prepare snapshot redis data: %v\n%s", err, prepareRedisOutput)
+	}
+	if !strings.Contains(prepareRedisOutput, "OK") {
+		t.Fatalf("unexpected redis SET output: %s", prepareRedisOutput)
+	}
+
+	saveOutput, err := runStackctl(binaryPath, env, "snapshot", "save", snapshotPath, "--stop")
+	if err != nil {
+		t.Fatalf("snapshot save returned error: %v\n%s", err, saveOutput)
+	}
+	if !strings.Contains(saveOutput, "saved snapshot to "+snapshotPath) {
+		t.Fatalf("unexpected snapshot save output:\n%s", saveOutput)
+	}
+	if _, err := os.Stat(snapshotPath); err != nil {
+		t.Fatalf("stat snapshot archive: %v", err)
+	}
+
+	restartForMutationOutput, err := runStackctl(binaryPath, env, "run", "postgres", "redis", "--", "env")
+	if err != nil {
+		t.Fatalf("restart via run for mutation returned error: %v\n%s", err, restartForMutationOutput)
+	}
+
+	mutateSnapshotOutput, err := runStackctl(
+		binaryPath,
+		env,
+		"db",
+		"shell",
+		"--",
+		"-v", "ON_ERROR_STOP=1",
+		"-c", "UPDATE snapshot_restore_test SET value = 'after' WHERE id = 1",
+	)
+	if err != nil {
+		t.Fatalf("mutate postgres data after snapshot save: %v\n%s", err, mutateSnapshotOutput)
+	}
+	mutateRedisOutput, err := runStackctl(binaryPath, env, "exec", "redis", "--", "redis-cli", "--user", "appacl", "-a", "aclpass-"+suffix, "SET", "snapshot:key", "after")
+	if err != nil {
+		t.Fatalf("mutate redis data after snapshot save: %v\n%s", err, mutateRedisOutput)
+	}
+
+	restoreOutput, err := runStackctl(binaryPath, env, "snapshot", "restore", snapshotPath, "--stop", "--force")
+	if err != nil {
+		t.Fatalf("snapshot restore returned error: %v\n%s", err, restoreOutput)
+	}
+	if !strings.Contains(restoreOutput, "restored snapshot from "+snapshotPath) {
+		t.Fatalf("unexpected snapshot restore output:\n%s", restoreOutput)
+	}
+
+	restartAfterRestoreOutput, err := runStackctl(binaryPath, env, "run", "postgres", "redis", "--", "env")
+	if err != nil {
+		t.Fatalf("restart via run after restore returned error: %v\n%s", err, restartAfterRestoreOutput)
+	}
+
+	verifyPostgresOutput, err := runStackctl(binaryPath, env, "db", "shell", "--", "-tAc", "select value from snapshot_restore_test where id = 1")
+	if err != nil {
+		t.Fatalf("verify restored postgres data: %v\n%s", err, verifyPostgresOutput)
+	}
+	if strings.TrimSpace(verifyPostgresOutput) != "before" {
+		t.Fatalf("expected restored postgres row to be %q, got %q", "before", verifyPostgresOutput)
+	}
+
+	verifyRedisOutput, err := runStackctl(binaryPath, env, "exec", "redis", "--", "redis-cli", "--raw", "--user", "appacl", "-a", "aclpass-"+suffix, "GET", "snapshot:key")
+	if err != nil {
+		t.Fatalf("verify restored redis data: %v\n%s", err, verifyRedisOutput)
+	}
+	if lastNonEmptyLine(verifyRedisOutput) != "before" {
+		t.Fatalf("expected restored redis key to be %q, got %q", "before", verifyRedisOutput)
+	}
+}
+
 func TestManagedStackStartFailsFastWhenHostPortBusy(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("integration tests require Linux")
@@ -1324,4 +1602,15 @@ func assertEventuallyCommand(t *testing.T, timeout time.Duration, fn func() erro
 		lastErr = errors.New("condition never became true")
 	}
 	t.Fatal(lastErr)
+}
+
+func lastNonEmptyLine(value string) string {
+	lines := strings.Split(strings.TrimSpace(value), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			return line
+		}
+	}
+	return ""
 }

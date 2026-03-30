@@ -124,8 +124,11 @@ services:
 
 volumes:
   postgres_data:
+    name: "postgres_data"
   redis_data:
+    name: "redis_data"
   pgadmin_data:
+    name: "pgadmin_data"
 -- expected-nats.conf --
 port: 4222
 

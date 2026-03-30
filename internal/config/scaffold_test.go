@@ -153,6 +153,9 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	if !strings.Contains(string(data), "stack_postgres_data:/var/lib/postgresql/data") {
 		t.Fatalf("expected rendered postgres data volume, got: %s", string(data))
 	}
+	if !strings.Contains(string(data), "name: \"stack_postgres_data\"") {
+		t.Fatalf("expected rendered postgres named volume, got: %s", string(data))
+	}
 	if !strings.Contains(string(data), "POSTGRES_USER: \"stackuser\"") {
 		t.Fatalf("expected rendered postgres username, got: %s", string(data))
 	}
@@ -173,6 +176,9 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "stack_redis_data:/data") {
 		t.Fatalf("expected rendered redis data volume, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "name: \"stack_redis_data\"") {
+		t.Fatalf("expected rendered redis named volume, got: %s", string(data))
 	}
 	if !strings.Contains(string(data), "redis-server") || !strings.Contains(string(data), "--requirepass") || !strings.Contains(string(data), "\"redispass\"") {
 		t.Fatalf("expected rendered redis auth command, got: %s", string(data))
@@ -197,6 +203,9 @@ func TestScaffoldManagedStackCreatesComposeFile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "stack_pgadmin_data:/var/lib/pgadmin") {
 		t.Fatalf("expected rendered pgadmin data volume, got: %s", string(data))
+	}
+	if !strings.Contains(string(data), "name: \"stack_pgadmin_data\"") {
+		t.Fatalf("expected rendered pgadmin named volume, got: %s", string(data))
 	}
 	if !strings.Contains(string(data), "PGADMIN_DEFAULT_EMAIL: \"pgadmin@example.com\"") {
 		t.Fatalf("expected rendered pgadmin email, got: %s", string(data))

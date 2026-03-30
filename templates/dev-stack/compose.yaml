@@ -147,16 +147,21 @@ services:
 volumes:
 {{- if .Setup.IncludePostgres }}
   {{ .Services.Postgres.DataVolume }}:
+    name: {{ printf "%q" .Services.Postgres.DataVolume }}
 {{- end }}
 {{- if .Setup.IncludeRedis }}
   {{ .Services.Redis.DataVolume }}:
+    name: {{ printf "%q" .Services.Redis.DataVolume }}
 {{- end }}
 {{- if .Setup.IncludeSeaweedFS }}
   {{ .Services.SeaweedFS.DataVolume }}:
+    name: {{ printf "%q" .Services.SeaweedFS.DataVolume }}
 {{- end }}
 {{- if .Setup.IncludeMeilisearch }}
   {{ .Services.Meilisearch.DataVolume }}:
+    name: {{ printf "%q" .Services.Meilisearch.DataVolume }}
 {{- end }}
 {{- if .Setup.IncludePgAdmin }}
   {{ .Services.PgAdmin.DataVolume }}:
+    name: {{ printf "%q" .Services.PgAdmin.DataVolume }}
 {{- end }}
