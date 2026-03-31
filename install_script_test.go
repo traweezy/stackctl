@@ -139,7 +139,7 @@ if [[ "${1:-}" == "-m" ]]; then
   printf 'x86_64\n'
   exit 0
 fi
-printf '` + osName + `\n'
+printf '`+osName+`\n'
 `)
 
 	if checksumTool == "sha256sum" {

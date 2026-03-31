@@ -673,7 +673,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			wizardStepNote(state, wizardStepSystem),
 			huh.NewInput().
 				Title("Package manager").
-				Description("Used by `stackctl setup --install` and `stackctl doctor --fix` for supported dependency installation on the local machine. " + packageManagerRecommendationNote()).
+				Description("Used by `stackctl setup --install` and `stackctl doctor --fix` for supported dependency installation on the local machine. "+packageManagerRecommendationNote()).
 				Suggestions(packageManagerWizardSuggestions(state.PackageManager)).
 				Value(&state.PackageManager).
 				Validate(nonEmpty),
