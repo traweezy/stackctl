@@ -30,6 +30,9 @@ func newStopCmd() *cobra.Command {
 			}
 
 			target := lifecycleTargetLabel(services)
+			if err := verboseComposeFile(cmd, cfg); err != nil {
+				return err
+			}
 			if err := statusLine(cmd, output.StatusStop, fmt.Sprintf("stopping %s...", strings.ToLower(target))); err != nil {
 				return err
 			}

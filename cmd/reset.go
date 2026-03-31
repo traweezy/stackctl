@@ -28,6 +28,9 @@ func newResetCmd() *cobra.Command {
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
 				return err
 			}
+			if err := verboseComposeFile(cmd, cfg); err != nil {
+				return err
+			}
 
 			if volumes && !force {
 				ok, err := confirmWithPrompt(cmd, "This will remove stack volumes and delete database data. Continue?", false)

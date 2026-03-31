@@ -159,15 +159,15 @@ func newStackUseCmd() *cobra.Command {
 				return err
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("selected stack %s", name)); err != nil {
+			if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("selected stack %s", name)); err != nil {
 				return err
 			}
 			if exists {
-				return output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, fmt.Sprintf("using config %s", path))
+				return statusLine(cmd, output.StatusInfo, fmt.Sprintf("using config %s", path))
 			}
 
-			return output.StatusLine(
-				cmd.OutOrStdout(),
+			return statusLine(
+				cmd,
 				output.StatusInfo,
 				fmt.Sprintf("no config found at %s; run `stackctl config init` to create it", path),
 			)
@@ -236,15 +236,15 @@ func newStackDeleteCmd() *cobra.Command {
 				return err
 			}
 			if result.PurgedDataDir != "" {
-				if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("deleted managed stack data %s", result.PurgedDataDir)); err != nil {
+				if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("deleted managed stack data %s", result.PurgedDataDir)); err != nil {
 					return err
 				}
 			}
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("deleted stack config %s", result.ConfigPath)); err != nil {
+			if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("deleted stack config %s", result.ConfigPath)); err != nil {
 				return err
 			}
 			if result.ResetToDefault {
-				if err := output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, fmt.Sprintf("selected stack reset to %s", configpkg.DefaultStackName)); err != nil {
+				if err := statusLine(cmd, output.StatusInfo, fmt.Sprintf("selected stack reset to %s", configpkg.DefaultStackName)); err != nil {
 					return err
 				}
 			}
@@ -347,11 +347,11 @@ func newStackRenameCmd() *cobra.Command {
 				}
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("renamed stack %s to %s", source, target)); err != nil {
+			if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("renamed stack %s to %s", source, target)); err != nil {
 				return err
 			}
 			if current == source {
-				return output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, fmt.Sprintf("selected stack updated to %s", target))
+				return statusLine(cmd, output.StatusInfo, fmt.Sprintf("selected stack updated to %s", target))
 			}
 
 			return nil
@@ -424,10 +424,10 @@ func newStackCloneCmd() *cobra.Command {
 				}
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("cloned stack %s to %s", source, target)); err != nil {
+			if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("cloned stack %s to %s", source, target)); err != nil {
 				return err
 			}
-			return output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, fmt.Sprintf("new config written to %s", targetPath))
+			return statusLine(cmd, output.StatusInfo, fmt.Sprintf("new config written to %s", targetPath))
 		},
 	}
 
@@ -729,17 +729,17 @@ func scaffoldManagedStackFiles(cmd *cobra.Command, cfg configpkg.Config, force b
 		return err
 	}
 	if result.CreatedDir {
-		if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("created managed stack directory %s", result.StackDir)); err != nil {
+		if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("created managed stack directory %s", result.StackDir)); err != nil {
 			return err
 		}
 	}
 	if result.WroteCompose {
-		if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("wrote managed compose file %s", result.ComposePath)); err != nil {
+		if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("wrote managed compose file %s", result.ComposePath)); err != nil {
 			return err
 		}
 	}
 	if result.AlreadyPresent {
-		return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("managed stack already exists at %s", result.ComposePath))
+		return statusLine(cmd, output.StatusOK, fmt.Sprintf("managed stack already exists at %s", result.ComposePath))
 	}
 
 	return nil

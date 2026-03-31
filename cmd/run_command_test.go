@@ -70,7 +70,7 @@ func TestRunStartsSelectedServicesAndExecutesHostCommand(t *testing.T) {
 		}
 	})
 
-	_, _, err := executeRoot(t, "run", "postgres", "--", "app", "serve")
+	stdout, _, err := executeRoot(t, "--verbose", "run", "postgres", "--", "app", "serve")
 	if err != nil {
 		t.Fatalf("run returned error: %v", err)
 	}
@@ -90,6 +90,9 @@ func TestRunStartsSelectedServicesAndExecutesHostCommand(t *testing.T) {
 		if !strings.Contains(joinedEnv, fragment) {
 			t.Fatalf("expected runner env to contain %q:\n%s", fragment, joinedEnv)
 		}
+	}
+	if !strings.Contains(stdout, "Using compose file /tmp/stackctl/compose.yaml") {
+		t.Fatalf("expected verbose run output to include compose detail:\n%s", stdout)
 	}
 }
 

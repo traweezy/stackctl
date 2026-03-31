@@ -413,6 +413,43 @@ func TestStopRunsComposeDown(t *testing.T) {
 	}
 }
 
+func TestStopVerboseShowsComposeFile(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+	})
+
+	stdout, _, err := executeRoot(t, "--verbose", "stop")
+	if err != nil {
+		t.Fatalf("stop returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "Using compose file /tmp/stackctl/compose.yaml") {
+		t.Fatalf("stdout missing verbose compose detail:\n%s", stdout)
+	}
+}
+
+func TestStopQuietSuppressesProgressOutput(t *testing.T) {
+	var downCalled bool
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
+			downCalled = true
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "--quiet", "stop")
+	if err != nil {
+		t.Fatalf("stop returned error: %v", err)
+	}
+	if !downCalled {
+		t.Fatal("expected stop to still run compose down")
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("expected quiet stop output to be empty, got:\n%s", stdout)
+	}
+}
+
 func TestStartServiceRunsComposeUpServicesAndWaitsSelectedPort(t *testing.T) {
 	var calledServices []string
 	var forceRecreate bool
@@ -697,6 +734,15 @@ func TestStatusRequiresPodman(t *testing.T) {
 
 	_, _, err := executeRoot(t, "status")
 	if err == nil || !strings.Contains(err.Error(), "podman is not installed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRootRejectsVerboseAndQuietTogether(t *testing.T) {
+	withTestDeps(t, nil)
+
+	_, _, err := executeRoot(t, "--verbose", "--quiet", "status")
+	if err == nil || !strings.Contains(err.Error(), "--verbose and --quiet cannot be used together") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

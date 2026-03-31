@@ -40,7 +40,7 @@ func newStartCmd() *cobra.Command {
 			}
 
 			target := lifecycleTargetLabel(services)
-			if err := verboseLine(cmd, fmt.Sprintf("Using compose file %s", deps.composePath(cfg))); err != nil {
+			if err := verboseComposeFile(cmd, cfg); err != nil {
 				return err
 			}
 			if err := statusLine(cmd, output.StatusStart, fmt.Sprintf("starting %s...", strings.ToLower(target))); err != nil {

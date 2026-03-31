@@ -90,7 +90,7 @@ func openConfiguredURL(cmd *cobra.Command, name, target string) error {
 		return nil
 	}
 
-	if err := output.StatusLine(cmd.OutOrStdout(), output.StatusWarn, fmt.Sprintf("could not open %s automatically; use this URL", name)); err != nil {
+	if err := statusLine(cmd, output.StatusWarn, fmt.Sprintf("could not open %s automatically; use this URL", name)); err != nil {
 		return err
 	}
 	_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n", target)

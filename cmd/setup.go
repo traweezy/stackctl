@@ -45,7 +45,7 @@ func newSetupCmd() *cobra.Command {
 			}
 
 			if !exists {
-				if err := output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, "config file not found"); err != nil {
+				if err := statusLine(cmd, output.StatusInfo, "config file not found"); err != nil {
 					return err
 				}
 
@@ -60,7 +60,7 @@ func newSetupCmd() *cobra.Command {
 					}
 					exists = true
 					createdConfig = true
-					if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("created default config at %s", path)); err != nil {
+					if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("created default config at %s", path)); err != nil {
 						return err
 					}
 				case interactive || deps.isTerminal():
@@ -84,7 +84,7 @@ func newSetupCmd() *cobra.Command {
 						}
 						exists = true
 						createdConfig = true
-						if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("saved config to %s", path)); err != nil {
+						if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("saved config to %s", path)); err != nil {
 							return err
 						}
 					}
@@ -132,7 +132,7 @@ func newSetupCmd() *cobra.Command {
 
 			missing := requiredPackages(report, cfg)
 			if len(missing) == 0 {
-				if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "all required packages look available"); err != nil {
+				if err := statusLine(cmd, output.StatusOK, "all required packages look available"); err != nil {
 					return err
 				}
 			} else if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Missing packages: %s\n", strings.Join(missing, ", ")); err != nil {
@@ -141,7 +141,7 @@ func newSetupCmd() *cobra.Command {
 
 			if install {
 				if len(missing) == 0 {
-					return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "nothing to install")
+					return statusLine(cmd, output.StatusOK, "nothing to install")
 				}
 
 				if !yes {

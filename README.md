@@ -415,8 +415,8 @@ Root flags:
 | Flag | Meaning |
 | --- | --- |
 | `--stack` | Select a named stack config for this command only. The default stack uses `~/.config/stackctl/config.yaml`; named stacks use `~/.config/stackctl/stacks/<name>.yaml`. |
-| `-v`, `--verbose` | Print extra lifecycle detail for commands that emit progress |
-| `-q`, `--quiet` | Suppress non-essential progress output |
+| `-v`, `--verbose` | Print extra lifecycle and orchestration detail for progress-reporting commands |
+| `-q`, `--quiet` | Suppress non-essential progress output without hiding primary command data such as tables, JSON, exports, URLs, or logs |
 | `-h`, `--help` | Show help for `stackctl` |
 | `--version` | Print the short version string |
 

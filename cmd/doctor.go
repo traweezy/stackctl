@@ -123,19 +123,19 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 				return err
 			}
 			appliedFix = true
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "enabled cockpit.socket"); err != nil {
+			if err := statusLine(cmd, output.StatusOK, "enabled cockpit.socket"); err != nil {
 				return err
 			}
 		}
 	}
 
 	if !appliedFix {
-		if err := output.StatusLine(cmd.OutOrStdout(), output.StatusInfo, "no automatic fixes were applied"); err != nil {
+		if err := statusLine(cmd, output.StatusInfo, "no automatic fixes were applied"); err != nil {
 			return err
 		}
 	}
 
-	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "\nPost-fix report:"); err != nil {
+	if err := plainLine(cmd, "\nPost-fix report:\n"); err != nil {
 		return err
 	}
 	postReport, err := deps.runDoctor(context.Background())

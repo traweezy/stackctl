@@ -106,9 +106,12 @@ func TestDBDumpWritesToFileThroughComposeExec(t *testing.T) {
 	})
 
 	path := t.TempDir() + "/dump.sql"
-	stdout, _, err := executeRoot(t, "db", "dump", path)
+	stdout, _, err := executeRoot(t, "--verbose", "db", "dump", path)
 	if err != nil {
 		t.Fatalf("db dump returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "Using compose file /tmp/stackctl/compose.yaml") {
+		t.Fatalf("stdout missing verbose compose detail: %s", stdout)
 	}
 	if !strings.Contains(stdout, "wrote database dump to "+path) {
 		t.Fatalf("unexpected stdout: %s", stdout)

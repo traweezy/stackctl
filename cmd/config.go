@@ -99,8 +99,7 @@ func newConfigInitCmd() *cobra.Command {
 				return err
 			}
 
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Saved config to %s\n", path)
-			return err
+			return plainLine(cmd, "Saved config to %s\n", path)
 		},
 	}
 
@@ -180,8 +179,7 @@ func newConfigEditCmd() *cobra.Command {
 				return err
 			}
 
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Updated config at %s\n", path)
-			return err
+			return plainLine(cmd, "Updated config at %s\n", path)
 		},
 	}
 
@@ -203,7 +201,7 @@ func newConfigValidateCmd() *cobra.Command {
 
 			issues := deps.validateConfig(cfg)
 			if len(issues) == 0 {
-				return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "config is valid")
+				return statusLine(cmd, output.StatusOK, "config is valid")
 			}
 
 			if err := printValidationIssues(cmd, issues); err != nil {
@@ -246,8 +244,7 @@ func newConfigResetCmd() *cobra.Command {
 					return fmt.Errorf("delete config %s: %w", path, err)
 				}
 
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Deleted config at %s\n", path)
-				return err
+				return plainLine(cmd, "Deleted config at %s\n", path)
 			}
 
 			if !force && !yes {
@@ -268,8 +265,7 @@ func newConfigResetCmd() *cobra.Command {
 				return err
 			}
 
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Reset config at %s to defaults\n", path)
-			return err
+			return plainLine(cmd, "Reset config at %s to defaults\n", path)
 		},
 	}
 

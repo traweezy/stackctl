@@ -242,10 +242,22 @@ func blankLine(cmd *cobra.Command) error {
 	return err
 }
 
+func plainLine(cmd *cobra.Command, format string, args ...any) error {
+	if quietRequested(cmd) {
+		return nil
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), format, args...)
+	return err
+}
+
 func verboseLine(cmd *cobra.Command, message string) error {
 	if quietRequested(cmd) || !verboseRequested(cmd) {
 		return nil
 	}
 	_, err := fmt.Fprintln(cmd.OutOrStdout(), strings.TrimSpace(message))
 	return err
+}
+
+func verboseComposeFile(cmd *cobra.Command, cfg configpkg.Config) error {
+	return verboseLine(cmd, fmt.Sprintf("Using compose file %s", deps.composePath(cfg)))
 }

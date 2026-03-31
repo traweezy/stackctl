@@ -62,6 +62,18 @@ func TestConfigInitExistingWithoutTerminalNeedsForce(t *testing.T) {
 	}
 }
 
+func TestConfigInitQuietSuppressesSuccessOutput(t *testing.T) {
+	withTestDeps(t, nil)
+
+	stdout, _, err := executeRoot(t, "--quiet", "config", "init", "--non-interactive")
+	if err != nil {
+		t.Fatalf("config init returned error: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("expected quiet config init output to be empty, got: %s", stdout)
+	}
+}
+
 func TestConfigInitExistingDeclineCancels(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }

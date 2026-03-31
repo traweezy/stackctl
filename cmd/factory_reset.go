@@ -61,12 +61,12 @@ func newFactoryResetCmd() *cobra.Command {
 				}
 			}
 
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusReset, "factory-resetting stackctl local state..."); err != nil {
+			if err := statusLine(cmd, output.StatusReset, "factory-resetting stackctl local state..."); err != nil {
 				return err
 			}
 
 			for _, target := range targets {
-				if err := output.StatusLine(cmd.OutOrStdout(), output.StatusReset, fmt.Sprintf("removing managed stack %s...", target.ComposePath)); err != nil {
+				if err := statusLine(cmd, output.StatusReset, fmt.Sprintf("removing managed stack %s...", target.ComposePath)); err != nil {
 					return err
 				}
 				if err := deps.composeDownPath(context.Background(), runnerFor(cmd), target.StackDir, target.ComposePath, true); err != nil {
@@ -77,18 +77,18 @@ func newFactoryResetCmd() *cobra.Command {
 			if err := deps.removeAll(configDir); err != nil {
 				return fmt.Errorf("remove config dir %s: %w", configDir, err)
 			}
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("deleted config dir %s", configDir)); err != nil {
+			if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("deleted config dir %s", configDir)); err != nil {
 				return err
 			}
 
 			if err := deps.removeAll(dataDir); err != nil {
 				return fmt.Errorf("remove data dir %s: %w", dataDir, err)
 			}
-			if err := output.StatusLine(cmd.OutOrStdout(), output.StatusOK, fmt.Sprintf("deleted data dir %s", dataDir)); err != nil {
+			if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("deleted data dir %s", dataDir)); err != nil {
 				return err
 			}
 
-			return output.StatusLine(cmd.OutOrStdout(), output.StatusOK, "stackctl local state removed")
+			return statusLine(cmd, output.StatusOK, "stackctl local state removed")
 		},
 	}
 

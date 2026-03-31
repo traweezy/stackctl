@@ -43,6 +43,9 @@ func newExecCmd() *cobra.Command {
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
 				return err
 			}
+			if err := verboseComposeFile(cmd, cfg); err != nil {
+				return err
+			}
 
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()

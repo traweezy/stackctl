@@ -55,6 +55,29 @@ func TestStackUseUpdatesSelection(t *testing.T) {
 	}
 }
 
+func TestStackUseQuietSuppressesSelectionMessages(t *testing.T) {
+	var selected string
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.setCurrentStackName = func(name string) error {
+			selected = name
+			return nil
+		}
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Config{}, configpkg.ErrNotFound }
+	})
+
+	stdout, _, err := executeRoot(t, "--quiet", "stack", "use", "staging")
+	if err != nil {
+		t.Fatalf("stack use returned error: %v", err)
+	}
+	if selected != "staging" {
+		t.Fatalf("selected stack = %q", selected)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("expected quiet stack use output to be empty, got: %s", stdout)
+	}
+}
+
 func TestStackListShowsCurrentMissingStack(t *testing.T) {
 	withTestDeps(t, func(d *commandDeps) {
 		d.knownConfigPaths = func() ([]string, error) {

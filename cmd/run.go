@@ -71,6 +71,9 @@ func newRunCmd() *cobra.Command {
 				if err := ensureComposeRuntime(cmd, cfg); err != nil {
 					return err
 				}
+				if err := verboseComposeFile(cmd, cfg); err != nil {
+					return err
+				}
 				if err := ensureNoOtherRunningStack(context.Background()); err != nil {
 					return err
 				}

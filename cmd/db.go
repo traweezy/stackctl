@@ -64,6 +64,9 @@ func newDBShellCmd() *cobra.Command {
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
 				return err
 			}
+			if err := verboseComposeFile(cmd, cfg); err != nil {
+				return err
+			}
 
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
@@ -124,6 +127,9 @@ func newDBDumpCmd() *cobra.Command {
 				return err
 			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
+				return err
+			}
+			if err := verboseComposeFile(cmd, cfg); err != nil {
 				return err
 			}
 
@@ -190,6 +196,9 @@ func newDBRestoreCmd() *cobra.Command {
 				return err
 			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
+				return err
+			}
+			if err := verboseComposeFile(cmd, cfg); err != nil {
 				return err
 			}
 			if !force {
@@ -273,6 +282,9 @@ func newDBResetCmd() *cobra.Command {
 				return err
 			}
 			if err := ensureComposeRuntime(cmd, cfg); err != nil {
+				return err
+			}
+			if err := verboseComposeFile(cmd, cfg); err != nil {
 				return err
 			}
 			if cfg.Connection.PostgresDatabase == "postgres" {

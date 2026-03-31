@@ -231,6 +231,9 @@ func stopStackForSnapshotIfNeeded(cmd *cobra.Command, cfg configpkg.Config, stop
 	if err := ensureComposeRuntime(cmd, cfg); err != nil {
 		return err
 	}
+	if err := verboseComposeFile(cmd, cfg); err != nil {
+		return err
+	}
 	return composeDownAndWait(context.Background(), runnerFor(cmd), cfg, false)
 }
 
