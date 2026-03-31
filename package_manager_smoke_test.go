@@ -66,7 +66,6 @@ grep -q -- " $pkg" "${FAKE_STATE_DIR}/install.log"
 	}
 
 	cmd := exec.Command("sh", "scripts/package-manager-smoke.sh")
-	cmd.Dir = "/home/tylers/Dev/go/github.com/traweezy/stackctl"
 	cmd.Env = append(os.Environ(),
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),
 		"FAKE_STATE_DIR="+stateDir,
@@ -125,7 +124,6 @@ exit 1
 `)
 
 	cmd := exec.Command("sh", "scripts/package-manager-smoke.sh")
-	cmd.Dir = "/home/tylers/Dev/go/github.com/traweezy/stackctl"
 	cmd.Env = append(os.Environ(),
 		"PATH="+fakeBin+":"+os.Getenv("PATH"),
 		"FAKE_STATE_DIR="+stateDir,
