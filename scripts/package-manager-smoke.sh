@@ -3,6 +3,8 @@ set -eu
 
 manager="${STACKCTL_PACKAGE_MANAGER:?STACKCTL_PACKAGE_MANAGER is required}"
 expect_cockpit="${STACKCTL_EXPECT_COCKPIT:-0}"
+zypper_attempts="${STACKCTL_ZYPPER_ATTEMPTS:-3}"
+zypper_retry_delay_seconds="${STACKCTL_ZYPPER_RETRY_DELAY_SECONDS:-2}"
 
 assert_installed() {
   pkg="$1"
@@ -12,7 +14,7 @@ assert_installed() {
       dpkg-query -W -f='${Status}\n' "$pkg" | grep -q "install ok installed"
       ;;
     dnf|yum|zypper)
-      rpm -q "$pkg" >/dev/null 2>&1
+      rpm -q --whatprovides "$pkg" >/dev/null 2>&1
       ;;
     pacman)
       pacman -Q "$pkg" >/dev/null 2>&1
@@ -25,6 +27,27 @@ assert_installed() {
       exit 1
       ;;
   esac
+}
+
+run_zypper_install() {
+  attempt=1
+  while [ "$attempt" -le "$zypper_attempts" ]; do
+    echo "==> zypper attempt $attempt/$zypper_attempts"
+    if zypper --non-interactive clean --all >/dev/null 2>&1 || true; then
+      :
+    fi
+    if zypper --non-interactive --gpg-auto-import-keys refresh --force &&
+      zypper --non-interactive install "$@"; then
+      return 0
+    fi
+    if [ "$attempt" -ge "$zypper_attempts" ]; then
+      echo "zypper install failed after $zypper_attempts attempts" >&2
+      return 1
+    fi
+    echo "zypper install attempt $attempt failed; cleaning metadata and retrying" >&2
+    sleep "$zypper_retry_delay_seconds"
+    attempt=$((attempt + 1))
+  done
 }
 
 core_packages="podman podman-compose skopeo"
@@ -56,7 +79,7 @@ case "$manager" in
     pacman -Syu --noconfirm --needed $install_packages
     ;;
   zypper)
-    zypper --non-interactive install $install_packages
+    run_zypper_install $install_packages
     ;;
   apk)
     apk add $install_packages

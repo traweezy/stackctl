@@ -1,6 +1,7 @@
 package system
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -172,5 +173,53 @@ func TestInstallPackagesErrorsForUnsupportedRequirement(t *testing.T) {
 	_, err := InstallPackages(context.Background(), runner, "brew", []Requirement{RequirementBuildah})
 	if err == nil || !strings.Contains(err.Error(), "does not support automatic installation") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInstallPackagesRetriesZypperInstalls(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "commands.log")
+	refreshCountPath := filepath.Join(dir, "refresh-count")
+
+	writeScript := func(name, body string) {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatalf("write script %s: %v", name, err)
+		}
+	}
+
+	writeScript("sudo", "#!/bin/sh\nprintf 'sudo %s\\n' \"$*\" >> \""+logPath+"\"\nexec \"$@\"\n")
+	writeScript("zypper", "#!/bin/sh\nset -eu\nprintf 'zypper %s\\n' \"$*\" >> \""+logPath+"\"\ncase \"$*\" in\n  *' clean --all')\n    exit 0\n    ;;\n  *' refresh --force')\n    count=0\n    if [ -f \""+refreshCountPath+"\" ]; then\n      count=$(cat \""+refreshCountPath+"\")\n    fi\n    count=$((count + 1))\n    printf '%s' \"$count\" > \""+refreshCountPath+"\"\n    if [ \"$count\" -eq 1 ]; then\n      echo 'repository metadata missing' >&2\n      exit 104\n    fi\n    exit 0\n    ;;\n  *' install '* )\n    exit 0\n    ;;\n  *)\n    echo \"unexpected zypper args: $*\" >&2\n    exit 1\n    ;;\nesac\n")
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	runner := Runner{Stdout: &stdout, Stderr: &stderr}
+
+	if _, err := InstallPackages(context.Background(), runner, "zypper", []Requirement{RequirementPodman}); err != nil {
+		t.Fatalf("zypper install returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "zypper install attempt 1/3") || !strings.Contains(stdout.String(), "zypper install attempt 2/3") {
+		t.Fatalf("expected zypper attempt notices in stdout:\n%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "zypper install attempt 1 failed; cleaning metadata and retrying") {
+		t.Fatalf("expected zypper retry notice in stderr:\n%s", stderr.String())
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	output := string(data)
+	for _, fragment := range []string{
+		"sudo zypper --non-interactive clean --all",
+		"sudo zypper --non-interactive --gpg-auto-import-keys refresh --force",
+		"sudo zypper --non-interactive install podman",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("command log missing %q:\n%s", fragment, output)
+		}
 	}
 }

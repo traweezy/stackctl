@@ -3,7 +3,9 @@ package system
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
+	"time"
 )
 
 type Requirement string
@@ -26,6 +28,11 @@ type packageBackend struct {
 	packages map[Requirement][]string
 	install  func(context.Context, Runner, []string) error
 }
+
+const (
+	zypperInstallAttempts   = 3
+	zypperRetryDelaySeconds = 2 * time.Second
+)
 
 var packageBackends = map[string]packageBackend{
 	"apt": {
@@ -96,8 +103,7 @@ var packageBackends = map[string]packageBackend{
 			RequirementCockpit:         {"cockpit", "cockpit-podman"},
 		},
 		install: func(ctx context.Context, runner Runner, packages []string) error {
-			args := append([]string{"zypper", "--non-interactive", "install"}, packages...)
-			return runner.Run(ctx, "", "sudo", args...)
+			return runZypperInstallWithRetry(ctx, runner, packages)
 		},
 	},
 	"apk": {
@@ -161,6 +167,48 @@ func ResolveInstallPlan(packageManager string, requirements []Requirement) (Inst
 	}
 
 	return plan, nil
+}
+
+func runZypperInstallWithRetry(ctx context.Context, runner Runner, packages []string) error {
+	refreshArgs := []string{"zypper", "--non-interactive", "--gpg-auto-import-keys", "refresh", "--force"}
+	cleanArgs := []string{"zypper", "--non-interactive", "clean", "--all"}
+	installArgs := append([]string{"zypper", "--non-interactive", "install"}, packages...)
+
+	var lastErr error
+	for attempt := 1; attempt <= zypperInstallAttempts; attempt++ {
+		writeRunnerNotice(runner.Stdout, "zypper install attempt %d/%d\n", attempt, zypperInstallAttempts)
+		if err := runner.Run(ctx, "", "sudo", cleanArgs...); err != nil {
+			lastErr = err
+		} else if err := runner.Run(ctx, "", "sudo", refreshArgs...); err != nil {
+			lastErr = err
+		} else if err := runner.Run(ctx, "", "sudo", installArgs...); err != nil {
+			lastErr = err
+		} else {
+			return nil
+		}
+
+		if attempt == zypperInstallAttempts {
+			break
+		}
+
+		writeRunnerNotice(runner.Stderr, "zypper install attempt %d failed; cleaning metadata and retrying\n", attempt)
+		timer := time.NewTimer(zypperRetryDelaySeconds)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return fmt.Errorf("zypper install failed after %d attempts: %w", zypperInstallAttempts, lastErr)
+}
+
+func writeRunnerNotice(writer io.Writer, format string, args ...any) {
+	if writer == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(writer, format, args...)
 }
 
 func InstallPackages(ctx context.Context, runner Runner, packageManager string, requirements []Requirement) ([]string, error) {
