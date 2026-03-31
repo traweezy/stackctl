@@ -48,9 +48,7 @@ type runtimeServiceJSON struct {
 }
 
 func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("integration tests require Linux")
-	}
+	requireIntegrationPlatform(t)
 
 	binaryPath := testutil.BuildStackctlBinary(t)
 	configRoot := t.TempDir()
@@ -83,7 +81,7 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 
 	t.Cleanup(func() {
 		_, _ = runStackctl(binaryPath, env, "reset", "--volumes", "--force")
-		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		cleanupIntegrationDataRoot(dataRoot)
 		_ = os.RemoveAll(dataRoot)
 	})
 
@@ -129,8 +127,12 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	for _, service := range services {
 		servicesByName[service.Name] = service
 	}
-	if len(servicesByName) != 5 {
-		t.Fatalf("expected 5 services, got %d", len(servicesByName))
+	expectedServiceCount := 4
+	if cfg.CockpitEnabled() {
+		expectedServiceCount = 5
+	}
+	if len(servicesByName) != expectedServiceCount {
+		t.Fatalf("expected %d services, got %d", expectedServiceCount, len(servicesByName))
 	}
 	if postgres := servicesByName["postgres"]; postgres.Status != "running" || postgres.DSN != "postgres://stackuser:stackpass@127.0.0.1:"+strconv.Itoa(cfg.Ports.Postgres)+"/stackdb" {
 		t.Fatalf("unexpected postgres service: %+v", postgres)
@@ -153,21 +155,28 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	if pgadmin := servicesByName["pgadmin"]; pgadmin.DataVolume != cfg.Services.PgAdmin.DataVolume || pgadmin.ServerMode != "enabled" {
 		t.Fatalf("unexpected pgadmin config: %+v", pgadmin)
 	}
-	if cockpit := servicesByName["cockpit"]; cockpit.Status == "" || cockpit.URL != "https://127.0.0.1:"+strconv.Itoa(cfg.Ports.Cockpit) {
-		t.Fatalf("unexpected cockpit service: %+v", cockpit)
+	if cfg.CockpitEnabled() {
+		if cockpit := servicesByName["cockpit"]; cockpit.Status == "" || cockpit.URL != "https://127.0.0.1:"+strconv.Itoa(cfg.Ports.Cockpit) {
+			t.Fatalf("unexpected cockpit service: %+v", cockpit)
+		}
+	} else if _, ok := servicesByName["cockpit"]; ok {
+		t.Fatalf("cockpit should not be present when disabled: %+v", servicesByName["cockpit"])
 	}
 
 	connectOutput, err := runStackctl(binaryPath, env, "connect")
 	if err != nil {
 		t.Fatalf("connect returned error: %v\n%s", err, connectOutput)
 	}
-	for _, fragment := range []string{
+	connectFragments := []string{
 		"postgres://stackuser:stackpass@127.0.0.1:" + strconv.Itoa(cfg.Ports.Postgres) + "/stackdb",
 		"redis://:redispass@127.0.0.1:" + strconv.Itoa(cfg.Ports.Redis),
 		"nats://natspass@127.0.0.1:" + strconv.Itoa(cfg.Ports.NATS),
 		"http://127.0.0.1:" + strconv.Itoa(cfg.Ports.PgAdmin),
-		"https://127.0.0.1:" + strconv.Itoa(cfg.Ports.Cockpit),
-	} {
+	}
+	if cfg.CockpitEnabled() {
+		connectFragments = append(connectFragments, "https://127.0.0.1:"+strconv.Itoa(cfg.Ports.Cockpit))
+	}
+	for _, fragment := range connectFragments {
 		if !strings.Contains(connectOutput, fragment) {
 			t.Fatalf("connect output missing %q:\n%s", fragment, connectOutput)
 		}
@@ -221,18 +230,20 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ports returned error: %v\n%s", err, portsOutput)
 	}
-	for _, fragment := range []string{
+	portFragments := []string{
 		"Postgres",
 		"Redis",
 		"NATS",
 		"pgAdmin",
-		"Cockpit",
 		strconv.Itoa(cfg.Ports.Postgres) + " -> 5432",
 		strconv.Itoa(cfg.Ports.Redis) + " -> 6379",
 		strconv.Itoa(cfg.Ports.NATS) + " -> 4222",
 		strconv.Itoa(cfg.Ports.PgAdmin) + " -> 80",
-		strconv.Itoa(cfg.Ports.Cockpit) + " -> 9090",
-	} {
+	}
+	if cfg.CockpitEnabled() {
+		portFragments = append(portFragments, "Cockpit", strconv.Itoa(cfg.Ports.Cockpit)+" -> 9090")
+	}
+	for _, fragment := range portFragments {
 		if !strings.Contains(portsOutput, fragment) {
 			t.Fatalf("ports output missing %q:\n%s", fragment, portsOutput)
 		}
@@ -485,9 +496,7 @@ func TestManagedStackLifecycleWithCustomConfig(t *testing.T) {
 }
 
 func TestSetupNonInteractiveManagedLifecycleSmoke(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("integration tests require Linux")
-	}
+	requireIntegrationPlatform(t)
 
 	binaryPath := testutil.BuildStackctlBinary(t)
 	configRoot := t.TempDir()
@@ -507,7 +516,7 @@ func TestSetupNonInteractiveManagedLifecycleSmoke(t *testing.T) {
 
 	t.Cleanup(func() {
 		_, _ = runStackctl(binaryPath, env, "reset", "--volumes", "--force")
-		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		cleanupIntegrationDataRoot(dataRoot)
 		_ = os.RemoveAll(dataRoot)
 	})
 
@@ -613,9 +622,7 @@ func TestSetupNonInteractiveManagedLifecycleSmoke(t *testing.T) {
 }
 
 func TestManagedRunSnapshotRedisACLAndPgAdminBootstrapSmoke(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("integration tests require Linux")
-	}
+	requireIntegrationPlatform(t)
 
 	binaryPath := testutil.BuildStackctlBinary(t)
 	configRoot := t.TempDir()
@@ -637,6 +644,7 @@ func TestManagedRunSnapshotRedisACLAndPgAdminBootstrapSmoke(t *testing.T) {
 	}
 
 	cfg := configpkg.DefaultForStack(stackName)
+	applyIntegrationPlatformDefaults(&cfg)
 	cfg.Setup.IncludeNATS = false
 	cfg.Setup.IncludeCockpit = false
 	cfg.Setup.InstallCockpit = false
@@ -665,7 +673,7 @@ func TestManagedRunSnapshotRedisACLAndPgAdminBootstrapSmoke(t *testing.T) {
 
 	t.Cleanup(func() {
 		_, _ = runStackctl(binaryPath, env, "reset", "--volumes", "--force")
-		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		cleanupIntegrationDataRoot(dataRoot)
 		_ = os.RemoveAll(dataRoot)
 	})
 
@@ -891,9 +899,7 @@ func TestManagedRunSnapshotRedisACLAndPgAdminBootstrapSmoke(t *testing.T) {
 }
 
 func TestManagedStackStartFailsFastWhenHostPortBusy(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("integration tests require Linux")
-	}
+	requireIntegrationPlatform(t)
 
 	binaryPath := testutil.BuildStackctlBinary(t)
 	configRoot := t.TempDir()
@@ -924,7 +930,7 @@ func TestManagedStackStartFailsFastWhenHostPortBusy(t *testing.T) {
 
 	t.Cleanup(func() {
 		_, _ = runStackctl(binaryPath, env, "reset", "--volumes", "--force")
-		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		cleanupIntegrationDataRoot(dataRoot)
 		_ = os.RemoveAll(dataRoot)
 	})
 
@@ -973,9 +979,7 @@ func TestManagedStackStartFailsFastWhenHostPortBusy(t *testing.T) {
 }
 
 func TestExternalStackMetadataSmoke(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("integration tests require Linux")
-	}
+	requireIntegrationPlatform(t)
 
 	binaryPath := testutil.BuildStackctlBinary(t)
 	configRoot := t.TempDir()
@@ -994,6 +998,7 @@ func TestExternalStackMetadataSmoke(t *testing.T) {
 	externalDir := t.TempDir()
 
 	cfg := configpkg.DefaultForStack("external-" + suffix)
+	applyIntegrationPlatformDefaults(&cfg)
 	cfg.Stack.Managed = false
 	cfg.Setup.ScaffoldDefaultStack = false
 	cfg.Stack.Dir = externalDir
@@ -1092,9 +1097,7 @@ func TestExternalStackMetadataSmoke(t *testing.T) {
 }
 
 func TestNamedStackSelectionAndPathResolution(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("integration tests require Linux")
-	}
+	requireIntegrationPlatform(t)
 
 	binaryPath := testutil.BuildStackctlBinary(t)
 	configRoot := t.TempDir()
@@ -1138,7 +1141,7 @@ func TestNamedStackSelectionAndPathResolution(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = runStackctl(binaryPath, env, "--stack", alphaName, "reset", "--volumes", "--force")
 		_, _ = runStackctl(binaryPath, env, "--stack", betaName, "reset", "--volumes", "--force")
-		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		cleanupIntegrationDataRoot(dataRoot)
 		_ = os.RemoveAll(dataRoot)
 	})
 
@@ -1194,9 +1197,7 @@ func TestNamedStackSelectionAndPathResolution(t *testing.T) {
 }
 
 func TestNamedStackSingleRunningStackGuard(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("integration tests require Linux")
-	}
+	requireIntegrationPlatform(t)
 
 	binaryPath := testutil.BuildStackctlBinary(t)
 	configRoot := t.TempDir()
@@ -1240,7 +1241,7 @@ func TestNamedStackSingleRunningStackGuard(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = runStackctl(binaryPath, env, "--stack", alphaName, "reset", "--volumes", "--force")
 		_, _ = runStackctl(binaryPath, env, "--stack", betaName, "reset", "--volumes", "--force")
-		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		cleanupIntegrationDataRoot(dataRoot)
 		_ = os.RemoveAll(dataRoot)
 	})
 
@@ -1283,9 +1284,7 @@ func TestNamedStackSingleRunningStackGuard(t *testing.T) {
 }
 
 func TestNamedStackCloneRenameUseAndDeleteLifecycle(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("integration tests require Linux")
-	}
+	requireIntegrationPlatform(t)
 
 	binaryPath := testutil.BuildStackctlBinary(t)
 	configRoot := t.TempDir()
@@ -1339,7 +1338,7 @@ func TestNamedStackCloneRenameUseAndDeleteLifecycle(t *testing.T) {
 		_, _ = runStackctl(binaryPath, env, "--stack", sourceName, "reset", "--volumes", "--force")
 		_, _ = runStackctl(binaryPath, env, "--stack", clonedName, "reset", "--volumes", "--force")
 		_, _ = runStackctl(binaryPath, env, "--stack", renamedName, "reset", "--volumes", "--force")
-		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+		cleanupIntegrationDataRoot(dataRoot)
 		_ = os.RemoveAll(dataRoot)
 	})
 
@@ -1458,8 +1457,28 @@ func requirePodmanCompose(t *testing.T) {
 	if _, err := exec.LookPath("podman"); err != nil {
 		t.Skip("podman is not installed")
 	}
+	if runtime.GOOS == "darwin" {
+		machine := system.PodmanMachineStatus(context.Background())
+		if !machine.Initialized {
+			t.Skip("podman machine is not initialized")
+		}
+		if !machine.Running {
+			t.Skip("podman machine is not running")
+		}
+	}
 	if _, err := runCommand("podman", "compose", "version"); err != nil {
 		t.Skipf("podman compose is not available: %v", err)
+	}
+}
+
+func requireIntegrationPlatform(t *testing.T) {
+	t.Helper()
+
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		return
+	default:
+		t.Skip("integration tests require Linux or macOS")
 	}
 }
 
@@ -1467,6 +1486,7 @@ func integrationManagedLifecycleConfig(t *testing.T, stackName string, suffix st
 	t.Helper()
 
 	cfg := configpkg.DefaultForStack(stackName)
+	applyIntegrationPlatformDefaults(&cfg)
 	stackDir, err := configpkg.ManagedStackDir(cfg.Stack.Name)
 	if err != nil {
 		t.Fatalf("resolve managed stack dir: %v", err)
@@ -1523,6 +1543,7 @@ func integrationNATSOnlyStackConfig(t *testing.T, stackName string, token string
 	t.Helper()
 
 	cfg := configpkg.DefaultForStack(stackName)
+	applyIntegrationPlatformDefaults(&cfg)
 	cfg.Connection.Host = "127.0.0.1"
 	cfg.Connection.NATSToken = token
 	cfg.Ports.NATS = freePort(t)
@@ -1540,6 +1561,24 @@ func integrationNATSOnlyStackConfig(t *testing.T, stackName string, token string
 	}
 
 	return cfg
+}
+
+func applyIntegrationPlatformDefaults(cfg *configpkg.Config) {
+	platform := system.CurrentPlatform()
+	if strings.TrimSpace(platform.PackageManager) != "" {
+		cfg.System.PackageManager = platform.PackageManager
+	}
+	if !platform.SupportsCockpit() {
+		cfg.Setup.IncludeCockpit = false
+		cfg.Setup.InstallCockpit = false
+	}
+	cfg.ApplyDerivedFields()
+}
+
+func cleanupIntegrationDataRoot(dataRoot string) {
+	if runtime.GOOS == "linux" {
+		_, _ = runCommand("podman", "unshare", "rm", "-rf", dataRoot)
+	}
 }
 
 func freePort(t *testing.T) int {

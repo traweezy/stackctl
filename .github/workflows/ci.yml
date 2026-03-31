@@ -220,6 +220,63 @@ jobs:
       - name: Run integration tests
         run: go test ./integration -tags=integration -count=1
 
+  package-manager-smoke:
+    name: Test / package-manager smoke (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    needs: [fmt-check, vet, lint, mod-tidy-check]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - name: debian-bookworm
+            image: debian:bookworm
+            package_manager: apt
+            expect_cockpit: "0"
+          - name: ubuntu-24-04
+            image: ubuntu:24.04
+            package_manager: apt
+            expect_cockpit: "0"
+          - name: fedora-42
+            image: fedora:42
+            package_manager: dnf
+            expect_cockpit: "1"
+          - name: archlinux
+            image: archlinux:latest
+            package_manager: pacman
+            expect_cockpit: "1"
+          - name: opensuse-tumbleweed
+            image: registry.opensuse.org/opensuse/tumbleweed:latest
+            package_manager: zypper
+            expect_cockpit: "1"
+          - name: alpine-3-21
+            image: alpine:3.21
+            package_manager: apk
+            expect_cockpit: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run package-manager smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/package-manager-smoke
+          docker run --rm --pull always \
+            -v "$PWD/scripts/package-manager-smoke.sh:/package-manager-smoke.sh:ro" \
+            -e STACKCTL_PACKAGE_MANAGER="${{ matrix.package_manager }}" \
+            -e STACKCTL_EXPECT_COCKPIT="${{ matrix.expect_cockpit }}" \
+            "${{ matrix.image }}" \
+            sh /package-manager-smoke.sh | tee ".tmp/package-manager-smoke/${{ matrix.name }}.log"
+
+      - name: Upload package-manager smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-manager-smoke-${{ matrix.name }}
+          path: .tmp/package-manager-smoke/${{ matrix.name }}.log
+          retention-days: 7
+
   journey-smoke:
     name: Test / journey smoke
     runs-on: ubuntu-latest
@@ -243,36 +300,11 @@ jobs:
           podman --version
           podman compose version
 
-      - name: Run PTY smoke tests
+      - name: Run journey smoke
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .tmp/journey-smoke
-          go test ./cmd \
-            -run 'TestConfigInitInteractivePTYCustomizesConfig|TestTUIConfigPTYCanCreateAndScaffoldFromScratch|TestTUIOverviewPTYLaunchesWithConfig' \
-            -count=1 \
-            -v | tee .tmp/journey-smoke/pty.log
-
-      - name: Run TUI render smoke tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .tmp/journey-smoke
-          go test ./internal/tui \
-            -run 'TestOverviewExpandedLayoutShowsPathsAndManagedMode|TestViewCanDisableAltScreenForAutomation' \
-            -count=1 \
-            -v | tee .tmp/journey-smoke/tui-render.log
-
-      - name: Run integration smoke tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .tmp/journey-smoke
-          go test ./integration \
-            -tags=integration \
-            -run 'TestSetupNonInteractiveManagedLifecycleSmoke|TestManagedStackStartFailsFastWhenHostPortBusy|TestExternalStackMetadataSmoke|TestNamedStackSelectionAndPathResolution|TestNamedStackSingleRunningStackGuard' \
-            -count=1 \
-            -v | tee .tmp/journey-smoke/integration.log
+          STACKCTL_JOURNEY_SMOKE_DIR=.tmp/journey-smoke bash scripts/journey-smoke.sh
 
       - name: Write journey smoke summary
         if: always()
@@ -281,6 +313,7 @@ jobs:
           {
             echo "## Journey smoke"
             echo
+            echo "- Command: \`STACKCTL_JOURNEY_SMOKE_DIR=.tmp/journey-smoke bash scripts/journey-smoke.sh\`"
             echo "- PTY smoke: \`go test ./cmd -run 'TestConfigInitInteractivePTYCustomizesConfig|TestTUIConfigPTYCanCreateAndScaffoldFromScratch|TestTUIOverviewPTYLaunchesWithConfig' -count=1 -v\`"
             echo "- TUI render smoke: \`go test ./internal/tui -run 'TestOverviewExpandedLayoutShowsPathsAndManagedMode|TestViewCanDisableAltScreenForAutomation' -count=1 -v\`"
             echo "- Integration smoke: \`go test ./integration -tags=integration -run 'TestSetupNonInteractiveManagedLifecycleSmoke|TestManagedStackStartFailsFastWhenHostPortBusy|TestExternalStackMetadataSmoke|TestNamedStackSelectionAndPathResolution|TestNamedStackSingleRunningStackGuard' -count=1 -v\`"
@@ -319,7 +352,7 @@ jobs:
   build:
     name: Build / binary
     runs-on: ubuntu-latest
-    needs: [unit-tests, race-tests, integration-tests, journey-smoke]
+    needs: [unit-tests, race-tests, integration-tests, package-manager-smoke, journey-smoke]
     steps:
       - name: Checkout
         uses: actions/checkout@v5

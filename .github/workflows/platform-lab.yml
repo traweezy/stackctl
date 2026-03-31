@@ -1,0 +1,213 @@
+name: platform-lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_linux_vm_smoke:
+        description: "Run destructive Linux VM smoke jobs on self-hosted runners"
+        required: true
+        default: false
+        type: boolean
+      run_macos_smoke:
+        description: "Run destructive macOS Homebrew smoke on self-hosted runners"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  linux-vm-smoke:
+    if: ${{ inputs.run_linux_vm_smoke }}
+    name: Platform lab / linux (${{ matrix.name }})
+    runs-on: [self-hosted, linux, x64, "${{ matrix.label }}"]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: fedora
+            label: fedora
+            package_manager: dnf
+            expect_distro: fedora
+            expect_cockpit: "1"
+          - name: arch
+            label: arch
+            package_manager: pacman
+            expect_distro: arch
+            expect_cockpit: "1"
+          - name: opensuse
+            label: opensuse
+            package_manager: zypper
+            expect_distro: opensuse
+            expect_cockpit: "1"
+    env:
+      PODMAN_COMPOSE_PROVIDER: podman-compose
+      STACKCTL_PLATFORM_LAB_OS: linux
+      STACKCTL_PLATFORM_LAB_ARCH: x86_64
+      STACKCTL_PLATFORM_LAB_PACKAGE_MANAGER: ${{ matrix.package_manager }}
+      STACKCTL_PLATFORM_LAB_EXPECT_DISTRO: ${{ matrix.expect_distro }}
+      STACKCTL_PLATFORM_LAB_EXPECT_COCKPIT: ${{ matrix.expect_cockpit }}
+      STACKCTL_PLATFORM_LAB_REQUIRE_SUDO: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Preflight runner contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/platform-lab
+          STACKCTL_PLATFORM_LAB_PHASE=pre-setup \
+            bash scripts/platform-lab-preflight.sh | tee ".tmp/platform-lab/${{ matrix.name }}-preflight-pre-setup.log"
+
+      - name: Build stackctl
+        run: |
+          mkdir -p dist
+          go build -o dist/stackctl .
+
+      - name: Prepare platform dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./dist/stackctl setup --non-interactive --install --yes
+          ./dist/stackctl doctor --fix --yes
+
+      - name: Preflight runtime readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/platform-lab
+          STACKCTL_PLATFORM_LAB_PHASE=post-setup \
+            bash scripts/platform-lab-preflight.sh | tee ".tmp/platform-lab/${{ matrix.name }}-preflight-post-setup.log"
+
+      - name: Run platform smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./dist/stackctl start
+          ./dist/stackctl services
+          ./dist/stackctl stop
+
+      - name: Run journey smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          STACKCTL_JOURNEY_SMOKE_DIR=.tmp/platform-lab/journey-smoke bash scripts/journey-smoke.sh
+
+      - name: Run full integration suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/platform-lab
+          go test ./integration -tags=integration -count=1 -v | tee .tmp/platform-lab/full-integration.log
+
+      - name: Collect diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p .tmp/platform-lab
+          podman info > ".tmp/platform-lab/${{ matrix.name }}-podman-info.txt" 2>&1 || true
+          systemctl status cockpit.socket > ".tmp/platform-lab/${{ matrix.name }}-cockpit-status.txt" 2>&1 || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-lab-${{ matrix.name }}
+          path: .tmp/platform-lab
+          retention-days: 7
+
+  macos-brew-smoke:
+    if: ${{ inputs.run_macos_smoke }}
+    name: Platform lab / macos brew
+    runs-on: [self-hosted, macOS, ARM64, brew]
+    timeout-minutes: 30
+    env:
+      PODMAN_COMPOSE_PROVIDER: podman-compose
+      STACKCTL_PLATFORM_LAB_OS: darwin
+      STACKCTL_PLATFORM_LAB_ARCH: arm64
+      STACKCTL_PLATFORM_LAB_PACKAGE_MANAGER: brew
+      STACKCTL_PLATFORM_LAB_EXPECT_COCKPIT: "0"
+      STACKCTL_PLATFORM_LAB_REQUIRE_SUDO: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Preflight runner contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/platform-lab
+          STACKCTL_PLATFORM_LAB_PHASE=pre-setup \
+            bash scripts/platform-lab-preflight.sh | tee .tmp/platform-lab/macos-preflight-pre-setup.log
+
+      - name: Build stackctl
+        run: |
+          mkdir -p dist
+          go build -o dist/stackctl .
+
+      - name: Prepare platform dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./dist/stackctl setup --non-interactive --install --yes
+          ./dist/stackctl doctor --fix --yes
+
+      - name: Preflight runtime readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/platform-lab
+          STACKCTL_PLATFORM_LAB_PHASE=post-setup \
+            bash scripts/platform-lab-preflight.sh | tee .tmp/platform-lab/macos-preflight-post-setup.log
+
+      - name: Run platform smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./dist/stackctl start
+          ./dist/stackctl services
+          ./dist/stackctl stop
+
+      - name: Run journey smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          STACKCTL_JOURNEY_SMOKE_DIR=.tmp/platform-lab/journey-smoke bash scripts/journey-smoke.sh
+
+      - name: Run full integration suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/platform-lab
+          go test ./integration -tags=integration -count=1 -v | tee .tmp/platform-lab/full-integration.log
+
+      - name: Collect diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p .tmp/platform-lab
+          podman info > .tmp/platform-lab/macos-podman-info.txt 2>&1 || true
+          podman machine inspect > .tmp/platform-lab/macos-podman-machine.txt 2>&1 || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-lab-macos-brew
+          path: .tmp/platform-lab
+          retention-days: 7

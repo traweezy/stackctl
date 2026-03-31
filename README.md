@@ -41,12 +41,13 @@ stackctl provides:
 All in a single CLI.
 
 > [!IMPORTANT]
-> `stackctl` is Linux-only right now.
+> `stackctl` supports Linux and macOS for local runtime setup.
 >
-> - release binaries are published for Linux `x86_64` and `arm64`
-> - the installer script only supports Linux
-> - `setup --install` currently targets `apt`-based systems
-> - macOS and Windows are not supported yet
+> - release binaries are published for Linux and macOS (`x86_64`, `arm64`)
+> - the installer script supports both Linux and macOS
+> - `setup --install` supports `apt`, `dnf`/`yum`, `pacman`, `zypper`, `apk`, and Homebrew
+> - macOS support uses Homebrew plus `podman machine`
+> - Windows is not supported
 
 ## What stackctl is for
 
@@ -83,7 +84,7 @@ The runtime inspection commands are intentionally split:
 
 ### Quick install from GitHub Releases
 
-Install the latest release to `~/.local/bin`:
+Install the latest release to `~/.local/bin` on Linux or macOS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | bash
@@ -105,6 +106,9 @@ curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/in
 
 The installer downloads the release archive plus `checksums.txt` and verifies
 the archive checksum before extracting it.
+
+On macOS, the installer uses the published Darwin archives and works with the
+platform checksum tools (`shasum`, `sha256sum`, or `openssl`).
 
 If `~/.local/bin` is not already on your `PATH`, add it:
 
@@ -134,9 +138,12 @@ go build -trimpath -o dist/stackctl .
 
 For normal runtime usage, `stackctl` expects:
 
-- Linux
+- Linux or macOS
 - `podman`
 - `podman compose`
+
+On macOS, `podman machine` must also be initialized and running. `stackctl setup --install`
+and `stackctl doctor --fix` can prepare that automatically.
 
 When both Docker Compose and `podman-compose` are installed, `stackctl`
 prefers `podman-compose` so Podman-managed stacks do not accidentally route
@@ -148,7 +155,31 @@ If you want the CLI to install supported dependencies for you:
 stackctl setup --install
 ```
 
-That flow is currently aimed at `apt`-based systems.
+`stackctl` defaults the package manager to the native backend it detects on the
+current host. If an older config is blank or points at a package manager that
+is not installed anymore, `stackctl setup --install` and
+`stackctl doctor --fix` fall back to the current-machine recommendation for
+that run and tell you to update the saved config.
+
+Supported `setup --install` targets:
+
+| Platform | Package manager | Auto-install scope |
+| --- | --- | --- |
+| Debian / Ubuntu | `apt` | core runtime packages; Cockpit stays manual |
+| Fedora / CentOS Stream / RHEL-family | `dnf` / `yum` | core runtime packages plus Cockpit helpers |
+| Arch | `pacman` | core runtime packages plus Cockpit helpers |
+| openSUSE | `zypper` | core runtime packages plus Cockpit helpers |
+| Alpine | `apk` | core runtime packages only |
+| macOS | `brew` | core runtime packages plus `podman machine`; no `buildah` or Cockpit automation |
+
+Hosted CI now smoke-tests the supported Linux package-manager backends with
+disposable distro containers. Full-host Linux and macOS smoke jobs live in
+[platform-lab.yml](./.github/workflows/platform-lab.yml), reuse the shared
+journey-smoke script, run the full Go integration suite, and enforce a
+two-phase runner preflight. Linux platform-lab runners are expected to provide
+the correct distro label, the native package manager, and passwordless `sudo`;
+macOS runners are expected to provide Homebrew and a Podman installation that
+can reach `podman machine` once setup completes.
 
 ## Quick start
 
@@ -215,6 +246,9 @@ stackctl setup --non-interactive
 stackctl setup --install
 stackctl setup --install --yes
 ```
+
+On macOS, the install flow also prepares `podman machine` so the local Podman
+VM is ready before you launch the stack.
 
 If you want a true clean slate before walking through setup again, use
 `stackctl factory-reset --force`. This is destructive and removes every
@@ -1568,9 +1602,14 @@ go run . --help
 ```
 
 The default test suite includes unit tests, script-driven CLI tests, and
-interactive PTY coverage for the config wizard. The integration suite is
-Linux-only and runs the real binary against real Podman-managed services in
-isolated temp XDG directories.
+interactive PTY coverage for the config wizard. The full integration suite
+exercises the real binary against real Podman-managed services in isolated
+temp XDG directories. Hosted CI runs that suite on Linux, while the
+self-hosted Linux/macOS platform lab also runs the same full integration
+command plus the shared [`scripts/journey-smoke.sh`](./scripts/journey-smoke.sh)
+coverage. [`scripts/platform-lab-preflight.sh`](./scripts/platform-lab-preflight.sh)
+guards that workflow before and after setup so runner-contract problems fail
+early with explicit remediation.
 
 ## Release flow
 
@@ -1684,7 +1723,7 @@ Current CLI surface:
 These are strong follow-ups once the high-priority local stack and helper
 commands are in place.
 
-- broader installer support beyond `apt`-based systems
+- expand self-hosted platform coverage beyond the current Linux/macOS matrix
 - more explicit verbosity and quiet controls across runtime commands
 
 ### Longer-term UX work
