@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,6 +239,66 @@ func TestRunWithDepsWarnsWhenCockpitIsActiveButConfiguredPortIsNotListening(t *t
 	}
 
 	t.Fatalf("expected warning about active cockpit without a listening configured port, got %+v", report.Checks)
+}
+
+func TestRunWithDepsOnDarwinReportsPodmanMachineAndSkipsLinuxOnlyChecks(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Setup.IncludeCockpit = false
+	cfg.Setup.InstallCockpit = false
+
+	report, err := runWithDeps(context.Background(), dependencies{
+		configFilePath: func() (string, error) { return "/tmp/stackctl/config.yaml", nil },
+		loadConfig:     func(string) (configpkg.Config, error) { return cfg, nil },
+		validateConfig: func(configpkg.Config) []configpkg.ValidationIssue { return nil },
+		composePath:    func(configpkg.Config) string { return "/tmp/compose.yaml" },
+		stat: func(path string) (os.FileInfo, error) {
+			switch path {
+			case cfg.Stack.Dir:
+				return fakeFileInfo{dir: true}, nil
+			case "/tmp/compose.yaml":
+				return fakeFileInfo{name: "compose.yaml"}, nil
+			default:
+				return nil, errors.New("missing")
+			}
+		},
+		platform: func() system.Platform {
+			return system.Platform{GOOS: "darwin", PackageManager: "brew", ServiceManager: system.ServiceManagerNone}
+		},
+		commandExists:      func(name string) bool { return name == "podman" },
+		podmanComposeAvail: func(context.Context) bool { return true },
+		podmanMachineStatus: func(context.Context) system.PodmanMachineState {
+			return system.PodmanMachineState{Supported: true, Initialized: false, State: "not initialized"}
+		},
+		openCommandName: func() string { return "open" },
+		cockpitStatus:   func(context.Context) system.CockpitState { return system.CockpitState{} },
+		portInUse:       func(int) (bool, error) { return false, nil },
+		listContainers:  func(context.Context) ([]system.Container, error) { return nil, nil },
+		redisOvercommit: func(context.Context) (system.OvercommitStatus, error) { return system.OvercommitStatus{}, nil },
+	})
+	if err != nil {
+		t.Fatalf("runWithDeps returned error: %v", err)
+	}
+	if !CheckPassed(report, "podman installed") {
+		t.Fatalf("expected podman to be reported as installed: %+v", report.Checks)
+	}
+	if CheckPassed(report, "buildah installed") {
+		t.Fatalf("buildah should not be required on darwin: %+v", report.Checks)
+	}
+	if CheckPassed(report, "ss available") {
+		t.Fatalf("ss should not be checked on darwin: %+v", report.Checks)
+	}
+	foundMachineMiss := false
+	for _, check := range report.Checks {
+		if check.Message == "podman machine not initialized" && check.Status == output.StatusMiss {
+			foundMachineMiss = true
+		}
+		if strings.Contains(check.Message, "cockpit.socket") {
+			t.Fatalf("darwin report should not include cockpit checks when disabled: %+v", report.Checks)
+		}
+	}
+	if !foundMachineMiss {
+		t.Fatalf("expected missing podman machine check: %+v", report.Checks)
+	}
 }
 
 type fakeFileInfo struct {

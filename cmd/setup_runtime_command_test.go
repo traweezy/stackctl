@@ -135,8 +135,17 @@ func TestSetupInstallRunsPackageInstallAndCockpitEnable(t *testing.T) {
 	enabledCockpit := false
 
 	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.System.PackageManager = "dnf"
+		d.platform = func() system.Platform {
+			return system.Platform{
+				GOOS:           "linux",
+				PackageManager: "dnf",
+				ServiceManager: system.ServiceManagerSystemd,
+			}
+		}
 		d.loadConfig = func(string) (configpkg.Config, error) {
-			return configpkg.Default(), nil
+			return cfg, nil
 		}
 		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
 			return newReport(
@@ -147,9 +156,22 @@ func TestSetupInstallRunsPackageInstallAndCockpitEnable(t *testing.T) {
 				doctorpkg.Check{Status: output.StatusMiss, Message: "cockpit.socket installed"},
 			), nil
 		}
-		d.installPackages = func(_ context.Context, _ system.Runner, _ string, packages []string) ([]string, error) {
-			installPackages = append([]string(nil), packages...)
-			return packages, nil
+		d.installPackages = func(_ context.Context, _ system.Runner, _ string, requirements []system.Requirement) ([]string, error) {
+			for _, requirement := range requirements {
+				switch requirement {
+				case system.RequirementPodman:
+					installPackages = append(installPackages, "podman")
+				case system.RequirementComposeProvider:
+					installPackages = append(installPackages, "podman-compose")
+				case system.RequirementBuildah:
+					installPackages = append(installPackages, "buildah")
+				case system.RequirementSkopeo:
+					installPackages = append(installPackages, "skopeo")
+				case system.RequirementCockpit:
+					installPackages = append(installPackages, "cockpit", "cockpit-podman")
+				}
+			}
+			return installPackages, nil
 		}
 		d.enableCockpit = func(context.Context, system.Runner) error {
 			enabledCockpit = true
@@ -172,6 +194,106 @@ func TestSetupInstallRunsPackageInstallAndCockpitEnable(t *testing.T) {
 	}
 	if strings.Contains(stdout, "stackctl setup --install") {
 		t.Fatalf("stdout should not keep stale install guidance after install succeeds: %s", stdout)
+	}
+}
+
+func TestSetupInstallPreparesPodmanMachineOnDarwin(t *testing.T) {
+	var installPackages []string
+	preparedMachine := false
+
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Setup.IncludeCockpit = false
+		cfg.Setup.InstallCockpit = false
+		cfg.System.PackageManager = "brew"
+		d.platform = func() system.Platform {
+			return system.Platform{GOOS: "darwin", PackageManager: "brew", ServiceManager: system.ServiceManagerNone}
+		}
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			return newReport(
+				doctorpkg.Check{Status: output.StatusMiss, Message: "podman installed"},
+				doctorpkg.Check{Status: output.StatusMiss, Message: "podman compose available"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
+				doctorpkg.Check{Status: output.StatusMiss, Message: "podman machine not initialized"},
+			), nil
+		}
+		d.installPackages = func(_ context.Context, _ system.Runner, _ string, requirements []system.Requirement) ([]string, error) {
+			for _, requirement := range requirements {
+				switch requirement {
+				case system.RequirementPodman:
+					installPackages = append(installPackages, "podman")
+				case system.RequirementComposeProvider:
+					installPackages = append(installPackages, "podman-compose")
+				case system.RequirementSkopeo:
+					installPackages = append(installPackages, "skopeo")
+				}
+			}
+			return installPackages, nil
+		}
+		d.preparePodmanMachine = func(context.Context, system.Runner) error {
+			preparedMachine = true
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "setup", "--install", "--yes")
+	if err != nil {
+		t.Fatalf("setup --install returned error: %v", err)
+	}
+	if !preparedMachine {
+		t.Fatal("expected podman machine preparation")
+	}
+	if got, want := strings.Join(installPackages, ","), "podman,podman-compose"; got != want {
+		t.Fatalf("unexpected installed packages: got %q want %q", got, want)
+	}
+	if !strings.Contains(stdout, "podman machine is initialized and running") {
+		t.Fatalf("stdout missing podman machine status: %s", stdout)
+	}
+}
+
+func TestSetupInstallFallsBackToDetectedPackageManagerWhenConfiguredValueIsUnavailable(t *testing.T) {
+	var usedPackageManager string
+
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.System.PackageManager = "brew"
+		d.platform = func() system.Platform {
+			return system.Platform{
+				GOOS:           "linux",
+				DistroID:       "ubuntu",
+				DistroLike:     []string{"debian"},
+				PackageManager: "apt",
+				ServiceManager: system.ServiceManagerSystemd,
+			}
+		}
+		d.commandExists = func(name string) bool {
+			return name == "apt-get" || name == "podman" || name == "podman-compose" || name == "buildah" || name == "skopeo" || name == "systemctl"
+		}
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			return newReport(
+				doctorpkg.Check{Status: output.StatusMiss, Message: "podman installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman compose available"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "buildah installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
+			), nil
+		}
+		d.installPackages = func(_ context.Context, _ system.Runner, packageManager string, _ []system.Requirement) ([]string, error) {
+			usedPackageManager = packageManager
+			return []string{"podman"}, nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "setup", "--install", "--yes")
+	if err != nil {
+		t.Fatalf("setup --install returned error: %v", err)
+	}
+	if usedPackageManager != "apt" {
+		t.Fatalf("expected apt fallback, got %q", usedPackageManager)
+	}
+	if !strings.Contains(stdout, `configured package manager "brew" is not installed; using detected apt`) {
+		t.Fatalf("expected package manager fallback notice, got:\n%s", stdout)
 	}
 }
 

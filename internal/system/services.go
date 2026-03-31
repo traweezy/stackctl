@@ -118,36 +118,6 @@ func AnyContainerExists(ctx context.Context, containerNames []string) (bool, err
 	return false, nil
 }
 
-func DetectPackageManager() string {
-	if CommandExists("apt-get") {
-		return "apt"
-	}
-
-	return ""
-}
-
-func InstallPackages(ctx context.Context, runner Runner, packageManager string, packages []string) ([]string, error) {
-	if len(packages) == 0 {
-		return nil, nil
-	}
-
-	switch packageManager {
-	case "apt":
-		if err := runner.Run(ctx, "", "sudo", "apt-get", "update"); err != nil {
-			return nil, err
-		}
-
-		args := append([]string{"apt-get", "install", "-y"}, packages...)
-		if err := runner.Run(ctx, "", "sudo", args...); err != nil {
-			return nil, err
-		}
-
-		return packages, nil
-	default:
-		return nil, fmt.Errorf("unsupported package manager %q; install manually: %s", packageManager, strings.Join(packages, ", "))
-	}
-}
-
 func EnableCockpit(ctx context.Context, runner Runner) error {
 	return runner.Run(ctx, "", "sudo", "systemctl", "enable", "--now", "cockpit.socket")
 }

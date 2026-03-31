@@ -20,7 +20,7 @@ import (
 
 func TestDefaultCommandDepsProvidesHooks(t *testing.T) {
 	value := defaultCommandDeps()
-	if value.configDirPath == nil || value.configFilePath == nil || value.configFilePathForStack == nil || value.knownConfigPaths == nil || value.currentStackName == nil || value.setCurrentStackName == nil || value.composeUp == nil || value.composeUpServices == nil || value.composeStopServices == nil || value.composeExec == nil || value.runExternalCommand == nil || value.removeFile == nil || value.removeAll == nil || value.mkdirAll == nil || value.rename == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil {
+	if value.configDirPath == nil || value.configFilePath == nil || value.configFilePathForStack == nil || value.knownConfigPaths == nil || value.currentStackName == nil || value.setCurrentStackName == nil || value.composeUp == nil || value.composeUpServices == nil || value.composeStopServices == nil || value.composeExec == nil || value.runExternalCommand == nil || value.removeFile == nil || value.removeAll == nil || value.mkdirAll == nil || value.rename == nil || value.scaffoldManagedStack == nil || value.managedStackNeedsScaffold == nil || value.podmanMachineStatus == nil {
 		t.Fatal("default command deps should initialize function hooks")
 	}
 }
@@ -56,7 +56,7 @@ func TestDefaultCommandDepsClosuresExecuteAgainstFakeBinaries(t *testing.T) {
 	if err := value.openURL(context.Background(), runner, "http://example.com"); err != nil {
 		t.Fatalf("openURL returned error: %v", err)
 	}
-	if _, err := value.installPackages(context.Background(), runner, "apt", []string{"podman"}); err != nil {
+	if _, err := value.installPackages(context.Background(), runner, "apt", []system.Requirement{system.RequirementPodman}); err != nil {
 		t.Fatalf("installPackages returned error: %v", err)
 	}
 	if err := value.enableCockpit(context.Background(), runner); err != nil {
@@ -777,6 +777,7 @@ func TestSetupInstallWithNothingMissingExitsCleanly(t *testing.T) {
 				doctorpkg.Check{Status: output.StatusOK, Message: "buildah installed"},
 				doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
 				doctorpkg.Check{Status: output.StatusOK, Message: "cockpit.socket installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "cockpit.socket active"},
 			), nil
 		}
 	})
@@ -787,6 +788,38 @@ func TestSetupInstallWithNothingMissingExitsCleanly(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "nothing to install") {
 		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestSetupIncludesManualCockpitGuidanceWhenAutoInstallIsUnsupported(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.System.PackageManager = "apt"
+		d.platform = func() system.Platform {
+			return system.Platform{
+				GOOS:           "linux",
+				PackageManager: "apt",
+				ServiceManager: system.ServiceManagerSystemd,
+			}
+		}
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			return newReport(
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman compose available"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "buildah installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
+				doctorpkg.Check{Status: output.StatusWarn, Message: "cockpit helpers enabled but cockpit.socket must be installed manually on this platform"},
+			), nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "setup")
+	if err != nil {
+		t.Fatalf("setup returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "install cockpit manually on this platform if you want the Cockpit web UI") {
+		t.Fatalf("expected manual cockpit guidance, got: %s", stdout)
 	}
 }
 
@@ -1079,6 +1112,22 @@ func TestEnsureComposeRuntimeErrorsWhenPrerequisitesMissing(t *testing.T) {
 	err = ensureComposeRuntime(NewRootCmd(NewApp()), configpkg.Default())
 	if err == nil || !strings.Contains(err.Error(), "compose file") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.platform = func() system.Platform {
+			return system.Platform{GOOS: "darwin", PackageManager: "brew", ServiceManager: system.ServiceManagerNone}
+		}
+		d.commandExists = func(string) bool { return true }
+		d.podmanComposeAvail = func(context.Context) bool { return true }
+		d.podmanMachineStatus = func(context.Context) system.PodmanMachineState {
+			return system.PodmanMachineState{Supported: true, Initialized: false, Running: false}
+		}
+	})
+
+	err = ensureComposeRuntime(NewRootCmd(NewApp()), configpkg.Default())
+	if err == nil || !strings.Contains(err.Error(), "podman machine is not initialized") {
+		t.Fatalf("unexpected darwin machine error: %v", err)
 	}
 }
 

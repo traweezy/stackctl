@@ -55,6 +55,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 for cmd in curl tar mktemp install uname sha256sum sed head awk; do
+  case "$cmd" in
+    sha256sum)
+      continue
+      ;;
+  esac
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Missing required command: $cmd" >&2
     exit 1
@@ -64,11 +69,46 @@ done
 os="$(uname -s)"
 case "$os" in
   Linux) os="Linux" ;;
+  Darwin) os="Darwin" ;;
   *)
     echo "Unsupported OS: $os" >&2
     exit 1
     ;;
 esac
+
+sha256_tool=""
+if [[ "$os" == "Darwin" ]]; then
+  checksum_candidates=("shasum -a 256" sha256sum "openssl dgst -sha256")
+else
+  checksum_candidates=(sha256sum "shasum -a 256" "openssl dgst -sha256")
+fi
+for candidate in "${checksum_candidates[@]}"; do
+  tool="${candidate%% *}"
+  if command -v "$tool" >/dev/null 2>&1; then
+    sha256_tool="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$sha256_tool" ]]; then
+  echo "Missing required checksum tool: sha256sum, shasum, or openssl" >&2
+  exit 1
+fi
+
+compute_sha256() {
+  local file="$1"
+  case "$sha256_tool" in
+    sha256sum)
+      sha256sum "$file" | awk '{print $1}'
+      ;;
+    "shasum -a 256")
+      shasum -a 256 "$file" | awk '{print $1}'
+      ;;
+    "openssl dgst -sha256")
+      openssl dgst -sha256 "$file" | awk '{print $NF}'
+      ;;
+  esac
+}
 
 arch="$(uname -m)"
 case "$arch" in
@@ -115,7 +155,7 @@ if [[ -z "$expected_checksum" ]]; then
   exit 1
 fi
 
-actual_checksum="$(sha256sum "$archive_path" | awk '{print $1}')"
+actual_checksum="$(compute_sha256 "$archive_path")"
 if [[ "$actual_checksum" != "$expected_checksum" ]]; then
   echo "Checksum verification failed for ${asset}" >&2
   echo "Expected: ${expected_checksum}" >&2

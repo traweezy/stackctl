@@ -30,11 +30,30 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 	cfg.Services.RedisContainer = ""
 	cfg.Ports.Postgres = 0
 	cfg.Behavior.StartupTimeoutSec = -1
-	cfg.System.PackageManager = ""
 
 	issues := Validate(cfg)
-	if len(issues) < 6 {
+	if len(issues) < 5 {
 		t.Fatalf("expected multiple issues, got %v", issues)
+	}
+}
+
+func TestValidateAllowsBlankPackageManager(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := Default()
+	if err := validateWithDir(cfg.Stack.Dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ComposePath(cfg), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.System.PackageManager = ""
+
+	for _, issue := range Validate(cfg) {
+		if issue.Field == "system.package_manager" {
+			t.Fatalf("unexpected package-manager validation issue: %+v", issue)
+		}
 	}
 }
 

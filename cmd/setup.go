@@ -11,6 +11,7 @@ import (
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	doctorpkg "github.com/traweezy/stackctl/internal/doctor"
 	"github.com/traweezy/stackctl/internal/output"
+	"github.com/traweezy/stackctl/internal/system"
 )
 
 func newSetupCmd() *cobra.Command {
@@ -123,6 +124,7 @@ func newSetupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			platform := deps.platform()
 
 			for _, check := range report.Checks {
 				if err := output.StatusLine(cmd.OutOrStdout(), check.Status, check.Message); err != nil {
@@ -130,22 +132,47 @@ func newSetupCmd() *cobra.Command {
 				}
 			}
 
-			missing := requiredPackages(report, cfg)
+			missing := requiredRequirements(report, cfg, platform)
+			needsMachine := shouldPreparePodmanMachine(report, platform)
+			needsManualCockpit := requiresManualCockpitInstall(report, cfg, platform)
 			if len(missing) == 0 {
-				if err := statusLine(cmd, output.StatusOK, "all required packages look available"); err != nil {
+				if !needsMachine && !needsManualCockpit {
+					if err := statusLine(cmd, output.StatusOK, "all required dependencies look available"); err != nil {
+						return err
+					}
+				}
+			} else if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Missing requirements: %s\n", strings.Join(requirementLabels(missing), ", ")); err != nil {
+				return err
+			}
+			if needsMachine {
+				if err := statusLine(cmd, output.StatusWarn, "podman machine still needs initialization or startup"); err != nil {
 					return err
 				}
-			} else if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Missing packages: %s\n", strings.Join(missing, ", ")); err != nil {
-				return err
+			}
+			if needsManualCockpit {
+				if err := statusLine(cmd, output.StatusWarn, "cockpit helpers are enabled but cockpit must be installed manually on this platform"); err != nil {
+					return err
+				}
 			}
 
 			if install {
-				if len(missing) == 0 {
+				if len(missing) == 0 && !needsMachine && !shouldEnableCockpit(report, missing, platform) {
 					return statusLine(cmd, output.StatusOK, "nothing to install")
 				}
 
-				if !yes {
-					ok, err := confirmWithPrompt(cmd, fmt.Sprintf("Install missing packages with %s?", cfg.System.PackageManager), false)
+				packageChoice := system.PackageManagerChoice{}
+				if len(missing) > 0 {
+					packageChoice, err = resolveInstallPackageManager(cfg.System.PackageManager)
+					if err != nil {
+						return err
+					}
+					if err := reportPackageManagerChoiceNotice(cmd, packageChoice); err != nil {
+						return err
+					}
+				}
+
+				if len(missing) > 0 && !yes {
+					ok, err := confirmWithPrompt(cmd, fmt.Sprintf("Install missing packages with %s?", packageChoice.Name), false)
 					if err != nil {
 						return err
 					}
@@ -154,24 +181,39 @@ func newSetupCmd() *cobra.Command {
 					}
 				}
 
-				installed, err := deps.installPackages(context.Background(), runnerFor(cmd), cfg.System.PackageManager, missing)
-				if err != nil {
-					return err
-				}
-
-				if cfg.CockpitEnabled() && cfg.Setup.InstallCockpit {
-					if err := deps.enableCockpit(context.Background(), runnerFor(cmd)); err != nil {
+				if len(missing) > 0 {
+					installed, err := deps.installPackages(context.Background(), runnerFor(cmd), packageChoice.Name, missing)
+					if err != nil {
+						return err
+					}
+					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Installed: %s\n", strings.Join(installed, ", ")); err != nil {
 						return err
 					}
 				}
 
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Installed: %s\n", strings.Join(installed, ", ")); err != nil {
-					return err
+				if platform.UsesPodmanMachine() {
+					if err := deps.preparePodmanMachine(context.Background(), runnerFor(cmd)); err != nil {
+						return err
+					}
+					if err := statusLine(cmd, output.StatusOK, "podman machine is initialized and running"); err != nil {
+						return err
+					}
 				}
+
+				if shouldEnableCockpit(report, missing, platform) {
+					if err := deps.enableCockpit(context.Background(), runnerFor(cmd)); err != nil {
+						return err
+					}
+					if err := statusLine(cmd, output.StatusOK, "enabled cockpit.socket"); err != nil {
+						return err
+					}
+				}
+
 				missing = nil
+				needsMachine = false
 			}
 
-			if err := printSetupNextSteps(cmd, cfg, missing); err != nil {
+			if err := printSetupNextSteps(cmd, cfg, requirementLabels(missing), needsMachine, needsManualCockpit); err != nil {
 				return err
 			}
 
@@ -187,35 +229,35 @@ func newSetupCmd() *cobra.Command {
 	return cmd
 }
 
-func requiredPackages(report doctorpkg.Report, cfg configpkg.Config) []string {
-	required := make([]string, 0, 6)
+func requiredRequirements(report doctorpkg.Report, cfg configpkg.Config, platform system.Platform) []system.Requirement {
+	required := make([]system.Requirement, 0, 5)
 
 	if !doctorpkg.CheckPassed(report, "podman installed") {
-		required = append(required, "podman")
+		required = append(required, system.RequirementPodman)
 	}
 	if !doctorpkg.CheckPassed(report, "podman compose available") {
-		required = append(required, "podman-compose")
+		required = append(required, system.RequirementComposeProvider)
 	}
-	if !doctorpkg.CheckPassed(report, "buildah installed") {
-		required = append(required, "buildah")
+	if platform.SupportsBuildah() && !doctorpkg.CheckPassed(report, "buildah installed") {
+		required = append(required, system.RequirementBuildah)
 	}
 	if !doctorpkg.CheckPassed(report, "skopeo installed") {
-		required = append(required, "skopeo")
+		required = append(required, system.RequirementSkopeo)
 	}
-	if cfg.CockpitEnabled() && cfg.Setup.InstallCockpit {
+	if cfg.CockpitEnabled() && cfg.Setup.InstallCockpit && platform.SupportsCockpitAutoInstall() {
 		if !doctorpkg.CheckPassed(report, "cockpit.socket installed") {
-			required = append(required, "cockpit", "cockpit-podman")
+			required = append(required, system.RequirementCockpit)
 		}
 	}
 
 	return required
 }
 
-func printSetupNextSteps(cmd *cobra.Command, cfg configpkg.Config, missing []string) error {
+func printSetupNextSteps(cmd *cobra.Command, cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool) error {
 	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Next steps:"); err != nil {
 		return err
 	}
-	for _, step := range setupNextSteps(cfg, missing) {
+	for _, step := range setupNextSteps(cfg, missing, needsPodmanMachine, needsManualCockpit) {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", step); err != nil {
 			return err
 		}
@@ -223,13 +265,19 @@ func printSetupNextSteps(cmd *cobra.Command, cfg configpkg.Config, missing []str
 	return nil
 }
 
-func setupNextSteps(cfg configpkg.Config, missing []string) []string {
-	steps := make([]string, 0, 7)
+func setupNextSteps(cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool) []string {
+	steps := make([]string, 0, 9)
 	if len(missing) > 0 {
 		steps = append(steps, fmt.Sprintf(
 			"run `stackctl setup --install` or install %s manually first",
 			strings.Join(missing, ", "),
 		))
+	}
+	if needsPodmanMachine {
+		steps = append(steps, "run `podman machine init` and `podman machine start` before launching the stack")
+	}
+	if needsManualCockpit {
+		steps = append(steps, "install cockpit manually on this platform if you want the Cockpit web UI")
 	}
 
 	startHint := "run `stackctl start` after the stack config and dependencies are ready"
@@ -247,4 +295,48 @@ func setupNextSteps(cfg configpkg.Config, missing []string) []string {
 	)
 
 	return steps
+}
+
+func requirementLabels(requirements []system.Requirement) []string {
+	labels := make([]string, 0, len(requirements))
+	for _, requirement := range requirements {
+		labels = append(labels, string(requirement))
+	}
+	return labels
+}
+
+func shouldPreparePodmanMachine(report doctorpkg.Report, platform system.Platform) bool {
+	if !platform.UsesPodmanMachine() {
+		return false
+	}
+
+	return !doctorpkg.CheckPassed(report, "podman machine initialized") || !doctorpkg.CheckPassed(report, "podman machine running")
+}
+
+func containsRequirement(requirements []system.Requirement, target system.Requirement) bool {
+	for _, requirement := range requirements {
+		if requirement == target {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldEnableCockpit(report doctorpkg.Report, requirements []system.Requirement, platform system.Platform) bool {
+	if !platform.SupportsCockpitAutoEnable() {
+		return false
+	}
+	if containsRequirement(requirements, system.RequirementCockpit) {
+		return true
+	}
+
+	return doctorpkg.CheckPassed(report, "cockpit.socket installed") && !doctorpkg.CheckPassed(report, "cockpit.socket active")
+}
+
+func requiresManualCockpitInstall(report doctorpkg.Report, cfg configpkg.Config, platform system.Platform) bool {
+	if !cfg.CockpitEnabled() || !cfg.Setup.InstallCockpit || !platform.SupportsCockpit() || platform.SupportsCockpitAutoInstall() {
+		return false
+	}
+
+	return !doctorpkg.CheckPassed(report, "cockpit.socket installed")
 }

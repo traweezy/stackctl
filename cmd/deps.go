@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/traweezy/stackctl/internal/compose"
@@ -38,13 +39,16 @@ type commandDeps struct {
 	composePath               func(configpkg.Config) string
 	stat                      func(string) (os.FileInfo, error)
 	runDoctor                 func(context.Context) (doctorpkg.Report, error)
+	platform                  func() system.Platform
 	commandExists             func(string) bool
 	podmanComposeAvail        func(context.Context) bool
+	podmanMachineStatus       func(context.Context) system.PodmanMachineState
 	runExternalCommand        func(context.Context, system.Runner, string, []string) error
 	openURL                   func(context.Context, system.Runner, string) error
 	copyToClipboard           func(context.Context, system.Runner, string) error
-	installPackages           func(context.Context, system.Runner, string, []string) ([]string, error)
+	installPackages           func(context.Context, system.Runner, string, []system.Requirement) ([]string, error)
 	enableCockpit             func(context.Context, system.Runner) error
+	preparePodmanMachine      func(context.Context, system.Runner) error
 	waitForPort               func(context.Context, int, time.Duration) error
 	portListening             func(int) bool
 	portInUse                 func(int) (bool, error)
@@ -81,7 +85,17 @@ func defaultCommandDeps() commandDeps {
 		rename:                 os.Rename,
 		marshalConfig:          configpkg.Marshal,
 		defaultConfig: func() configpkg.Config {
-			return configpkg.DefaultForStack(configpkg.SelectedStackName())
+			cfg := configpkg.DefaultForStack(configpkg.SelectedStackName())
+			platform := system.CurrentPlatform()
+			if strings.TrimSpace(platform.PackageManager) != "" {
+				cfg.System.PackageManager = platform.PackageManager
+			}
+			if !platform.SupportsCockpit() {
+				cfg.Setup.IncludeCockpit = false
+				cfg.Setup.InstallCockpit = false
+			}
+			cfg.ApplyDerivedFields()
+			return cfg
 		},
 		validateConfig:            configpkg.Validate,
 		runWizard:                 configpkg.RunWizard,
@@ -91,13 +105,16 @@ func defaultCommandDeps() commandDeps {
 		composePath:               configpkg.ComposePath,
 		stat:                      os.Stat,
 		runDoctor:                 doctorpkg.Run,
+		platform:                  system.CurrentPlatform,
 		commandExists:             system.CommandExists,
 		podmanComposeAvail:        system.PodmanComposeAvailable,
+		podmanMachineStatus:       system.PodmanMachineStatus,
 		runExternalCommand:        system.RunExternalCommand,
 		openURL:                   system.OpenURL,
 		copyToClipboard:           system.CopyToClipboard,
 		installPackages:           system.InstallPackages,
 		enableCockpit:             system.EnableCockpit,
+		preparePodmanMachine:      system.PreparePodmanMachine,
 		waitForPort:               system.WaitForPort,
 		portListening:             system.PortListening,
 		portInUse:                 system.PortInUse,

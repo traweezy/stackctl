@@ -155,7 +155,7 @@ func TestRunNoStartDoesNotRequireComposeRuntimeWhenServiceReady(t *testing.T) {
 		cfg.Connection.Host = "devbox"
 		cfg.ApplyDerivedFields()
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
-		d.commandExists = func(string) bool { return false }
+		d.commandExists = func(name string) bool { return name == "podman" }
 		d.podmanComposeAvail = func(context.Context) bool { return false }
 		d.stat = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
 		d.captureResult = func(_ context.Context, _ string, _ string, _ ...string) (system.CommandResult, error) {

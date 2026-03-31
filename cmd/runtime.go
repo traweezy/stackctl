@@ -78,11 +78,11 @@ func ensureComposeRuntime(cmd *cobra.Command, cfg configpkg.Config) error {
 }
 
 func ensureComposeRuntimeForConfig(cfg configpkg.Config) error {
-	if !deps.commandExists("podman") {
-		return errors.New("podman is not installed; run `stackctl setup --install` or install it manually")
+	if err := ensurePodmanRuntimeReady(); err != nil {
+		return err
 	}
 	if !deps.podmanComposeAvail(context.Background()) {
-		return errors.New("podman compose is not available; run `stackctl setup --install` or install podman-compose manually")
+		return errors.New("podman compose is not available; run `stackctl setup --install`, `stackctl doctor --fix`, or install a compose provider manually")
 	}
 	if _, err := deps.stat(deps.composePath(cfg)); err != nil {
 		return fmt.Errorf("compose file %s is not available: %w", deps.composePath(cfg), err)
@@ -122,6 +122,10 @@ func stackContainerNames(cfg configpkg.Config) []string {
 }
 
 func loadStackContainers(ctx context.Context, cfg configpkg.Config) ([]system.Container, error) {
+	if err := ensurePodmanRuntimeReady(); err != nil {
+		return nil, err
+	}
+
 	composePath := deps.composePath(cfg)
 	if deps.podmanComposeAvail(ctx) && compose.SupportsPSJSON() {
 		if _, err := deps.stat(composePath); err == nil {
@@ -135,6 +139,27 @@ func loadStackContainers(ctx context.Context, cfg configpkg.Config) ([]system.Co
 	}
 
 	return system.FilterContainersByName(containers, stackContainerNames(cfg)), nil
+}
+
+func ensurePodmanRuntimeReady() error {
+	if !deps.commandExists("podman") {
+		return errors.New("podman is not installed; run `stackctl setup --install`, `stackctl doctor --fix`, or install it manually")
+	}
+
+	platform := deps.platform()
+	if !platform.UsesPodmanMachine() {
+		return nil
+	}
+
+	machine := deps.podmanMachineStatus(context.Background())
+	if !machine.Initialized {
+		return errors.New("podman machine is not initialized; run `stackctl setup --install`, `stackctl doctor --fix`, or `podman machine init && podman machine start`")
+	}
+	if !machine.Running {
+		return errors.New("podman machine is not running; run `stackctl setup --install`, `stackctl doctor --fix`, or `podman machine start`")
+	}
+
+	return nil
 }
 
 func formatPorts(ports []system.ContainerPort) string {

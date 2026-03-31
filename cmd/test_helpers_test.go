@@ -51,13 +51,26 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 	testDeps.composePath = func(configpkg.Config) string { return "/tmp/stackctl/compose.yaml" }
 	testDeps.stat = func(string) (os.FileInfo, error) { return fakeFileInfo{name: "compose.yaml"}, nil }
 	testDeps.runDoctor = func(context.Context) (doctorpkg.Report, error) { return doctorpkg.Report{}, nil }
+	testDeps.platform = func() system.Platform {
+		return system.Platform{
+			GOOS:           "linux",
+			PackageManager: "apt",
+			ServiceManager: system.ServiceManagerSystemd,
+		}
+	}
 	testDeps.commandExists = func(string) bool { return true }
 	testDeps.podmanComposeAvail = func(context.Context) bool { return true }
+	testDeps.podmanMachineStatus = func(context.Context) system.PodmanMachineState {
+		return system.PodmanMachineState{Supported: false}
+	}
 	testDeps.runExternalCommand = func(context.Context, system.Runner, string, []string) error { return nil }
 	testDeps.openURL = func(context.Context, system.Runner, string) error { return nil }
 	testDeps.copyToClipboard = func(context.Context, system.Runner, string) error { return nil }
-	testDeps.installPackages = func(context.Context, system.Runner, string, []string) ([]string, error) { return nil, nil }
+	testDeps.installPackages = func(context.Context, system.Runner, string, []system.Requirement) ([]string, error) {
+		return nil, nil
+	}
 	testDeps.enableCockpit = func(context.Context, system.Runner) error { return nil }
+	testDeps.preparePodmanMachine = func(context.Context, system.Runner) error { return nil }
 	testDeps.waitForPort = func(context.Context, int, time.Duration) error { return nil }
 	testDeps.portListening = func(int) bool { return true }
 	testDeps.portInUse = func(int) (bool, error) { return false, nil }

@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 
 	"github.com/spf13/cobra"
 )
@@ -24,8 +23,8 @@ func newStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !deps.commandExists("podman") {
-				return errors.New("podman is not installed; run `stackctl setup --install` or install it manually")
+			if err := ensurePodmanRuntimeReady(); err != nil {
+				return err
 			}
 
 			containers, err := loadStackContainers(context.Background(), cfg)

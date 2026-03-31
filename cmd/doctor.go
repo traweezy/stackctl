@@ -69,6 +69,7 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 	} else if exists {
 		cfg = loadedCfg
 	}
+	platform := deps.platform()
 
 	appliedFix := false
 	if cfg.Stack.Managed && cfg.Setup.ScaffoldDefaultStack {
@@ -90,19 +91,22 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 		}
 	}
 
-	missing := requiredPackages(report, cfg)
+	missing := requiredRequirements(report, cfg, platform)
 	if len(missing) > 0 {
-		packageManager := strings.TrimSpace(cfg.System.PackageManager)
-		if packageManager == "" {
-			return fmt.Errorf("doctor cannot install missing packages automatically because no package manager is configured")
+		packageChoice, err := resolveInstallPackageManager(cfg.System.PackageManager)
+		if err != nil {
+			return fmt.Errorf("doctor cannot install missing packages automatically: %w", err)
+		}
+		if err := reportPackageManagerChoiceNotice(cmd, packageChoice); err != nil {
+			return err
 		}
 
-		ok, err := confirmAutomaticFix(cmd, yes, fmt.Sprintf("Install missing packages with %s?", packageManager))
+		ok, err := confirmAutomaticFix(cmd, yes, fmt.Sprintf("Install missing packages with %s?", packageChoice.Name))
 		if err != nil {
 			return err
 		}
 		if ok {
-			installed, err := deps.installPackages(context.Background(), runnerFor(cmd), packageManager, missing)
+			installed, err := deps.installPackages(context.Background(), runnerFor(cmd), packageChoice.Name, missing)
 			if err != nil {
 				return err
 			}
@@ -113,7 +117,23 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 		}
 	}
 
-	if cfg.CockpitEnabled() && cfg.Setup.InstallCockpit && shouldEnableCockpit(report, missing) {
+	if shouldPreparePodmanMachine(report, platform) {
+		ok, err := confirmAutomaticFix(cmd, yes, "Initialize and start the Podman machine now?")
+		if err != nil {
+			return err
+		}
+		if ok {
+			if err := deps.preparePodmanMachine(context.Background(), runnerFor(cmd)); err != nil {
+				return err
+			}
+			appliedFix = true
+			if err := statusLine(cmd, output.StatusOK, "podman machine is initialized and running"); err != nil {
+				return err
+			}
+		}
+	}
+
+	if shouldEnableCockpit(report, missing, platform) {
 		ok, err := confirmAutomaticFix(cmd, yes, "Enable cockpit.socket now?")
 		if err != nil {
 			return err
@@ -184,14 +204,4 @@ func confirmAutomaticFix(cmd *cobra.Command, yes bool, prompt string) (bool, err
 	}
 
 	return ok, nil
-}
-
-func shouldEnableCockpit(report doctorpkg.Report, missing []string) bool {
-	for _, pkg := range missing {
-		if pkg == "cockpit" || pkg == "cockpit-podman" {
-			return true
-		}
-	}
-
-	return doctorpkg.CheckPassed(report, "cockpit.socket installed") && !doctorpkg.CheckPassed(report, "cockpit.socket active")
 }

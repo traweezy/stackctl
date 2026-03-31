@@ -27,7 +27,6 @@ var (
 		"meilisearch": "Meilisearch",
 		"pgadmin":     "pgAdmin",
 	}
-	packageManagerSuggestions  = []string{"apt", "dnf", "yum", "pacman", "zypper", "apk", "brew"}
 	redisSavePolicySuggestions = []string{
 		"3600 1 300 100 60 10000",
 		"900 1 300 10",
@@ -650,7 +649,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 				Validate(validPortText),
 			huh.NewConfirm().
 				Title("Install Cockpit during setup").
-				Description("If enabled, `stackctl setup --install` will try to install cockpit and cockpit-podman when supported.").
+				Description("If enabled, `stackctl setup --install` will try to install cockpit helpers automatically on supported platforms and otherwise leave manual guidance.").
 				Value(&state.InstallCockpit),
 		).
 			Title("Cockpit Settings").
@@ -674,8 +673,8 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			wizardStepNote(state, wizardStepSystem),
 			huh.NewInput().
 				Title("Package manager").
-				Description("Used by `stackctl setup --install` for supported dependency installation on the local machine.").
-				Suggestions(packageManagerSuggestions).
+				Description("Used by `stackctl setup --install` and `stackctl doctor --fix` for supported dependency installation on the local machine. " + packageManagerRecommendationNote()).
+				Suggestions(packageManagerWizardSuggestions(state.PackageManager)).
 				Value(&state.PackageManager).
 				Validate(nonEmpty),
 		).

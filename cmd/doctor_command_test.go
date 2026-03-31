@@ -54,9 +54,18 @@ func TestDoctorFixAppliesSupportedRemediations(t *testing.T) {
 				doctorpkg.Check{Status: output.StatusOK, Message: "cockpit.socket active"},
 			), nil
 		}
-		d.installPackages = func(_ context.Context, _ system.Runner, _ string, packages []string) ([]string, error) {
-			installed = append([]string(nil), packages...)
-			return packages, nil
+		d.installPackages = func(_ context.Context, _ system.Runner, _ string, requirements []system.Requirement) ([]string, error) {
+			for _, requirement := range requirements {
+				switch requirement {
+				case system.RequirementPodman:
+					installed = append(installed, "podman")
+				case system.RequirementComposeProvider:
+					installed = append(installed, "podman-compose")
+				default:
+					installed = append(installed, string(requirement))
+				}
+			}
+			return installed, nil
 		}
 		d.enableCockpit = func(context.Context, system.Runner) error {
 			enabledCockpit = true
@@ -90,18 +99,45 @@ func TestDoctorFixAppliesSupportedRemediations(t *testing.T) {
 	}
 }
 
-func TestDoctorFixRequiresConfiguredPackageManager(t *testing.T) {
+func TestDoctorFixFallsBackToDetectedPackageManagerWhenConfigBlank(t *testing.T) {
+	var usedPackageManager string
+	var doctorRuns int
+
 	withTestDeps(t, func(d *commandDeps) {
 		cfg := configpkg.Default()
 		cfg.System.PackageManager = ""
 		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
 		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
-			return newReport(doctorpkg.Check{Status: output.StatusMiss, Message: "podman installed"}), nil
+			doctorRuns++
+			if doctorRuns == 1 {
+				return newReport(
+					doctorpkg.Check{Status: output.StatusMiss, Message: "podman installed"},
+					doctorpkg.Check{Status: output.StatusOK, Message: "podman compose available"},
+					doctorpkg.Check{Status: output.StatusOK, Message: "buildah installed"},
+					doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
+				), nil
+			}
+			return newReport(
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman compose available"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "buildah installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
+			), nil
+		}
+		d.installPackages = func(_ context.Context, _ system.Runner, packageManager string, requirements []system.Requirement) ([]string, error) {
+			usedPackageManager = packageManager
+			return []string{"podman"}, nil
 		}
 	})
 
-	_, _, err := executeRoot(t, "doctor", "--fix", "--yes")
-	if err == nil || !strings.Contains(err.Error(), "no package manager is configured") {
-		t.Fatalf("expected package manager error, got %v", err)
+	stdout, _, err := executeRoot(t, "doctor", "--fix", "--yes")
+	if err != nil {
+		t.Fatalf("doctor --fix returned error: %v", err)
+	}
+	if usedPackageManager != "apt" {
+		t.Fatalf("expected apt fallback, got %q", usedPackageManager)
+	}
+	if !strings.Contains(stdout, "using detected apt for this run") {
+		t.Fatalf("expected fallback notice, got:\n%s", stdout)
 	}
 }

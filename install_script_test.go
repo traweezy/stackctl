@@ -12,7 +12,7 @@ import (
 
 func TestInstallScriptVerifiesChecksumAndInstallsBinary(t *testing.T) {
 	workspace := t.TempDir()
-	fixture := newInstallScriptFixture(t, workspace, true)
+	fixture := newInstallScriptFixture(t, workspace, true, "Linux", "sha256sum")
 	installDir := filepath.Join(workspace, "bin")
 
 	cmd := exec.Command("bash", "scripts/install.sh", "--dir", installDir, "--repo", "traweezy/stackctl")
@@ -40,9 +40,39 @@ func TestInstallScriptVerifiesChecksumAndInstallsBinary(t *testing.T) {
 	}
 }
 
+func TestInstallScriptSupportsDarwinArchives(t *testing.T) {
+	workspace := t.TempDir()
+	fixture := newInstallScriptFixture(t, workspace, true, "Darwin", "shasum")
+	installDir := filepath.Join(workspace, "bin")
+
+	cmd := exec.Command("bash", "scripts/install.sh", "--dir", installDir, "--repo", "traweezy/stackctl")
+	cmd.Env = fixture.env()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("install script returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	installedPath := filepath.Join(installDir, "stackctl")
+	data, err := os.ReadFile(installedPath)
+	if err != nil {
+		t.Fatalf("read installed binary: %v", err)
+	}
+	if string(data) != fixture.binaryContent {
+		t.Fatalf("unexpected installed binary contents: %q", string(data))
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("Installing stackctl v0.19.0 for Darwin/x86_64")) {
+		t.Fatalf("expected darwin install message in stdout:\n%s", stdout.String())
+	}
+}
+
 func TestInstallScriptFailsOnChecksumMismatch(t *testing.T) {
 	workspace := t.TempDir()
-	fixture := newInstallScriptFixture(t, workspace, false)
+	fixture := newInstallScriptFixture(t, workspace, false, "Linux", "sha256sum")
 	installDir := filepath.Join(workspace, "bin")
 
 	cmd := exec.Command("bash", "scripts/install.sh", "--dir", installDir, "--repo", "traweezy/stackctl")
@@ -71,7 +101,7 @@ type installScriptFixture struct {
 	binaryContent string
 }
 
-func newInstallScriptFixture(t *testing.T, workspace string, validChecksum bool) installScriptFixture {
+func newInstallScriptFixture(t *testing.T, workspace string, validChecksum bool, osName string, checksumTool string) installScriptFixture {
 	t.Helper()
 
 	fakeBin := filepath.Join(workspace, "fake-bin")
@@ -79,7 +109,8 @@ func newInstallScriptFixture(t *testing.T, workspace string, validChecksum bool)
 		t.Fatalf("create fake bin dir: %v", err)
 	}
 
-	archivePath := filepath.Join(workspace, "stackctl_Linux_x86_64.tar.gz")
+	assetName := "stackctl_" + osName + "_x86_64.tar.gz"
+	archivePath := filepath.Join(workspace, assetName)
 	archiveContent := []byte("stackctl-release-archive")
 	if err := os.WriteFile(archivePath, archiveContent, 0o644); err != nil {
 		t.Fatalf("write fake archive: %v", err)
@@ -97,7 +128,7 @@ func newInstallScriptFixture(t *testing.T, workspace string, validChecksum bool)
 		checksumValue = "0000000000000000000000000000000000000000000000000000000000000000"
 	}
 	checksumsPath := filepath.Join(workspace, "checksums.txt")
-	checksumsContent := checksumValue + "  stackctl_Linux_x86_64.tar.gz\n"
+	checksumsContent := checksumValue + "  " + assetName + "\n"
 	if err := os.WriteFile(checksumsPath, []byte(checksumsContent), 0o644); err != nil {
 		t.Fatalf("write checksums file: %v", err)
 	}
@@ -108,8 +139,15 @@ if [[ "${1:-}" == "-m" ]]; then
   printf 'x86_64\n'
   exit 0
 fi
-printf 'Linux\n'
+printf '` + osName + `\n'
 `)
+
+	if checksumTool == "sha256sum" {
+		writeTestScript(t, filepath.Join(fakeBin, "sha256sum"), "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s  %s\\n' \"$(openssl dgst -sha256 \"$1\" | awk '{print $NF}')\" \"$1\"\n")
+	}
+	if checksumTool == "shasum" {
+		writeTestScript(t, filepath.Join(fakeBin, "shasum"), "#!/usr/bin/env bash\nset -euo pipefail\nif [[ \"${1:-}\" != \"-a\" || \"${2:-}\" != \"256\" ]]; then\n  echo \"unexpected shasum args: $*\" >&2\n  exit 1\nfi\nfile=\"${3:?missing file}\"\nprintf '%s  %s\\n' \"$(openssl dgst -sha256 \"$file\" | awk '{print $NF}')\" \"$file\"\n")
+	}
 
 	writeTestScript(t, filepath.Join(fakeBin, "curl"), `#!/usr/bin/env bash
 set -euo pipefail

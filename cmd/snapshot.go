@@ -170,8 +170,8 @@ func loadManagedSnapshotConfig(cmd *cobra.Command) (configpkg.Config, error) {
 	if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
 		return configpkg.Config{}, err
 	}
-	if !deps.commandExists("podman") {
-		return configpkg.Config{}, errors.New("podman is not installed; run `stackctl setup --install` or install it manually")
+	if err := ensurePodmanRuntimeReady(); err != nil {
+		return configpkg.Config{}, err
 	}
 	return cfg, nil
 }

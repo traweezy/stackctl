@@ -26,18 +26,20 @@ type Report struct {
 }
 
 type dependencies struct {
-	configFilePath     func() (string, error)
-	loadConfig         func(string) (configpkg.Config, error)
-	validateConfig     func(configpkg.Config) []configpkg.ValidationIssue
-	composePath        func(configpkg.Config) string
-	stat               func(string) (os.FileInfo, error)
-	commandExists      func(string) bool
-	podmanComposeAvail func(context.Context) bool
-	openCommandName    func() string
-	cockpitStatus      func(context.Context) system.CockpitState
-	portInUse          func(int) (bool, error)
-	listContainers     func(context.Context) ([]system.Container, error)
-	redisOvercommit    func(context.Context) (system.OvercommitStatus, error)
+	configFilePath      func() (string, error)
+	loadConfig          func(string) (configpkg.Config, error)
+	validateConfig      func(configpkg.Config) []configpkg.ValidationIssue
+	composePath         func(configpkg.Config) string
+	stat                func(string) (os.FileInfo, error)
+	platform            func() system.Platform
+	commandExists       func(string) bool
+	podmanComposeAvail  func(context.Context) bool
+	podmanMachineStatus func(context.Context) system.PodmanMachineState
+	openCommandName     func() string
+	cockpitStatus       func(context.Context) system.CockpitState
+	portInUse           func(int) (bool, error)
+	listContainers      func(context.Context) ([]system.Container, error)
+	redisOvercommit     func(context.Context) (system.OvercommitStatus, error)
 }
 
 func Run(ctx context.Context) (Report, error) {
@@ -46,16 +48,18 @@ func Run(ctx context.Context) (Report, error) {
 
 func defaultDependencies() dependencies {
 	return dependencies{
-		configFilePath:     configpkg.ConfigFilePath,
-		loadConfig:         configpkg.Load,
-		validateConfig:     configpkg.Validate,
-		composePath:        configpkg.ComposePath,
-		stat:               os.Stat,
-		commandExists:      system.CommandExists,
-		podmanComposeAvail: system.PodmanComposeAvailable,
-		openCommandName:    system.OpenCommandName,
-		cockpitStatus:      system.CockpitStatus,
-		portInUse:          system.PortInUse,
+		configFilePath:      configpkg.ConfigFilePath,
+		loadConfig:          configpkg.Load,
+		validateConfig:      configpkg.Validate,
+		composePath:         configpkg.ComposePath,
+		stat:                os.Stat,
+		platform:            system.CurrentPlatform,
+		commandExists:       system.CommandExists,
+		podmanComposeAvail:  system.PodmanComposeAvailable,
+		podmanMachineStatus: system.PodmanMachineStatus,
+		openCommandName:     system.OpenCommandName,
+		cockpitStatus:       system.CockpitStatus,
+		portInUse:           system.PortInUse,
 		listContainers: func(ctx context.Context) ([]system.Container, error) {
 			return system.ListContainers(ctx, system.CaptureResult)
 		},
@@ -75,7 +79,15 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 	if err != nil {
 		return report, err
 	}
-	cockpitEnabled := !cfgLoaded || cfg.CockpitEnabled()
+	platform := system.CurrentPlatform()
+	if deps.platform != nil {
+		platform = deps.platform()
+	}
+	cockpitEnabled := cfgLoaded && cfg.CockpitEnabled()
+	podmanMachineStatus := system.PodmanMachineStatus
+	if deps.podmanMachineStatus != nil {
+		podmanMachineStatus = deps.podmanMachineStatus
+	}
 
 	if cfgLoaded {
 		report.add(output.StatusOK, fmt.Sprintf("config file found: %s", path))
@@ -115,10 +127,12 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 		report.add(output.StatusMiss, "podman compose not available")
 	}
 
-	if deps.commandExists("buildah") {
-		report.add(output.StatusOK, "buildah installed")
-	} else {
-		report.add(output.StatusMiss, "buildah not installed")
+	if platform.SupportsBuildah() {
+		if deps.commandExists("buildah") {
+			report.add(output.StatusOK, "buildah installed")
+		} else {
+			report.add(output.StatusMiss, "buildah not installed")
+		}
 	}
 
 	if deps.commandExists("skopeo") {
@@ -127,10 +141,12 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 		report.add(output.StatusMiss, "skopeo not installed")
 	}
 
-	if deps.commandExists("ss") {
-		report.add(output.StatusOK, "ss available")
-	} else {
-		report.add(output.StatusMiss, "ss not available")
+	if platform.SupportsSSCheck() {
+		if deps.commandExists("ss") {
+			report.add(output.StatusOK, "ss available")
+		} else {
+			report.add(output.StatusMiss, "ss not available")
+		}
 	}
 
 	if opener := deps.openCommandName(); opener != "" {
@@ -139,17 +155,36 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 		report.add(output.StatusMiss, "browser opener not available")
 	}
 
+	if platform.UsesPodmanMachine() && deps.commandExists("podman") {
+		machine := podmanMachineStatus(ctx)
+		if machine.Initialized {
+			report.add(output.StatusOK, "podman machine initialized")
+			if machine.Running {
+				report.add(output.StatusOK, "podman machine running")
+			} else {
+				report.add(output.StatusMiss, "podman machine not running")
+			}
+		} else {
+			report.add(output.StatusMiss, "podman machine not initialized")
+		}
+	}
+
 	cockpit := deps.cockpitStatus(ctx)
 	if cockpitEnabled {
-		if cockpit.Installed {
+		switch {
+		case !platform.SupportsCockpit():
+			report.add(output.StatusWarn, fmt.Sprintf("cockpit helpers are not supported on %s", platform.PackageManager))
+		case cockpit.Installed:
 			report.add(output.StatusOK, "cockpit.socket installed")
 			if cockpit.Active {
 				report.add(output.StatusOK, "cockpit.socket active")
 			} else {
 				report.add(output.StatusWarn, fmt.Sprintf("cockpit.socket %s", cockpit.State))
 			}
-		} else {
+		case platform.SupportsCockpitAutoInstall():
 			report.add(output.StatusMiss, "cockpit.socket not installed")
+		default:
+			report.add(output.StatusWarn, "cockpit helpers enabled but cockpit.socket must be installed manually on this platform")
 		}
 	}
 
@@ -204,7 +239,7 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 			report.add(output.StatusWarn, fmt.Sprintf("%s container not running (%s)", service.Name, container.Status))
 		}
 
-		if cfg.CockpitEnabled() {
+		if cfg.CockpitEnabled() && platform.SupportsCockpit() {
 			cockpitInUse, err := deps.portInUse(cfg.Ports.Cockpit)
 			if err != nil {
 				report.add(output.StatusFail, fmt.Sprintf("port %d check failed: %v", cfg.Ports.Cockpit, err))

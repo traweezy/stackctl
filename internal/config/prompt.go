@@ -123,6 +123,9 @@ func runPlainWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	if err := session.printSection("System"); err != nil {
 		return Config{}, err
 	}
+	if err := session.printNote(packageManagerRecommendationNote()); err != nil {
+		return Config{}, err
+	}
 
 	packageManager, err := session.askString("Package manager", cfg.System.PackageManager, nonEmpty)
 	if err != nil {
@@ -201,6 +204,14 @@ type promptSession struct {
 
 func (p promptSession) printSection(title string) error {
 	_, err := fmt.Fprintf(p.out, "\n[%s]\n", title)
+	return err
+}
+
+func (p promptSession) printNote(text string) error {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	_, err := fmt.Fprintf(p.out, "%s\n", text)
 	return err
 }
 

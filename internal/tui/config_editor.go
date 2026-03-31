@@ -17,6 +17,7 @@ import (
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/output"
+	"github.com/traweezy/stackctl/internal/system"
 )
 
 type ConfigSourceState string
@@ -1552,7 +1553,14 @@ func specificFieldEffect(spec configFieldSpec) string {
 	case "setup.install_cockpit":
 		return "Controls whether setup and doctor fix install and enable Cockpit automatically."
 	case "system.package_manager":
-		return "Controls which package manager setup and doctor fix use for host package installs."
+		recommendation := system.CurrentPackageManagerRecommendation()
+		if recommendation.Name == "" {
+			return "Controls which package manager setup and doctor fix use for host package installs."
+		}
+		return fmt.Sprintf(
+			"Controls which package manager setup and doctor fix use for host package installs. %s",
+			system.FormatPackageManagerRecommendation(recommendation),
+		)
 	default:
 		return ""
 	}
@@ -2877,14 +2885,39 @@ var configFieldSpecs = []configFieldSpec{
 		Key:             "system.package_manager",
 		Group:           "System",
 		Label:           "Package manager",
-		Description:     "The package manager stackctl should use for setup and doctor fix flows.",
+		Description:     "The package manager stackctl should use for setup and doctor fix flows. The current-machine recommendation appears first in suggestions.",
 		SuggestionTitle: "Common values",
 		Kind:            configFieldString,
 		GetString:       func(cfg configpkg.Config) string { return cfg.System.PackageManager },
 		SetString:       stringSetter(func(cfg *configpkg.Config) *string { return &cfg.System.PackageManager }),
 		InputValidate:   requiredText,
-		Suggestions: func(configpkg.Config) []string {
-			return []string{"apt", "dnf", "yum", "pacman", "zypper", "apk", "brew"}
+		Suggestions: func(cfg configpkg.Config) []string {
+			return packageManagerConfigSuggestions(cfg.System.PackageManager)
 		},
 	},
+}
+
+func packageManagerConfigSuggestions(current string) []string {
+	values := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
+
+	appendValue := func(value string) {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			return
+		}
+		if _, ok := seen[normalized]; ok {
+			return
+		}
+		seen[normalized] = struct{}{}
+		values = append(values, normalized)
+	}
+
+	appendValue(system.CurrentPackageManagerRecommendation().Name)
+	appendValue(current)
+	for _, value := range []string{"apt", "dnf", "yum", "pacman", "zypper", "apk", "brew"} {
+		appendValue(value)
+	}
+
+	return values
 }

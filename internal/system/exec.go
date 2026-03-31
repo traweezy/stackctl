@@ -173,7 +173,12 @@ func validateExecutable(name string) error {
 }
 
 var allowedExecutables = map[string]struct{}{
+	"apk":            {},
+	"apt-get":        {},
+	"brew":           {},
+	"dnf":            {},
 	"open":           {},
+	"pacman":         {},
 	"pbcopy":         {},
 	"podman":         {},
 	"podman-compose": {},
@@ -184,4 +189,6 @@ var allowedExecutables = map[string]struct{}{
 	"xclip":          {},
 	"xsel":           {},
 	"xdg-open":       {},
+	"yum":            {},
+	"zypper":         {},
 }
