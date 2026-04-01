@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,11 +27,22 @@ func main() {
 	}
 }
 
-func generateCLIAssets() error {
+func generateCLIAssets() (err error) {
+	repoRoot, err := os.OpenRoot(".")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		closeErr := repoRoot.Close()
+		if err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+
 	rootCmd := stackctlcmd.NewRootCmd(stackctlcmd.NewApp())
 	disableAutoGenTags(rootCmd)
 
-	if err := recreateDir(markdownDir); err != nil {
+	if err := recreateDir(repoRoot, markdownDir); err != nil {
 		return err
 	}
 	if err := doc.GenMarkdownTreeCustom(rootCmd, markdownDir, func(string) string { return "" }, func(name string) string {
@@ -39,7 +51,7 @@ func generateCLIAssets() error {
 		return err
 	}
 
-	if err := recreateDir(manDir); err != nil {
+	if err := recreateDir(repoRoot, manDir); err != nil {
 		return err
 	}
 	if err := doc.GenManTree(rootCmd, &doc.GenManHeader{
@@ -49,27 +61,27 @@ func generateCLIAssets() error {
 	}, manDir); err != nil {
 		return err
 	}
-	if err := normalizeManDates(manDir); err != nil {
+	if err := normalizeManDates(repoRoot, manDir); err != nil {
 		return err
 	}
 
-	if err := recreateDir(completionsDir); err != nil {
+	if err := recreateDir(repoRoot, completionsDir); err != nil {
 		return err
 	}
-	if err := writeCompletionFile(filepath.Join(completionsDir, "stackctl.bash"), func(w io.Writer) error {
+	if err := writeCompletionFile(repoRoot, filepath.Join(completionsDir, "stackctl.bash"), func(w io.Writer) error {
 		return rootCmd.GenBashCompletionV2(w, true)
 	}); err != nil {
 		return err
 	}
-	if err := writeCompletionFile(filepath.Join(completionsDir, "_stackctl"), rootCmd.GenZshCompletion); err != nil {
+	if err := writeCompletionFile(repoRoot, filepath.Join(completionsDir, "_stackctl"), rootCmd.GenZshCompletion); err != nil {
 		return err
 	}
-	if err := writeCompletionFile(filepath.Join(completionsDir, "stackctl.fish"), func(w io.Writer) error {
+	if err := writeCompletionFile(repoRoot, filepath.Join(completionsDir, "stackctl.fish"), func(w io.Writer) error {
 		return rootCmd.GenFishCompletion(w, true)
 	}); err != nil {
 		return err
 	}
-	if err := writeCompletionFile(filepath.Join(completionsDir, "stackctl.ps1"), rootCmd.GenPowerShellCompletionWithDesc); err != nil {
+	if err := writeCompletionFile(repoRoot, filepath.Join(completionsDir, "stackctl.ps1"), rootCmd.GenPowerShellCompletionWithDesc); err != nil {
 		return err
 	}
 
@@ -83,15 +95,15 @@ func disableAutoGenTags(cmd *cobra.Command) {
 	}
 }
 
-func recreateDir(dir string) error {
-	if err := os.RemoveAll(dir); err != nil {
+func recreateDir(root *os.Root, dir string) error {
+	if err := root.RemoveAll(dir); err != nil {
 		return err
 	}
-	return os.MkdirAll(dir, 0o755)
+	return root.MkdirAll(dir, 0o750)
 }
 
-func writeCompletionFile(path string, generate func(io.Writer) error) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+func writeCompletionFile(root *os.Root, path string, generate func(io.Writer) error) error {
+	file, err := root.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -104,8 +116,8 @@ func writeCompletionFile(path string, generate func(io.Writer) error) error {
 	return file.Close()
 }
 
-func normalizeManDates(root string) error {
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+func normalizeManDates(root *os.Root, path string) error {
+	return fs.WalkDir(root.FS(), path, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -113,7 +125,7 @@ func normalizeManDates(root string) error {
 			return nil
 		}
 
-		content, err := os.ReadFile(path)
+		content, err := root.ReadFile(path)
 		if err != nil {
 			return err
 		}
@@ -132,6 +144,6 @@ func normalizeManDates(root string) error {
 			break
 		}
 
-		return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644)
+		return root.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)
 	})
 }
