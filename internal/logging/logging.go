@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -109,16 +110,61 @@ func logOutput() (io.Writer, io.Closer, bool) {
 		return os.Stderr, nil, true
 	}
 
-	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-		return io.Discard, nil, false
-	}
-
-	file, err := os.OpenFile(target, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	file, err := openLogFile(target)
 	if err != nil {
 		return io.Discard, nil, false
 	}
 
 	return file, file, true
+}
+
+func openLogFile(target string) (*os.File, error) {
+	resolvedPath, err := resolveLogFilePath(target)
+	if err != nil {
+		return nil, err
+	}
+
+	dir := filepath.Dir(resolvedPath)
+	name := filepath.Base(resolvedPath)
+
+	// #nosec G703 -- log destinations are explicit local CLI user-selected paths.
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, err
+	}
+
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	return root.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+}
+
+func resolveLogFilePath(target string) (string, error) {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" {
+		return "", fmt.Errorf("log file path is empty")
+	}
+	if trimmed == "-" {
+		return "", fmt.Errorf("log file path %q is reserved for stderr", target)
+	}
+	if strings.HasSuffix(trimmed, string(filepath.Separator)) {
+		return "", fmt.Errorf("log file path %q must point to a file", target)
+	}
+
+	cleaned := filepath.Clean(trimmed)
+	resolvedPath, err := filepath.Abs(cleaned)
+	if err != nil {
+		return "", err
+	}
+
+	name := filepath.Base(resolvedPath)
+	if name == "." || name == string(filepath.Separator) {
+		return "", fmt.Errorf("log file path %q must point to a file", target)
+	}
+
+	return resolvedPath, nil
 }
 
 func parseLevel(value string) charmlog.Level {

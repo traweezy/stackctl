@@ -53,10 +53,26 @@ func markdownStyleOption(w io.Writer) glamour.TermRendererOption {
 }
 
 func isTerminalWriter(w io.Writer) bool {
-	switch value := w.(type) {
-	case interface{ Fd() uintptr }:
-		return term.IsTerminal(int(value.Fd()))
-	default:
+	fd, ok := writerFileDescriptor(w)
+	if !ok {
 		return false
 	}
+
+	return term.IsTerminal(fd)
+}
+
+func writerFileDescriptor(w io.Writer) (int, bool) {
+	value, ok := w.(interface{ Fd() uintptr })
+	if !ok {
+		return 0, false
+	}
+
+	fd := value.Fd()
+	maxInt := ^uint(0) >> 1
+	if fd > uintptr(maxInt) {
+		return 0, false
+	}
+
+	// #nosec G115 -- fd is range-checked against the platform int size above.
+	return int(fd), true
 }
