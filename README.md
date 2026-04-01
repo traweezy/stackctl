@@ -110,6 +110,13 @@ the archive checksum before extracting it.
 On macOS, the installer uses the published Darwin archives and works with the
 platform checksum tools (`shasum`, `sha256sum`, or `openssl`).
 
+Tagged releases also publish:
+
+- `checksums.txt.sigstore.json` for keyless Sigstore verification of
+  `checksums.txt`
+- per-archive SPDX SBOMs (`*.spdx.json`)
+- GitHub artifact attestations for the archives listed in `checksums.txt`
+
 If `~/.local/bin` is not already on your `PATH`, add it:
 
 ```bash
@@ -124,6 +131,21 @@ https://github.com/traweezy/stackctl/releases/latest
 
 If you install manually, verify the archive against the release `checksums.txt`
 before extracting it.
+
+Example verification flow:
+
+```bash
+gh release download --repo traweezy/stackctl \
+  --pattern 'stackctl_Linux_x86_64.tar.gz' \
+  --pattern 'checksums.txt' \
+  --pattern 'checksums.txt.sigstore.json' \
+  --pattern '*.spdx.json' \
+  --dir ./dist
+
+cosign verify-blob --bundle ./dist/checksums.txt.sigstore.json ./dist/checksums.txt
+sha256sum -c ./dist/checksums.txt
+gh attestation verify --owner traweezy ./dist/stackctl_Linux_x86_64.tar.gz
+```
 
 ### Build from source
 
@@ -451,6 +473,11 @@ Root flags:
 | `--stack` | Select a named stack config for this command only. The default stack uses `~/.config/stackctl/config.yaml`; named stacks use `~/.config/stackctl/stacks/<name>.yaml`. |
 | `-v`, `--verbose` | Print extra lifecycle and orchestration detail for progress-reporting commands |
 | `-q`, `--quiet` | Suppress non-essential progress output without hiding primary command data such as tables, JSON, exports, URLs, or logs |
+| `--accessible` | Render interactive prompts and spinners in accessible mode |
+| `--plain` | Force the legacy plain-text config wizard instead of the form UI |
+| `--log-level` | Set the internal log level when `--log-file` is enabled |
+| `--log-format` | Set the internal log format for `--log-file` (`text`, `json`, `logfmt`) |
+| `--log-file` | Write internal logs to this path (`-` writes to stderr) |
 | `-h`, `--help` | Show help for `stackctl` |
 | `--version` | Print the short version string |
 
@@ -489,6 +516,8 @@ Examples:
 
 ```bash
 stackctl tui
+stackctl tui --mouse on
+stackctl tui --debug-log-file /tmp/stackctl-tui.log
 ```
 
 Keys:
@@ -589,19 +618,30 @@ Notes:
   jump to sections, jump to services, trigger lifecycle actions, copy
   stack-wide `connect` / `env --export` / `ports` output, and open service-level
   helpers
+- the command palette now shows result counts and pages, and `pgup` / `pgdn`
+  jump through longer palettes faster
 - `g` or `/` opens the service jump picker directly, with pinned services shown
   first
 - `p` pins the selected service for the current session so it stays at the top
   of the `Services` and `Health` target lists
 - `e` hands off to an interactive shell inside the selected stack service, and
   `d` jumps straight into `psql` when Postgres is selected
+- `--mouse on` enables explicit mouse scrolling and click-aware navigation for
+  the TUI; `--mouse off` disables it even if `STACKCTL_TUI_MOUSE=1` is set
 - the config field list intentionally shortens long values such as stack paths;
   the full value always stays visible in the detail pane and diff preview
 - long-running actions usually mean image pulls, Podman startup, or service
   readiness waits; leave the TUI open and let the action finish before forcing
   another lifecycle operation
+- budgeted lifecycle work now shows both elapsed time and a remaining countdown
+  in the header so wait-heavy actions are easier to judge
 
-Flags: `-h`, `--help` only.
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--mouse` | Mouse support for scrolling and click-aware navigation (`auto`, `on`, `off`) |
+| `--debug-log-file` | Write Bubble Tea debug logs to this path for TUI troubleshooting |
 
 ### TUI productivity workflows
 
@@ -628,9 +668,12 @@ Prepare the local machine and the `stackctl` config.
 When setup runs interactively, it opens the full-screen wizard: choose the
 stack mode, pick services with a checkbox list, fill only the enabled-service
 pages, and see step-by-step progress all the way through the final review
-before saving. Set `ACCESSIBLE=1` to use the same wizard in accessible
-prompting mode, or `STACKCTL_WIZARD_PLAIN=1` to force the legacy plain prompt
-flow.
+before saving. External-stack setup now uses a directory picker for the compose
+project path and suggests common compose filenames. Use the root `--accessible`
+flag to keep the form UI in accessible prompting mode, or `--plain` to force
+the legacy plain prompt flow. The `ACCESSIBLE=1` and
+`STACKCTL_WIZARD_PLAIN=1` environment variables still work for automation and
+existing shell aliases.
 
 Examples:
 
@@ -1597,6 +1640,8 @@ go test ./...
 go test -race ./...
 go vet ./...
 go test ./integration -tags=integration -count=1
+bash scripts/check-coverage.sh
+bash scripts/install-smoke.sh
 go build ./...
 go run . --help
 ```
@@ -1614,6 +1659,25 @@ early with explicit remediation.
 ## Release flow
 
 Releases are created from tags that match `v*`.
+
+Before tagging a release candidate or final release, run:
+
+```bash
+go test ./...
+go test -race ./...
+go test ./integration -tags=integration -count=1
+bash scripts/check-coverage.sh
+bash scripts/install-smoke.sh
+```
+
+Each tagged release is expected to publish:
+
+- platform archives for Linux and macOS
+- `checksums.txt`
+- `checksums.txt.sigstore.json`
+- per-archive SPDX SBOMs
+- GitHub-generated release notes
+- GitHub artifact attestations for the archives referenced by `checksums.txt`
 
 Example:
 
