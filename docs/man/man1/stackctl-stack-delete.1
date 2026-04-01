@@ -1,0 +1,70 @@
+.nh
+.TH "stackctl" "1" "" "stackctl" ""
+
+.SH NAME
+stackctl-stack-delete - Delete a stack profile
+
+
+.SH SYNOPSIS
+\fBstackctl stack delete  [flags]\fP
+
+
+.SH DESCRIPTION
+Delete a stack profile config. Use --purge-data to also stop and remove stackctl-managed local data for that stack.
+
+
+.SH OPTIONS
+\fB--force\fP[=false]
+	Skip the confirmation prompt
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for delete
+
+.PP
+\fB--purge-data\fP[=false]
+	Stop the managed stack, remove volumes, and delete stackctl-owned local data
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB--accessible\fP[=false]
+	Render interactive prompts and spinners in accessible mode
+
+.PP
+\fB--log-file\fP=""
+	Write internal logs to this path ('-' writes to stderr)
+
+.PP
+\fB--log-format\fP=""
+	Set the internal log format for --log-file (text, json, logfmt)
+
+.PP
+\fB--log-level\fP=""
+	Set the internal log level when --log-file is enabled
+
+.PP
+\fB--plain\fP[=false]
+	Force the legacy plain-text config wizard instead of the form UI
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	Suppress non-essential progress output
+
+.PP
+\fB--stack\fP=""
+	Select a named stack config (overrides STACKCTL_STACK and the saved current stack)
+
+.PP
+\fB-v\fP, \fB--verbose\fP[=false]
+	Print extra lifecycle detail
+
+
+.SH EXAMPLE
+.EX
+  stackctl stack delete staging
+  stackctl stack delete staging --purge-data --force
+.EE
+
+
+.SH SEE ALSO
+\fBstackctl-stack(1)\fP

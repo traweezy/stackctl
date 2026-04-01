@@ -1,0 +1,86 @@
+.nh
+.TH "stackctl" "1" "" "stackctl" ""
+
+.SH NAME
+stackctl-completion-bash - Generate the autocompletion script for bash
+
+
+.SH SYNOPSIS
+\fBstackctl completion bash\fP
+
+
+.SH DESCRIPTION
+Generate the autocompletion script for the bash shell.
+
+.PP
+This script depends on the 'bash-completion' package.
+If it is not installed already, you can install it via your OS's package manager.
+
+.PP
+To load completions in your current shell session:
+
+.EX
+source <(stackctl completion bash)
+.EE
+
+.PP
+To load completions for every new session, execute once:
+
+.SS Linux:
+.EX
+stackctl completion bash > /etc/bash_completion.d/stackctl
+.EE
+
+.SS macOS:
+.EX
+stackctl completion bash > $(brew --prefix)/etc/bash_completion.d/stackctl
+.EE
+
+.PP
+You will need to start a new shell for this setup to take effect.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for bash
+
+.PP
+\fB--no-descriptions\fP[=false]
+	disable completion descriptions
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB--accessible\fP[=false]
+	Render interactive prompts and spinners in accessible mode
+
+.PP
+\fB--log-file\fP=""
+	Write internal logs to this path ('-' writes to stderr)
+
+.PP
+\fB--log-format\fP=""
+	Set the internal log format for --log-file (text, json, logfmt)
+
+.PP
+\fB--log-level\fP=""
+	Set the internal log level when --log-file is enabled
+
+.PP
+\fB--plain\fP[=false]
+	Force the legacy plain-text config wizard instead of the form UI
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	Suppress non-essential progress output
+
+.PP
+\fB--stack\fP=""
+	Select a named stack config (overrides STACKCTL_STACK and the saved current stack)
+
+.PP
+\fB-v\fP, \fB--verbose\fP[=false]
+	Print extra lifecycle detail
+
+
+.SH SEE ALSO
+\fBstackctl-completion(1)\fP

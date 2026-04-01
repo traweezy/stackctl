@@ -84,6 +84,12 @@ jobs:
             exit 1
           fi
 
+      - name: Verify generated CLI assets
+        shell: bash
+        run: |
+          bash scripts/generate-cli-assets.sh
+          git diff --exit-code docs/cli docs/completions docs/man
+
       - name: Run go vet
         run: go vet ./...
 

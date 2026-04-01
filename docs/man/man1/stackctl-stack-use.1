@@ -1,0 +1,61 @@
+.nh
+.TH "stackctl" "1" "" "stackctl" ""
+
+.SH NAME
+stackctl-stack-use - Persist a stack as the default selection
+
+
+.SH SYNOPSIS
+\fBstackctl stack use  [flags]\fP
+
+
+.SH DESCRIPTION
+Persist a stack as the default selection
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for use
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB--accessible\fP[=false]
+	Render interactive prompts and spinners in accessible mode
+
+.PP
+\fB--log-file\fP=""
+	Write internal logs to this path ('-' writes to stderr)
+
+.PP
+\fB--log-format\fP=""
+	Set the internal log format for --log-file (text, json, logfmt)
+
+.PP
+\fB--log-level\fP=""
+	Set the internal log level when --log-file is enabled
+
+.PP
+\fB--plain\fP[=false]
+	Force the legacy plain-text config wizard instead of the form UI
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	Suppress non-essential progress output
+
+.PP
+\fB--stack\fP=""
+	Select a named stack config (overrides STACKCTL_STACK and the saved current stack)
+
+.PP
+\fB-v\fP, \fB--verbose\fP[=false]
+	Print extra lifecycle detail
+
+
+.SH EXAMPLE
+.EX
+  stackctl stack use staging
+.EE
+
+
+.SH SEE ALSO
+\fBstackctl-stack(1)\fP

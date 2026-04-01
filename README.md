@@ -91,6 +91,9 @@ See:
 
 - [docs/compatibility.md](./docs/compatibility.md)
 - [docs/output-contract.md](./docs/output-contract.md)
+- [docs/cli](./docs/cli)
+- [docs/man/man1](./docs/man/man1)
+- [docs/completions](./docs/completions)
 
 ## Install
 
@@ -131,6 +134,7 @@ Tagged releases also publish:
   `checksums.txt`
 - per-archive SPDX SBOMs (`*.spdx.json`)
 - GitHub artifact attestations for the archives listed in `checksums.txt`
+- generated command docs, man pages, and shell completions under `docs/`
 
 If `~/.local/bin` is not already on your `PATH`, add it:
 

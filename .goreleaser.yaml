@@ -9,6 +9,7 @@ release:
 
 before:
   hooks:
+    - bash scripts/generate-cli-assets.sh
     - go mod tidy
 
 builds:
@@ -46,8 +47,7 @@ archives:
       - README.md
       - CHANGELOG.md
       - SECURITY.md
-      - docs/compatibility.md
-      - docs/output-contract.md
+      - docs/**/*
 
 checksum:
   name_template: checksums.txt

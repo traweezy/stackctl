@@ -1,0 +1,80 @@
+.nh
+.TH "stackctl" "1" "" "stackctl" ""
+
+.SH NAME
+stackctl-logs - Show recent stack logs or follow them live
+
+
+.SH SYNOPSIS
+\fBstackctl logs [flags]\fP
+
+
+.SH DESCRIPTION
+Show recent stack logs. By default this prints the last 100 lines and exits. Use --watch to keep streaming log output.
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for logs
+
+.PP
+\fB-s\fP, \fB--service\fP=""
+	Filter logs to a single service (postgres|pg, redis|rd, nats, seaweedfs|seaweed, meilisearch|meili, pgadmin)
+
+.PP
+\fB--since\fP=""
+	Show logs since a relative time or timestamp
+
+.PP
+\fB-n\fP, \fB--tail\fP=100
+	Number of log lines to show
+
+.PP
+\fB-w\fP, \fB--watch\fP[=false]
+	Follow logs
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB--accessible\fP[=false]
+	Render interactive prompts and spinners in accessible mode
+
+.PP
+\fB--log-file\fP=""
+	Write internal logs to this path ('-' writes to stderr)
+
+.PP
+\fB--log-format\fP=""
+	Set the internal log format for --log-file (text, json, logfmt)
+
+.PP
+\fB--log-level\fP=""
+	Set the internal log level when --log-file is enabled
+
+.PP
+\fB--plain\fP[=false]
+	Force the legacy plain-text config wizard instead of the form UI
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	Suppress non-essential progress output
+
+.PP
+\fB--stack\fP=""
+	Select a named stack config (overrides STACKCTL_STACK and the saved current stack)
+
+.PP
+\fB-v\fP, \fB--verbose\fP[=false]
+	Print extra lifecycle detail
+
+
+.SH EXAMPLE
+.EX
+  stackctl logs
+  stackctl logs --watch
+  stackctl logs --service postgres
+  stackctl logs --service meilisearch --tail 200 --watch
+.EE
+
+
+.SH SEE ALSO
+\fBstackctl(1)\fP

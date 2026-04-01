@@ -1,0 +1,72 @@
+.nh
+.TH "stackctl" "1" "" "stackctl" ""
+
+.SH NAME
+stackctl-run - Run a host command with stack environment variables
+
+
+.SH SYNOPSIS
+\fBstackctl run [service...] --  [flags]\fP
+
+
+.SH DESCRIPTION
+Run a host command with the same app-ready environment variables exposed by
+\fBstackctl env\fR, optionally ensuring the selected services are running first.
+
+
+.SH OPTIONS
+\fB--dry-run\fP[=false]
+	Print the selected services, command, and injected environment without running anything
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for run
+
+.PP
+\fB--no-start\fP[=false]
+	Fail instead of starting services when they are not already ready
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB--accessible\fP[=false]
+	Render interactive prompts and spinners in accessible mode
+
+.PP
+\fB--log-file\fP=""
+	Write internal logs to this path ('-' writes to stderr)
+
+.PP
+\fB--log-format\fP=""
+	Set the internal log format for --log-file (text, json, logfmt)
+
+.PP
+\fB--log-level\fP=""
+	Set the internal log level when --log-file is enabled
+
+.PP
+\fB--plain\fP[=false]
+	Force the legacy plain-text config wizard instead of the form UI
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	Suppress non-essential progress output
+
+.PP
+\fB--stack\fP=""
+	Select a named stack config (overrides STACKCTL_STACK and the saved current stack)
+
+.PP
+\fB-v\fP, \fB--verbose\fP[=false]
+	Print extra lifecycle detail
+
+
+.SH EXAMPLE
+.EX
+  stackctl run -- go test ./...
+  stackctl run postgres redis -- air
+  stackctl run --dry-run -- npm run dev
+.EE
+
+
+.SH SEE ALSO
+\fBstackctl(1)\fP
