@@ -544,7 +544,10 @@ review inside the dashboard. The header now carries clearer section context,
 panes use explicit subsections so service inspection is easier to scan. The
 `Stacks` section gives you a proper profile browser inside the TUI so you can
 inspect saved stacks, switch the active stack, start or stop selected stack
-profiles, and delete profiles without leaving the dashboard.
+profiles, and delete profiles without leaving the dashboard. The left sidebar
+also carries compact session context for the current stack, refresh mode,
+mouse/help state, and the active service, stack profile, config field, or
+latest history entry.
 
 Examples:
 
@@ -598,6 +601,10 @@ Notes:
   can still be toggled off for the current session inside the TUI
 - the left sidebar keeps navigation and global stack actions together so the
   active panel stays focused on inspection
+- the left sidebar also shows session context such as the current stack,
+  refresh mode, mouse state, help mode, and the active service, stack profile,
+  config field, or latest history entry so you can re-orient quickly after
+  jumping between panes
 - the `Config` section loads the saved config when it exists, otherwise starts
   from defaults so you can recover from a missing or unreadable config without
   leaving the TUI
@@ -654,6 +661,8 @@ Notes:
   helpers
 - the command palette now shows result counts and pages, and `pgup` / `pgdn`
   jump through longer palettes faster
+- the palette footer now mirrors the same paging keys that the overlay uses,
+  so the global footer stays consistent with the focused panel
 - `g` or `/` opens the service jump picker directly, with pinned services shown
   first
 - `p` pins the selected service for the current session so it stays at the top

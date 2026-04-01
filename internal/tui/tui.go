@@ -849,7 +849,7 @@ func (m Model) footerView() string {
 
 func renderPaletteFooter(width int) string {
 	return wrapText(
-		"type to filter  •  ↑/↓ choose  •  enter run  •  esc close",
+		"type to filter  •  ↑/↓ choose  •  pgup/pgdn page  •  enter run  •  esc close",
 		maxInt(20, width),
 	)
 }
@@ -1577,6 +1577,10 @@ func renderSidebar(m Model) string {
 		lines = append(lines, navItemStyle().Render("  "+label))
 	}
 
+	if sessionRail := renderSessionRail(m); sessionRail != "" {
+		lines = append(lines, "", sessionRail)
+	}
+
 	if m.active != configSection {
 		lines = append(lines, "")
 		if actionRail := renderActionRail(m); actionRail != "" {
@@ -1587,6 +1591,164 @@ func renderSidebar(m Model) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func renderSessionRail(m Model) string {
+	_, bodyHeight, _ := m.bodyDimensions()
+	if bodyHeight <= 18 {
+		return ""
+	}
+	compact := bodyHeight <= 20
+
+	lines := []string{
+		sectionTitleStyle().Render("Session"),
+		fmt.Sprintf("  Stack: %s", emptyLabel(m.snapshot.StackName)),
+		fmt.Sprintf("  Refresh: %s", sidebarAutoRefreshLabel(m)),
+		fmt.Sprintf("  Mouse: %s", onOffLabel(m.mouseEnabled)),
+	}
+	if compact {
+		if selection := sidebarCompactSelectionLabel(m); selection != "" {
+			lines = append(lines, fmt.Sprintf("  Sel: %s", selection))
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	lines = append(lines,
+		fmt.Sprintf("  Mode: %s", overviewModeLabel(m.snapshot.Managed)),
+		fmt.Sprintf("  Secrets: %s", onOffLabel(m.showSecrets)),
+		fmt.Sprintf("  Help: %s", sidebarHelpLabel(m)),
+		fmt.Sprintf("  Updated: %s", sidebarLoadedAtLabel(m.snapshot.LoadedAt)),
+	)
+
+	selectionLines := sidebarSelectionLines(m)
+	if len(selectionLines) > 0 {
+		lines = append(lines, "", subsectionTitleStyle().Render("Selection"))
+		lines = append(lines, selectionLines...)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func sidebarAutoRefreshLabel(m Model) string {
+	if !m.autoRefresh {
+		return "off"
+	}
+	return m.refreshInterval().String()
+}
+
+func sidebarHelpLabel(m Model) string {
+	if m.help.ShowAll {
+		return "full"
+	}
+	return "short"
+}
+
+func sidebarLoadedAtLabel(loadedAt time.Time) string {
+	if loadedAt.IsZero() {
+		return "not loaded"
+	}
+	return loadedAt.Format("15:04:05")
+}
+
+func sidebarCompactSelectionLabel(m Model) string {
+	switch m.active {
+	case stacksSection:
+		profile, ok := selectedStackProfile(m.snapshot, m.selectedStack)
+		if !ok {
+			return ""
+		}
+		return truncateEnd(profile.Name, 12)
+	case configSection:
+		spec, ok := m.configEditor.selectedSpec()
+		if !ok {
+			return ""
+		}
+		return truncateEnd(spec.Label, 12)
+	case servicesSection:
+		service, ok := selectedService(m.snapshot, m.selectedService)
+		if !ok {
+			return ""
+		}
+		return truncateEnd(service.DisplayName, 12)
+	case healthSection:
+		service, ok := selectedService(m.snapshot, m.selectedHealth)
+		if !ok {
+			return ""
+		}
+		return truncateEnd(service.DisplayName, 12)
+	case historySection:
+		if len(m.history) == 0 {
+			return ""
+		}
+		return truncateEnd(m.history[len(m.history)-1].Action, 12)
+	default:
+		return ""
+	}
+}
+
+func sidebarSelectionLines(m Model) []string {
+	switch m.active {
+	case stacksSection:
+		profile, ok := selectedStackProfile(m.snapshot, m.selectedStack)
+		if !ok {
+			return nil
+		}
+		lines := []string{
+			fmt.Sprintf("  Profile: %s", emptyLabel(profile.Name)),
+			fmt.Sprintf("  State: %s", emptyLabel(profile.State)),
+			fmt.Sprintf("  Current: %s", yesNoLabel(profile.Current)),
+		}
+		if strings.TrimSpace(profile.Mode) != "" {
+			lines = append(lines, fmt.Sprintf("  Mode: %s", profile.Mode))
+		}
+		return lines
+	case configSection:
+		spec, ok := m.configEditor.selectedSpec()
+		if !ok {
+			return nil
+		}
+		return []string{
+			fmt.Sprintf("  Field: %s", spec.Label),
+			fmt.Sprintf("  Group: %s", spec.Group),
+		}
+	case servicesSection:
+		service, ok := selectedService(m.snapshot, m.selectedService)
+		if !ok {
+			return nil
+		}
+		return sidebarServiceSelectionLines(service)
+	case healthSection:
+		service, ok := selectedService(m.snapshot, m.selectedHealth)
+		if !ok {
+			return nil
+		}
+		return sidebarServiceSelectionLines(service)
+	case historySection:
+		if len(m.history) == 0 {
+			return []string{mutedStyle().Render("  No session history yet")}
+		}
+		entry := m.history[len(m.history)-1]
+		return []string{
+			fmt.Sprintf("  Last: %s", entry.Action),
+			fmt.Sprintf("  Status: %s", historyStatusLabel(entry)),
+			fmt.Sprintf("  When: %s", historyTimestamp(entry)),
+		}
+	default:
+		return nil
+	}
+}
+
+func sidebarServiceSelectionLines(service Service) []string {
+	lines := []string{
+		fmt.Sprintf("  Service: %s", emptyLabel(service.DisplayName)),
+		fmt.Sprintf("  Status: %s", emptyLabel(displayServiceStatus(service))),
+	}
+	if isStackService(service) {
+		lines = append(lines, "  Scope: stack service")
+	} else {
+		lines = append(lines, "  Scope: host tool")
+	}
+	return lines
 }
 
 func renderConfirmationPanel(state *confirmationState, width, height int) string {

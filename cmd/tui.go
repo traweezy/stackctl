@@ -41,7 +41,9 @@ func newTUICmd() *cobra.Command {
 			"masked secrets by default, split inspection panes, in-TUI\n" +
 			"config editing with diff preview, save/reset/defaults/scaffold\n" +
 			"flows, automatic managed-stack apply on save when it is safe,\n" +
-			"and in-TUI actions for stack lifecycle tasks. The Stacks pane\n" +
+			"and in-TUI actions for stack lifecycle tasks. The left rail keeps\n" +
+			"section navigation, session context, and stack actions together.\n" +
+			"The Stacks pane\n" +
 			"lets you inspect saved profiles, switch the active stack,\n" +
 			"start or stop selected stack profiles, and remove profiles\n" +
 			"without leaving the dashboard. Use\n" +

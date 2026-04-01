@@ -15,7 +15,9 @@ TUI interval, compact mode,
 masked secrets by default, split inspection panes, in-TUI
 config editing with diff preview, save/reset/defaults/scaffold
 flows, automatic managed-stack apply on save when it is safe,
-and in-TUI actions for stack lifecycle tasks. The Stacks pane
+and in-TUI actions for stack lifecycle tasks. The left rail keeps
+section navigation, session context, and stack actions together.
+The Stacks pane
 lets you inspect saved profiles, switch the active stack,
 start or stop selected stack profiles, and remove profiles
 without leaving the dashboard. Use

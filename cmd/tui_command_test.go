@@ -83,6 +83,7 @@ func TestTUICmdHelpDocumentsInspectionPanelsAndLiveLogs(t *testing.T) {
 	for _, fragment := range []string{
 		"overview, stacks, config, services, health, and action history",
 		"services pane includes host ports, URLs, endpoints, DSNs, copy actions, shell handoff, and live-log handoff",
+		"left rail keeps section navigation, session context, and stack actions together",
 		"Stacks pane lets you inspect saved profiles, switch the active stack, start or stop selected stack profiles, and remove profiles",
 		"switch the active item inside split inspection panes",
 		"press w from the service and health panels to open live logs",

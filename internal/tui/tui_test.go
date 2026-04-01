@@ -922,6 +922,9 @@ func TestPaletteChromeUsesOverlaySpecificHeaderAndFooter(t *testing.T) {
 	if !strings.Contains(footer, "type to filter") || !strings.Contains(footer, "enter run") {
 		t.Fatalf("expected palette footer instructions:\n%s", footer)
 	}
+	if !strings.Contains(footer, "pgup/pgdn page") {
+		t.Fatalf("expected palette footer to include page navigation guidance:\n%s", footer)
+	}
 	if strings.Contains(footer, "watch logs") {
 		t.Fatalf("expected palette footer to omit global service shortcuts:\n%s", footer)
 	}
@@ -2163,6 +2166,17 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 		t.Fatalf("expected sidebar to show pgAdmin open action:\n%s", overviewSidebar)
 	}
 	for _, fragment := range []string{
+		"Session",
+		"Stack: dev-stack",
+		"Refresh: 30s",
+		"Mouse: off",
+		"Help: short",
+	} {
+		if !strings.Contains(overviewSidebar, fragment) {
+			t.Fatalf("expected overview sidebar to show %q:\n%s", fragment, overviewSidebar)
+		}
+	}
+	for _, fragment := range []string{
 		"r refresh",
 		"m compact",
 		"s secrets",
@@ -2193,6 +2207,10 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 		"[2] Stop Postgres",
 		"[3] Restart",
 		"[4] Stop",
+		"Selection",
+		"Service: Postgres",
+		"Status: running",
+		"Scope: stack service",
 	} {
 		if !strings.Contains(servicesSidebar, fragment) {
 			t.Fatalf("expected services sidebar to show %q:\n%s", fragment, servicesSidebar)
@@ -2223,6 +2241,18 @@ func TestConfigSectionRendersEditorSummary(t *testing.T) {
 	} {
 		if !collapsedContainsTest(view, fragment) {
 			t.Fatalf("expected config section to contain %q:\n%s", fragment, view)
+		}
+	}
+
+	sidebar := renderSidebar(current)
+	for _, fragment := range []string{
+		"Session",
+		"Selection",
+		"Field: Stack name",
+		"Group: Stack",
+	} {
+		if !strings.Contains(sidebar, fragment) {
+			t.Fatalf("expected config sidebar to show %q:\n%s", fragment, sidebar)
 		}
 	}
 }
