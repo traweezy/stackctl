@@ -90,6 +90,7 @@ define the `1.x` contract.
 See:
 
 - [docs/compatibility.md](./docs/compatibility.md)
+- [docs/install-and-upgrade.md](./docs/install-and-upgrade.md)
 - [docs/output-contract.md](./docs/output-contract.md)
 - [docs/cli](./docs/cli)
 - [docs/man/man1](./docs/man/man1)
@@ -112,21 +113,28 @@ curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/in
   bash -s -- --system
 ```
 
-Install a specific release:
+Install a specific release deterministically:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | \
-  bash -s -- --version v0.20.1
+STACKCTL_VERSION=vX.Y.Z
+curl -fsSL "https://raw.githubusercontent.com/traweezy/stackctl/${STACKCTL_VERSION}/scripts/install.sh" | \
+  bash -s -- --version "${STACKCTL_VERSION}"
 ```
 
-The bootstrap script is fetched from the default branch and then installs the
-latest or requested tagged release archive.
+The convenience bootstrap script is fetched from the default branch and then
+installs the latest or requested tagged release archive.
+
+If you need a deterministic automation path for upgrades or rollbacks, pin both
+the raw script URL and the `--version` flag to the same tag as shown above.
 
 The installer downloads the release archive plus `checksums.txt` and verifies
 the archive checksum before extracting it.
 
 On macOS, the installer uses the published Darwin archives and works with the
 platform checksum tools (`shasum`, `sha256sum`, or `openssl`).
+
+For pinned install, upgrade, rollback, and config-backup guidance, see
+[docs/install-and-upgrade.md](./docs/install-and-upgrade.md).
 
 Tagged releases also publish:
 
@@ -1687,6 +1695,12 @@ command plus the shared [`scripts/journey-smoke.sh`](./scripts/journey-smoke.sh)
 coverage. [`scripts/platform-lab-preflight.sh`](./scripts/platform-lab-preflight.sh)
 guards that workflow before and after setup so runner-contract problems fail
 early with explicit remediation.
+
+Installer qualification uses [`scripts/install-smoke.sh`](./scripts/install-smoke.sh)
+and covers both the latest-release lookup path and explicit `--version`
+installs. Journey smoke also includes a managed lifecycle path that starts from
+a legacy config file without `schema_version`, so upgrade-style config loads
+stay qualified alongside the normal runtime paths.
 
 ## Release flow
 

@@ -134,6 +134,17 @@ managed-runtime floor unless the compatibility policy is updated intentionally.
 The release-qualified workflows live in
 `.github/workflows/platform-lab.yml`.
 
+## Install and rollback guidance
+
+Operational install, upgrade, rollback, and config-backup guidance lives in
+[install-and-upgrade.md](./install-and-upgrade.md).
+
+The `1.x` rollback expectation assumes both versions understand
+`schema_version: 1`.
+
+Until `1.0.0` ships, rolling back to an older pre-schema `0.x` build should be
+paired with restoring the config backup you made before the upgrade.
+
 ## Changing the contract
 
 If a future change would break one of the stable surfaces above, it should be

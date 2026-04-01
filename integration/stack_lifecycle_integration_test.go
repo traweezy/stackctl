@@ -621,6 +621,146 @@ func TestSetupNonInteractiveManagedLifecycleSmoke(t *testing.T) {
 	}
 }
 
+func TestManagedStackLifecycleSmokeFromLegacyConfig(t *testing.T) {
+	requireIntegrationPlatform(t)
+
+	binaryPath := testutil.BuildStackctlBinary(t)
+	configRoot := t.TempDir()
+	dataRoot, err := os.MkdirTemp("", "stackctl-itest-data-*")
+	if err != nil {
+		t.Fatalf("create integration data dir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", configRoot)
+	t.Setenv("XDG_DATA_HOME", dataRoot)
+
+	requirePodmanCompose(t)
+
+	env := []string{
+		"XDG_CONFIG_HOME=" + configRoot,
+		"XDG_DATA_HOME=" + dataRoot,
+	}
+
+	suffix := strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36))
+	cfg := integrationManagedLifecycleConfig(t, "legacy-"+suffix, "legacy-"+suffix)
+	if _, err := configpkg.ScaffoldManagedStack(cfg, true); err != nil {
+		t.Fatalf("scaffold managed compose file: %v", err)
+	}
+
+	configPath, err := configpkg.ConfigFilePath()
+	if err != nil {
+		t.Fatalf("resolve legacy config path: %v", err)
+	}
+	legacyData := integrationLegacyManagedConfigData(t, cfg)
+	if strings.Contains(string(legacyData), "schema_version:") {
+		t.Fatalf("legacy config fixture should not contain schema_version:\n%s", string(legacyData))
+	}
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o750); err != nil {
+		t.Fatalf("create legacy config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, legacyData, 0o600); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = runStackctl(binaryPath, env, "reset", "--volumes", "--force")
+		cleanupIntegrationDataRoot(dataRoot)
+		_ = os.RemoveAll(dataRoot)
+	})
+
+	validateOutput, err := runStackctl(binaryPath, env, "config", "validate")
+	if err != nil {
+		t.Fatalf("config validate returned error: %v\n%s", err, validateOutput)
+	}
+	if !strings.Contains(validateOutput, "config is valid") {
+		t.Fatalf("unexpected config validate output:\n%s", validateOutput)
+	}
+
+	loaded, err := configpkg.Load(configPath)
+	if err != nil {
+		t.Fatalf("load legacy config through current reader: %v", err)
+	}
+	if loaded.SchemaVersion != configpkg.CurrentSchemaVersion {
+		t.Fatalf("expected legacy config to normalize schema version, got %d", loaded.SchemaVersion)
+	}
+	if loaded.TUI.AutoRefreshIntervalSec != configpkg.DefaultTUIAutoRefreshIntervalSeconds {
+		t.Fatalf("expected legacy config to restore TUI defaults, got %+v", loaded.TUI)
+	}
+
+	versionOutput, err := runStackctl(binaryPath, env, "version", "--json")
+	if err != nil {
+		t.Fatalf("version --json returned error: %v\n%s", err, versionOutput)
+	}
+	var versionInfo map[string]string
+	if err := json.Unmarshal([]byte(versionOutput), &versionInfo); err != nil {
+		t.Fatalf("parse version json: %v\n%s", err, versionOutput)
+	}
+	if strings.TrimSpace(versionInfo["version"]) == "" {
+		t.Fatalf("expected version json to include version: %+v", versionInfo)
+	}
+
+	envOutput, err := runStackctl(binaryPath, env, "env", "--json", "postgres", "redis", "nats", "pgadmin")
+	if err != nil {
+		t.Fatalf("env --json returned error: %v\n%s", err, envOutput)
+	}
+	envValues := make(map[string]string)
+	if err := json.Unmarshal([]byte(envOutput), &envValues); err != nil {
+		t.Fatalf("parse env json: %v\n%s", err, envOutput)
+	}
+	expectedEnv := map[string]string{
+		"STACKCTL_STACK": cfg.Stack.Name,
+		"DATABASE_URL":   "postgres://stackuser:stackpass@127.0.0.1:" + strconv.Itoa(cfg.Ports.Postgres) + "/stackdb",
+		"REDIS_URL":      "redis://:redispass@127.0.0.1:" + strconv.Itoa(cfg.Ports.Redis),
+		"NATS_URL":       "nats://natspass@127.0.0.1:" + strconv.Itoa(cfg.Ports.NATS),
+		"PGADMIN_URL":    "http://127.0.0.1:" + strconv.Itoa(cfg.Ports.PgAdmin),
+	}
+	for key, expected := range expectedEnv {
+		if envValues[key] != expected {
+			t.Fatalf("unexpected %s: got %q want %q", key, envValues[key], expected)
+		}
+	}
+
+	startOutput, err := runStackctl(binaryPath, env, "start")
+	if err != nil {
+		statusOutput, _ := runStackctl(binaryPath, env, "status", "--json")
+		servicesOutput, _ := runStackctl(binaryPath, env, "services")
+		t.Fatalf("start returned error: %v\n%s\nstatus --json:\n%s\nservices:\n%s", err, startOutput, statusOutput, servicesOutput)
+	}
+	if !strings.Contains(startOutput, "stack started") {
+		t.Fatalf("unexpected start output:\n%s", startOutput)
+	}
+
+	servicesOutput, err := runStackctl(binaryPath, env, "services", "--json")
+	if err != nil {
+		t.Fatalf("services --json returned error: %v\n%s", err, servicesOutput)
+	}
+	var services []runtimeServiceJSON
+	if err := json.Unmarshal([]byte(servicesOutput), &services); err != nil {
+		t.Fatalf("parse services json: %v\n%s", err, servicesOutput)
+	}
+	servicesByName := make(map[string]runtimeServiceJSON, len(services))
+	for _, service := range services {
+		servicesByName[service.Name] = service
+	}
+	for _, serviceName := range []string{"postgres", "redis", "nats", "pgadmin"} {
+		if servicesByName[serviceName].Status != "running" {
+			t.Fatalf("expected %s to be running, got %+v", serviceName, servicesByName[serviceName])
+		}
+	}
+
+	logsOutput, err := runStackctl(binaryPath, env, "logs", "-s", "postgres", "-n", "5")
+	if err != nil {
+		t.Fatalf("logs -s postgres returned error: %v\n%s", err, logsOutput)
+	}
+
+	stopOutput, err := runStackctl(binaryPath, env, "stop")
+	if err != nil {
+		t.Fatalf("stop returned error: %v\n%s", err, stopOutput)
+	}
+	if !strings.Contains(stopOutput, "stack stopped") {
+		t.Fatalf("unexpected stop output:\n%s", stopOutput)
+	}
+}
+
 func TestManagedRunSnapshotRedisACLAndPgAdminBootstrapSmoke(t *testing.T) {
 	requireIntegrationPlatform(t)
 
@@ -1497,6 +1637,22 @@ func integrationManagedLifecycleConfig(t *testing.T, stackName string, suffix st
 	return cfg
 }
 
+func integrationLegacyManagedConfigData(t *testing.T, cfg configpkg.Config) []byte {
+	t.Helper()
+
+	data, err := configpkg.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal legacy config fixture: %v", err)
+	}
+
+	value := string(data)
+	value = replaceConfigFixtureBlock(t, value, fmt.Sprintf("schema_version: %d\n", configpkg.CurrentSchemaVersion), "", "schema_version")
+	value = replaceConfigFixtureBlock(t, value, "behavior:\n", "behavior:\n    open_cockpit_on_start: true\n    open_pgadmin_on_start: false\n", "behavior block")
+	value = replaceConfigFixtureBlock(t, value, fmt.Sprintf("tui:\n    auto_refresh_interval_seconds: %d\n", cfg.TUI.AutoRefreshIntervalSec), "", "tui block")
+
+	return []byte(value)
+}
+
 func applyManagedIntegrationRuntimeConfig(t *testing.T, cfg *configpkg.Config, suffix string) {
 	t.Helper()
 
@@ -1652,4 +1808,13 @@ func lastNonEmptyLine(value string) string {
 		}
 	}
 	return ""
+}
+
+func replaceConfigFixtureBlock(t *testing.T, value, old, newValue, label string) string {
+	t.Helper()
+
+	if !strings.Contains(value, old) {
+		t.Fatalf("legacy config fixture missing %s block %q", label, old)
+	}
+	return strings.Replace(value, old, newValue, 1)
 }

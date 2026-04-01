@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -160,6 +161,77 @@ func TestInstallScriptSmokeFromLocalReleaseServer(t *testing.T) {
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte("Verified archive checksum.")) {
 		t.Fatalf("expected checksum verification message in stdout:\n%s", stdout.String())
+	}
+}
+
+func TestInstallScriptInstallsRequestedVersionFromLocalReleaseServer(t *testing.T) {
+	if os.Getenv("STACKCTL_RUN_INSTALL_SMOKE") != "1" {
+		t.Skip("set STACKCTL_RUN_INSTALL_SMOKE=1 to run the installer smoke test")
+	}
+
+	osName, archName := installSmokeAssetLabels(t)
+	workspace := t.TempDir()
+	versionTag := "v0.20.1-pinned-smoke"
+	archiveName := "stackctl_" + osName + "_" + archName + ".tar.gz"
+	binaryPath := filepath.Join(workspace, "stackctl")
+	archivePath := filepath.Join(workspace, archiveName)
+	checksumsPath := filepath.Join(workspace, "checksums.txt")
+	installDir := filepath.Join(workspace, "bin")
+
+	buildInstallSmokeBinary(t, binaryPath)
+	writeInstallSmokeArchive(t, archivePath, binaryPath)
+	writeInstallSmokeChecksums(t, checksumsPath, archiveName, archivePath)
+
+	var latestLookupCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/traweezy/stackctl/releases/latest":
+			latestLookupCount.Add(1)
+			http.Error(w, "explicit version install should not look up latest", http.StatusTeapot)
+		case "/traweezy/stackctl/releases/download/" + versionTag + "/" + archiveName:
+			http.ServeFile(w, r, archivePath)
+		case "/traweezy/stackctl/releases/download/" + versionTag + "/checksums.txt":
+			http.ServeFile(w, r, checksumsPath)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := exec.Command("bash", "scripts/install.sh", "--dir", installDir, "--repo", "traweezy/stackctl", "--version", versionTag)
+	cmd.Env = append(
+		os.Environ(),
+		"STACKCTL_INSTALL_API_BASE_URL="+server.URL,
+		"STACKCTL_INSTALL_DOWNLOAD_BASE_URL="+server.URL,
+	)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("install script returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	if latestLookupCount.Load() != 0 {
+		t.Fatalf("expected explicit version install to skip latest lookup, got %d requests", latestLookupCount.Load())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("Installing stackctl "+versionTag+" for "+osName+"/"+archName)) {
+		t.Fatalf("expected pinned-version install message in stdout:\n%s", stdout.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("Verified archive checksum.")) {
+		t.Fatalf("expected checksum verification message in stdout:\n%s", stdout.String())
+	}
+
+	installedPath := filepath.Join(installDir, "stackctl")
+	versionCmd := exec.Command(installedPath, "version", "--json")
+	output, err := versionCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run installed binary: %v\noutput:\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), version) {
+		t.Fatalf("unexpected installed binary version output: %q", string(output))
 	}
 }
 
