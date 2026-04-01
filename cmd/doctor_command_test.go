@@ -141,3 +141,14 @@ func TestDoctorFixFallsBackToDetectedPackageManagerWhenConfigBlank(t *testing.T)
 		t.Fatalf("expected fallback notice, got:\n%s", stdout)
 	}
 }
+
+func TestDoctorRemediationMarkdownIncludesVersionUpgradeGuidance(t *testing.T) {
+	report := newReport(
+		doctorpkg.Check{Status: output.StatusWarn, Message: "podman 4.3.1 is below supported minimum 4.9.3"},
+	)
+
+	markdown := doctorRemediationMarkdown(report)
+	if !strings.Contains(markdown, "Upgrade Podman and the selected compose provider") {
+		t.Fatalf("expected version upgrade guidance, got:\n%s", markdown)
+	}
+}

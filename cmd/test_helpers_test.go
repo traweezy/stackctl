@@ -60,6 +60,10 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 		}
 	}
 	testDeps.commandExists = func(string) bool { return true }
+	testDeps.podmanVersion = func(context.Context) (string, error) { return system.SupportedPodmanVersion, nil }
+	testDeps.podmanComposeVersion = func(context.Context) (string, error) {
+		return system.SupportedComposeProviderVersion, nil
+	}
 	testDeps.podmanComposeAvail = func(context.Context) bool { return true }
 	testDeps.podmanMachineStatus = func(context.Context) system.PodmanMachineState {
 		return system.PodmanMachineState{Supported: false}

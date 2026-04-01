@@ -235,6 +235,9 @@ func doctorRemediationMarkdown(report doctorpkg.Report) string {
 	if report.WarnCount > 0 {
 		lines = append(lines, "- Review warnings carefully. They usually indicate partial setup, a port conflict, or host-level services that need manual attention.")
 	}
+	if reportContainsMessageFragment(report, "below supported minimum") {
+		lines = append(lines, "- Upgrade Podman and the selected compose provider to the documented supported minimums in `README.md` and `docs/compatibility.md`.")
+	}
 	lines = append(lines,
 		"- Re-check the stack with `stackctl services`, `stackctl health`, and `stackctl tui` after fixes complete.",
 	)
@@ -253,4 +256,14 @@ func confirmAutomaticFix(cmd *cobra.Command, yes bool, prompt string) (bool, err
 	}
 
 	return ok, nil
+}
+
+func reportContainsMessageFragment(report doctorpkg.Report, fragment string) bool {
+	for _, check := range report.Checks {
+		if strings.Contains(check.Message, fragment) {
+			return true
+		}
+	}
+
+	return false
 }

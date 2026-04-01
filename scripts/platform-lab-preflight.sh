@@ -10,6 +10,8 @@ expected_distro="${STACKCTL_PLATFORM_LAB_EXPECT_DISTRO:-}"
 expect_cockpit="${STACKCTL_PLATFORM_LAB_EXPECT_COCKPIT:-0}"
 require_sudo="${STACKCTL_PLATFORM_LAB_REQUIRE_SUDO:-0}"
 compose_provider="${PODMAN_COMPOSE_PROVIDER:-}"
+supported_podman_version="${STACKCTL_SUPPORTED_PODMAN_VERSION:-4.9.3}"
+supported_compose_version="${STACKCTL_SUPPORTED_COMPOSE_VERSION:-1.0.6}"
 
 log() {
   printf '==> %s\n' "$*"
@@ -39,6 +41,54 @@ require_command() {
     fail "required command not found: $name"
   fi
   log "$name: $(command_path "$name")"
+}
+
+extract_version() {
+  local raw="$1"
+
+  if [[ "$raw" =~ [Vv]?([0-9]+(\.[0-9]+){1,2}) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  return 1
+}
+
+version_at_least() {
+  local current="$1"
+  local minimum="$2"
+  local c1 c2 c3 m1 m2 m3
+
+  IFS=. read -r c1 c2 c3 <<<"${current}.0.0"
+  IFS=. read -r m1 m2 m3 <<<"${minimum}.0.0"
+
+  c3="${c3:-0}"
+  m3="${m3:-0}"
+
+  if (( c1 != m1 )); then
+    (( c1 > m1 ))
+    return
+  fi
+  if (( c2 != m2 )); then
+    (( c2 > m2 ))
+    return
+  fi
+
+  (( c3 >= m3 ))
+}
+
+require_minimum_version() {
+  local label="$1"
+  local raw="$2"
+  local minimum="$3"
+  local version
+
+  version="$(extract_version "$raw")" || fail "$label version could not be determined from: $raw"
+  if ! version_at_least "$version" "$minimum"; then
+    fail "$label $version is below supported minimum $minimum"
+  fi
+
+  log "$label version: $version (supported minimum $minimum)"
 }
 
 package_manager_command() {
@@ -145,7 +195,10 @@ assert_pre_setup() {
   fi
 
   if command -v podman >/dev/null 2>&1; then
-    log "podman version: $(podman --version)"
+    require_minimum_version "podman" "$(podman --version)" "$supported_podman_version"
+    if podman compose version >/dev/null 2>&1; then
+      require_minimum_version "podman compose provider" "$(podman compose version)" "$supported_compose_version"
+    fi
     if [ "$os_name" = "darwin" ]; then
       log_podman_machine_state
     fi
@@ -168,6 +221,7 @@ assert_post_setup() {
   os_name="$(detect_os)"
 
   require_command "podman" "podman must be installed after setup/doctor"
+  require_minimum_version "podman" "$(podman --version)" "$supported_podman_version"
   if ! podman info >/dev/null 2>&1; then
     fail "podman info failed after setup/doctor"
   fi
@@ -179,6 +233,7 @@ assert_post_setup() {
   if ! podman compose version >/dev/null 2>&1; then
     fail "podman compose is not available after setup/doctor"
   fi
+  require_minimum_version "podman compose provider" "$(podman compose version)" "$supported_compose_version"
   log "podman compose: ready"
 
   if [ "$os_name" = "darwin" ]; then

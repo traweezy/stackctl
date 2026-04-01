@@ -84,6 +84,13 @@ func ensureComposeRuntimeForConfig(cfg configpkg.Config) error {
 	if !deps.podmanComposeAvail(context.Background()) {
 		return errors.New("podman compose is not available; run `stackctl setup --install`, `stackctl doctor --fix`, or install a compose provider manually")
 	}
+	if version, err := deps.podmanComposeVersion(context.Background()); err == nil && !system.VersionAtLeast(version, system.SupportedComposeProviderVersion) {
+		return fmt.Errorf(
+			"podman compose provider %s is below the supported minimum %s; upgrade the compose provider before running managed runtime commands",
+			version,
+			system.SupportedComposeProviderVersion,
+		)
+	}
 	if _, err := deps.stat(deps.composePath(cfg)); err != nil {
 		return fmt.Errorf("compose file %s is not available: %w", deps.composePath(cfg), err)
 	}
@@ -144,6 +151,13 @@ func loadStackContainers(ctx context.Context, cfg configpkg.Config) ([]system.Co
 func ensurePodmanRuntimeReady() error {
 	if !deps.commandExists("podman") {
 		return errors.New("podman is not installed; run `stackctl setup --install`, `stackctl doctor --fix`, or install it manually")
+	}
+	if version, err := deps.podmanVersion(context.Background()); err == nil && !system.VersionAtLeast(version, system.SupportedPodmanVersion) {
+		return fmt.Errorf(
+			"podman %s is below the supported minimum %s; upgrade Podman before running managed runtime commands",
+			version,
+			system.SupportedPodmanVersion,
+		)
 	}
 
 	platform := deps.platform()

@@ -180,8 +180,8 @@ go build -trimpath -o dist/stackctl .
 For normal runtime usage, `stackctl` expects:
 
 - Linux or macOS
-- `podman`
-- `podman compose`
+- `podman` `4.9.3+`
+- a `podman compose` provider `1.0.6+`
 
 On macOS, `podman machine` must also be initialized and running. `stackctl setup --install`
 and `stackctl doctor --fix` can prepare that automatically.
@@ -189,6 +189,11 @@ and `stackctl doctor --fix` can prepare that automatically.
 When both Docker Compose and `podman-compose` are installed, `stackctl`
 prefers `podman-compose` so Podman-managed stacks do not accidentally route
 through a Docker-backed compose provider.
+
+The supported runtime floor is tied to the continuously verified integration
+path in hosted CI. Some distro package-manager smoke jobs intentionally install
+older packages to verify installability, but that install-only coverage is not
+the same as the supported managed-runtime contract above.
 
 If you want the CLI to install supported dependencies for you:
 

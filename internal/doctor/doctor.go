@@ -26,20 +26,22 @@ type Report struct {
 }
 
 type dependencies struct {
-	configFilePath      func() (string, error)
-	loadConfig          func(string) (configpkg.Config, error)
-	validateConfig      func(configpkg.Config) []configpkg.ValidationIssue
-	composePath         func(configpkg.Config) string
-	stat                func(string) (os.FileInfo, error)
-	platform            func() system.Platform
-	commandExists       func(string) bool
-	podmanComposeAvail  func(context.Context) bool
-	podmanMachineStatus func(context.Context) system.PodmanMachineState
-	openCommandName     func() string
-	cockpitStatus       func(context.Context) system.CockpitState
-	portInUse           func(int) (bool, error)
-	listContainers      func(context.Context) ([]system.Container, error)
-	redisOvercommit     func(context.Context) (system.OvercommitStatus, error)
+	configFilePath       func() (string, error)
+	loadConfig           func(string) (configpkg.Config, error)
+	validateConfig       func(configpkg.Config) []configpkg.ValidationIssue
+	composePath          func(configpkg.Config) string
+	stat                 func(string) (os.FileInfo, error)
+	platform             func() system.Platform
+	commandExists        func(string) bool
+	podmanVersion        func(context.Context) (string, error)
+	podmanComposeVersion func(context.Context) (string, error)
+	podmanComposeAvail   func(context.Context) bool
+	podmanMachineStatus  func(context.Context) system.PodmanMachineState
+	openCommandName      func() string
+	cockpitStatus        func(context.Context) system.CockpitState
+	portInUse            func(int) (bool, error)
+	listContainers       func(context.Context) ([]system.Container, error)
+	redisOvercommit      func(context.Context) (system.OvercommitStatus, error)
 }
 
 func Run(ctx context.Context) (Report, error) {
@@ -48,18 +50,20 @@ func Run(ctx context.Context) (Report, error) {
 
 func defaultDependencies() dependencies {
 	return dependencies{
-		configFilePath:      configpkg.ConfigFilePath,
-		loadConfig:          configpkg.Load,
-		validateConfig:      configpkg.Validate,
-		composePath:         configpkg.ComposePath,
-		stat:                os.Stat,
-		platform:            system.CurrentPlatform,
-		commandExists:       system.CommandExists,
-		podmanComposeAvail:  system.PodmanComposeAvailable,
-		podmanMachineStatus: system.PodmanMachineStatus,
-		openCommandName:     system.OpenCommandName,
-		cockpitStatus:       system.CockpitStatus,
-		portInUse:           system.PortInUse,
+		configFilePath:       configpkg.ConfigFilePath,
+		loadConfig:           configpkg.Load,
+		validateConfig:       configpkg.Validate,
+		composePath:          configpkg.ComposePath,
+		stat:                 os.Stat,
+		platform:             system.CurrentPlatform,
+		commandExists:        system.CommandExists,
+		podmanVersion:        system.PodmanVersion,
+		podmanComposeVersion: system.PodmanComposeVersion,
+		podmanComposeAvail:   system.PodmanComposeAvailable,
+		podmanMachineStatus:  system.PodmanMachineStatus,
+		openCommandName:      system.OpenCommandName,
+		cockpitStatus:        system.CockpitStatus,
+		portInUse:            system.PortInUse,
 		listContainers: func(ctx context.Context) ([]system.Container, error) {
 			return system.ListContainers(ctx, system.CaptureResult)
 		},
@@ -117,12 +121,26 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 
 	if deps.commandExists("podman") {
 		report.add(output.StatusOK, "podman installed")
+		addRuntimeVersionCheck(
+			&report,
+			"podman",
+			system.SupportedPodmanVersion,
+			deps.podmanVersion,
+			ctx,
+		)
 	} else {
 		report.add(output.StatusMiss, "podman not installed")
 	}
 
 	if deps.podmanComposeAvail(ctx) {
 		report.add(output.StatusOK, "podman compose available")
+		addRuntimeVersionCheck(
+			&report,
+			"podman compose provider",
+			system.SupportedComposeProviderVersion,
+			deps.podmanComposeVersion,
+			ctx,
+		)
 	} else {
 		report.add(output.StatusMiss, "podman compose not available")
 	}
@@ -294,6 +312,31 @@ func (r *Report) add(status, message string) {
 	case output.StatusFail:
 		r.FailCount++
 	}
+}
+
+func addRuntimeVersionCheck(
+	report *Report,
+	label string,
+	minimum string,
+	detect func(context.Context) (string, error),
+	ctx context.Context,
+) {
+	if detect == nil {
+		return
+	}
+
+	version, err := detect(ctx)
+	if err != nil {
+		report.add(output.StatusWarn, fmt.Sprintf("%s version could not be determined; supported minimum is %s", label, minimum))
+		return
+	}
+
+	if !system.VersionAtLeast(version, minimum) {
+		report.add(output.StatusWarn, fmt.Sprintf("%s %s is below supported minimum %s", label, version, minimum))
+		return
+	}
+
+	report.add(output.StatusOK, fmt.Sprintf("%s %s meets supported minimum %s", label, version, minimum))
 }
 
 func configResult(deps dependencies, path string) (configpkg.Config, bool, error) {

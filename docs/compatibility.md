@@ -96,6 +96,15 @@ public contract.
 
 `stackctl` targets Linux and macOS for local runtime setup.
 
+The supported managed-runtime floor for the `1.x` contract is:
+
+- `podman` `4.9.3+`
+- a `podman compose` provider `1.0.6+`
+
+When a detected runtime is below that floor, `stackctl doctor` warns and
+managed runtime commands fail fast with upgrade guidance instead of guessing
+through older behavior.
+
 Support is qualified at two levels:
 
 ### Continuously verified
@@ -107,6 +116,9 @@ These paths are exercised in hosted CI on every normal development cycle:
 - Linux Podman integration coverage
 - Linux package-manager smoke using disposable distro containers
 
+The hosted Linux Podman integration path is the source of truth for the managed
+runtime version floor above.
+
 ### Release-qualified
 
 These paths are qualified before final releases but are not currently run on
@@ -114,6 +126,10 @@ every push:
 
 - full-host Linux distro journeys on self-hosted runners
 - macOS Homebrew plus `podman machine` journeys on self-hosted runners
+
+Some release-qualified install flows may still prove that older distro packages
+can be installed. That installability coverage does not expand the supported
+managed-runtime floor unless the compatibility policy is updated intentionally.
 
 The release-qualified workflows live in
 `.github/workflows/platform-lab.yml`.

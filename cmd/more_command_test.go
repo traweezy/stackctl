@@ -1185,6 +1185,27 @@ func TestEnsureComposeRuntimeErrorsWhenPrerequisitesMissing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "podman machine is not initialized") {
 		t.Fatalf("unexpected darwin machine error: %v", err)
 	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.commandExists = func(string) bool { return true }
+		d.podmanVersion = func(context.Context) (string, error) { return "4.3.1", nil }
+	})
+
+	err = ensureComposeRuntime(NewRootCmd(NewApp()), configpkg.Default())
+	if err == nil || !strings.Contains(err.Error(), "podman 4.3.1 is below the supported minimum 4.9.3") {
+		t.Fatalf("unexpected podman version error: %v", err)
+	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.commandExists = func(string) bool { return true }
+		d.podmanComposeAvail = func(context.Context) bool { return true }
+		d.podmanComposeVersion = func(context.Context) (string, error) { return "1.0.3", nil }
+	})
+
+	err = ensureComposeRuntime(NewRootCmd(NewApp()), configpkg.Default())
+	if err == nil || !strings.Contains(err.Error(), "podman compose provider 1.0.3 is below the supported minimum 1.0.6") {
+		t.Fatalf("unexpected compose provider version error: %v", err)
+	}
 }
 
 func TestLoadRuntimeConfigWithoutFirstRunReturnsHint(t *testing.T) {
