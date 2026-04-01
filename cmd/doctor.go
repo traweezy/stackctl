@@ -27,8 +27,12 @@ func newDoctorCmd() *cobra.Command {
 				return runDoctorFixes(cmd, yes)
 			}
 
-			report, err := deps.runDoctor(context.Background())
-			if err != nil {
+			var report doctorpkg.Report
+			if err := runSpinnerAction(cmd, "Running doctor diagnostics", func(ctx context.Context) error {
+				var runErr error
+				report, runErr = deps.runDoctor(ctx)
+				return runErr
+			}); err != nil {
 				return err
 			}
 
@@ -51,8 +55,12 @@ func newDoctorCmd() *cobra.Command {
 }
 
 func runDoctorFixes(cmd *cobra.Command, yes bool) error {
-	report, err := deps.runDoctor(context.Background())
-	if err != nil {
+	var report doctorpkg.Report
+	if err := runSpinnerAction(cmd, "Running doctor diagnostics", func(ctx context.Context) error {
+		var runErr error
+		report, runErr = deps.runDoctor(ctx)
+		return runErr
+	}); err != nil {
 		return err
 	}
 	if err := printDoctorReport(cmd, report); err != nil {
@@ -83,7 +91,9 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 				return err
 			}
 			if ok {
-				if err := scaffoldManagedStack(cmd, cfg, true); err != nil {
+				if err := runSpinnerAction(cmd, "Refreshing managed stack scaffold", func(context.Context) error {
+					return scaffoldManagedStack(cmd, cfg, true)
+				}); err != nil {
 					return err
 				}
 				appliedFix = true
@@ -123,7 +133,9 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 			return err
 		}
 		if ok {
-			if err := deps.preparePodmanMachine(context.Background(), runnerFor(cmd)); err != nil {
+			if err := runSpinnerAction(cmd, "Preparing Podman machine", func(ctx context.Context) error {
+				return deps.preparePodmanMachine(ctx, runnerFor(cmd))
+			}); err != nil {
 				return err
 			}
 			appliedFix = true
@@ -139,7 +151,9 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 			return err
 		}
 		if ok {
-			if err := deps.enableCockpit(context.Background(), runnerFor(cmd)); err != nil {
+			if err := runSpinnerAction(cmd, "Enabling cockpit.socket", func(ctx context.Context) error {
+				return deps.enableCockpit(ctx, runnerFor(cmd))
+			}); err != nil {
 				return err
 			}
 			appliedFix = true
@@ -158,8 +172,12 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 	if err := plainLine(cmd, "\nPost-fix report:\n"); err != nil {
 		return err
 	}
-	postReport, err := deps.runDoctor(context.Background())
-	if err != nil {
+	var postReport doctorpkg.Report
+	if err := runSpinnerAction(cmd, "Re-running doctor diagnostics", func(ctx context.Context) error {
+		var runErr error
+		postReport, runErr = deps.runDoctor(ctx)
+		return runErr
+	}); err != nil {
 		return err
 	}
 	if err := printDoctorReport(cmd, postReport); err != nil {
@@ -190,7 +208,38 @@ func printDoctorReport(cmd *cobra.Command, report doctorpkg.Report) error {
 		return err
 	}
 
+	if deps.isTerminal() {
+		if markdown := doctorRemediationMarkdown(report); strings.TrimSpace(markdown) != "" {
+			if err := renderMarkdownBlock(cmd, markdown); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
+}
+
+func doctorRemediationMarkdown(report doctorpkg.Report) string {
+	if report.WarnCount == 0 && report.MissCount == 0 && report.FailCount == 0 {
+		return ""
+	}
+
+	lines := []string{
+		"## Suggested actions",
+		"",
+	}
+	if report.MissCount > 0 || report.FailCount > 0 {
+		lines = append(lines, "- Run `stackctl doctor --fix --yes` to apply supported automatic fixes.")
+		lines = append(lines, "- Run `stackctl setup --install` if dependencies are still missing on this platform.")
+	}
+	if report.WarnCount > 0 {
+		lines = append(lines, "- Review warnings carefully. They usually indicate partial setup, a port conflict, or host-level services that need manual attention.")
+	}
+	lines = append(lines,
+		"- Re-check the stack with `stackctl services`, `stackctl health`, and `stackctl tui` after fixes complete.",
+	)
+
+	return strings.Join(lines, "\n")
 }
 
 func confirmAutomaticFix(cmd *cobra.Command, yes bool, prompt string) (bool, error) {

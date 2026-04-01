@@ -11,6 +11,7 @@ import (
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	doctorpkg "github.com/traweezy/stackctl/internal/doctor"
+	"github.com/traweezy/stackctl/internal/logging"
 	"github.com/traweezy/stackctl/internal/output"
 	"github.com/traweezy/stackctl/internal/system"
 )
@@ -118,17 +119,46 @@ func executeAppRoot(t *testing.T, app *App, args ...string) (string, string, err
 	root.SetErr(&stderr)
 	root.SetArgs(args)
 
-	originalStack, hadStack := os.LookupEnv(configpkg.StackNameEnvVar)
+	envSnapshot := snapshotEnv(
+		configpkg.StackNameEnvVar,
+		"ACCESSIBLE",
+		"STACKCTL_WIZARD_PLAIN",
+		logging.EnvLogLevel,
+		logging.EnvLogFormat,
+		logging.EnvLogFile,
+		logging.EnvTUIDebugLogFile,
+	)
 	t.Cleanup(func() {
-		if hadStack {
-			_ = os.Setenv(configpkg.StackNameEnvVar, originalStack)
-			return
-		}
-		_ = os.Unsetenv(configpkg.StackNameEnvVar)
+		restoreEnv(envSnapshot)
+		logging.Reset()
 	})
 
 	err := root.Execute()
 	return stdout.String(), stderr.String(), err
+}
+
+func snapshotEnv(names ...string) map[string]*string {
+	snapshot := make(map[string]*string, len(names))
+	for _, name := range names {
+		value, ok := os.LookupEnv(name)
+		if !ok {
+			snapshot[name] = nil
+			continue
+		}
+		current := value
+		snapshot[name] = &current
+	}
+	return snapshot
+}
+
+func restoreEnv(snapshot map[string]*string) {
+	for name, value := range snapshot {
+		if value == nil {
+			_ = os.Unsetenv(name)
+			continue
+		}
+		_ = os.Setenv(name, *value)
+	}
 }
 
 func newReport(checks ...doctorpkg.Check) doctorpkg.Report {

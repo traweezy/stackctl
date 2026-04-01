@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -31,5 +32,33 @@ func TestFilterContainersByNameMatchesConfiguredNames(t *testing.T) {
 
 	if len(filtered) != 2 {
 		t.Fatalf("unexpected filtered containers: %+v", filtered)
+	}
+}
+
+func TestListContainersReturnsEmptyForBlankOutput(t *testing.T) {
+	containers, err := ListContainers(context.Background(), func(context.Context, string, string, ...string) (CommandResult, error) {
+		return CommandResult{}, nil
+	})
+	if err != nil {
+		t.Fatalf("ListContainers returned error: %v", err)
+	}
+	if len(containers) != 0 {
+		t.Fatalf("expected no containers for blank output, got %+v", containers)
+	}
+}
+
+func TestListContainersReturnsHelpfulErrors(t *testing.T) {
+	_, err := ListContainers(context.Background(), func(context.Context, string, string, ...string) (CommandResult, error) {
+		return CommandResult{ExitCode: 125, Stderr: "permission denied"}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("unexpected podman list error: %v", err)
+	}
+
+	_, err = ListContainers(context.Background(), func(context.Context, string, string, ...string) (CommandResult, error) {
+		return CommandResult{Stdout: "{"}, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "parse podman status output") {
+		t.Fatalf("unexpected podman parse error: %v", err)
 	}
 }

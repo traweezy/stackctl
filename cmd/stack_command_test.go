@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/system"
 )
@@ -434,5 +436,89 @@ func TestStackCloneManagedStackCreatesNewConfig(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "cloned stack dev-stack to demo") {
 		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestStackCurrentPrintsSelectedStack(t *testing.T) {
+	t.Setenv(configpkg.StackNameEnvVar, "staging")
+
+	stdout, _, err := executeRoot(t, "stack", "current")
+	if err != nil {
+		t.Fatalf("stack current returned error: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "staging" {
+		t.Fatalf("unexpected stack current output: %q", stdout)
+	}
+}
+
+func TestStackCompletionHelpers(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.knownConfigPaths = func() ([]string, error) {
+			return []string{
+				"/tmp/stackctl/config.yaml",
+				"/tmp/stackctl/stacks/staging.yaml",
+			}, nil
+		}
+	})
+
+	completions, directive := completeSingleConfiguredStackArg(nil, nil, "st")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("unexpected single-stack directive: %v", directive)
+	}
+	choices := completionChoices(completions)
+	if len(choices) != 1 || choices[0] != "staging" {
+		t.Fatalf("unexpected single-stack completions: %+v", choices)
+	}
+
+	renameCompletions, renameDirective := completeRenameStackArgs(nil, nil, "de")
+	if renameDirective != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("unexpected rename directive: %v", renameDirective)
+	}
+	if !containsChoice(completionChoices(renameCompletions), configpkg.DefaultStackName) {
+		t.Fatalf("expected default stack completion in %+v", completionChoices(renameCompletions))
+	}
+
+	cloneCompletions, cloneDirective := completeCloneStackArgs(nil, nil, "")
+	if cloneDirective != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("unexpected clone directive: %v", cloneDirective)
+	}
+	if len(cloneCompletions) < 2 {
+		t.Fatalf("expected configured stack completions, got %+v", cloneCompletions)
+	}
+
+	noMoreCompletions, _ := completeRenameStackArgs(nil, []string{"staging"}, "")
+	if len(noMoreCompletions) != 0 {
+		t.Fatalf("expected no rename completions after the first arg, got %+v", noMoreCompletions)
+	}
+}
+
+func TestStackDeletePromptIncludesManagedPurgeDetails(t *testing.T) {
+	cfg := configpkg.DefaultForStack("staging")
+	cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+
+	prompt := stackDeletePrompt(stackTarget{
+		Name:       "staging",
+		ConfigPath: "/tmp/stackctl/stacks/staging.yaml",
+		Config:     cfg,
+	}, true)
+
+	for _, fragment := range []string{
+		"Delete stack staging?",
+		"Mode: managed",
+		"Data dir: /tmp/stackctl-data/stacks/staging",
+		"Continue?",
+	} {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("stack delete prompt missing %q:\n%s", fragment, prompt)
+		}
+	}
+
+	invalidPrompt := stackDeletePrompt(stackTarget{
+		Name:       "broken",
+		ConfigPath: "/tmp/stackctl/stacks/broken.yaml",
+		LoadErr:    errors.New("bad config"),
+	}, false)
+	if !strings.Contains(invalidPrompt, "Config status: invalid") {
+		t.Fatalf("expected invalid-config note in prompt:\n%s", invalidPrompt)
 	}
 }

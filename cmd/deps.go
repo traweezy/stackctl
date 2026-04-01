@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -135,6 +136,13 @@ func defaultCommandDeps() commandDeps {
 			return compose.Client{Runner: runner}.StopServices(ctx, cfg, services...)
 		},
 		composeLogs: func(ctx context.Context, runner system.Runner, cfg configpkg.Config, tail int, follow bool, since, service string) error {
+			if service != "" {
+				containerName, err := containerNameForLogs(cfg, service)
+				if err != nil {
+					return err
+				}
+				return compose.Client{Runner: runner}.ContainerLogs(ctx, containerName, tail, follow, since)
+			}
 			return compose.Client{Runner: runner}.Logs(ctx, cfg, tail, follow, since, service)
 		},
 		composeExec: func(ctx context.Context, runner system.Runner, cfg configpkg.Config, service string, env []string, commandArgs []string, tty bool) error {
@@ -146,6 +154,32 @@ func defaultCommandDeps() commandDeps {
 		containerLogs: func(ctx context.Context, runner system.Runner, containerName string, tail int, follow bool, since string) error {
 			return compose.Client{Runner: runner}.ContainerLogs(ctx, containerName, tail, follow, since)
 		},
+	}
+}
+
+func containerNameForLogs(cfg configpkg.Config, service string) (string, error) {
+	containerValue := func(name string, value string) (string, error) {
+		if strings.TrimSpace(value) == "" {
+			return "", fmt.Errorf("service %q does not define a container name", name)
+		}
+		return value, nil
+	}
+
+	switch strings.TrimSpace(strings.ToLower(service)) {
+	case "postgres", "pg":
+		return containerValue("postgres", cfg.Services.PostgresContainer)
+	case "redis", "rd":
+		return containerValue("redis", cfg.Services.RedisContainer)
+	case "nats":
+		return containerValue("nats", cfg.Services.NATSContainer)
+	case "seaweedfs", "seaweed":
+		return containerValue("seaweedfs", cfg.Services.SeaweedFSContainer)
+	case "meilisearch", "meili":
+		return containerValue("meilisearch", cfg.Services.MeilisearchContainer)
+	case "pgadmin":
+		return containerValue("pgadmin", cfg.Services.PgAdminContainer)
+	default:
+		return "", fmt.Errorf("invalid service %q; valid values: postgres, redis, nats, seaweedfs, meilisearch, pgadmin", service)
 	}
 }
 

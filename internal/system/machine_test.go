@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 )
 
@@ -53,4 +54,25 @@ func TestPodmanMachineStatusWithDeps(t *testing.T) {
 			t.Fatalf("unexpected state: %+v", state)
 		}
 	})
+}
+
+func TestPodmanMachineStatusReflectsUnsupportedLinuxHost(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("expected linux host, got %s", runtime.GOOS)
+	}
+
+	state := PodmanMachineStatus(context.Background())
+	if state.Supported {
+		t.Fatalf("expected unsupported podman machine state on linux, got %+v", state)
+	}
+}
+
+func TestPreparePodmanMachineReturnsNilWhenUnsupported(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skipf("expected linux host, got %s", runtime.GOOS)
+	}
+
+	if err := PreparePodmanMachine(context.Background(), Runner{}); err != nil {
+		t.Fatalf("PreparePodmanMachine returned error: %v", err)
+	}
 }

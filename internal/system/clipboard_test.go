@@ -1,8 +1,10 @@
 package system
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -54,5 +56,30 @@ func writeExecutable(t *testing.T, path string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("write executable %s: %v", path, err)
+	}
+}
+
+func TestCopyToClipboardWritesValueToDetectedCommand(t *testing.T) {
+	binDir := t.TempDir()
+	logPath := filepath.Join(binDir, "clipboard.log")
+	if err := os.WriteFile(filepath.Join(binDir, "xclip"), []byte("#!/bin/sh\ncat > \""+logPath+"\"\nprintf '%s\\n' \"$*\" >> \""+logPath+"\"\n"), 0o755); err != nil {
+		t.Fatalf("write xclip stub: %v", err)
+	}
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("WAYLAND_DISPLAY", "")
+	t.Setenv("XDG_SESSION_TYPE", "x11")
+
+	if err := CopyToClipboard(context.Background(), Runner{}, "postgres://stackctl"); err != nil {
+		t.Fatalf("CopyToClipboard returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read clipboard log: %v", err)
+	}
+	output := string(data)
+	if !strings.Contains(output, "postgres://stackctl") || !strings.Contains(output, "-selection clipboard") {
+		t.Fatalf("unexpected clipboard command output: %q", output)
 	}
 }

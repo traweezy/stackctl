@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -141,16 +142,16 @@ func splitPane(left, right string, width int, minListPaneWidth int, maxListPaneW
 		return strings.TrimSpace(left) + "\n\n" + strings.TrimSpace(right)
 	}
 
-	leftPane := subPaneStyle("238").Width(leftWidth).Render(left)
-	rightPane := subPaneStyle("31").Width(rightWidth).Render(right)
+	leftPane := subPaneStyle(activeTheme().subtlePaneBorder).Width(leftWidth).Render(left)
+	rightPane := subPaneStyle(activeTheme().strongPaneBorder).Width(rightWidth).Render(right)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 }
 
-func subPaneStyle(color string) lipgloss.Style {
+func subPaneStyle(border color.Color) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(color)).
+		BorderForeground(border).
 		Padding(0, 1)
 }
 
@@ -183,20 +184,20 @@ func statusChip(label, status string) string {
 
 	style := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("230")).
+		Foreground(activeTheme().chipForeground).
 		Padding(0, 1)
 
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "running", "ok", "healthy":
-		style = style.Background(lipgloss.Color("28"))
+		style = style.Background(activeTheme().chipSuccessBg)
 	case output.StatusWarn, "warn", "warning", "needs attention", "changing":
-		style = style.Foreground(lipgloss.Color("16")).Background(lipgloss.Color("221"))
+		style = style.Foreground(activeTheme().chipWarnFg).Background(activeTheme().chipWarnBg)
 	case output.StatusFail, output.StatusMiss, "not running", "stopped", "missing", "not installed":
-		style = style.Background(lipgloss.Color("160"))
+		style = style.Background(activeTheme().chipFailBg)
 	case output.StatusInfo, output.StatusLogs, "starting", "stopping", "restarting":
-		style = style.Background(lipgloss.Color("24"))
+		style = style.Background(activeTheme().chipInfoBg)
 	default:
-		style = style.Foreground(lipgloss.Color("16")).Background(lipgloss.Color("245"))
+		style = style.Foreground(activeTheme().chipNeutralFg).Background(activeTheme().chipNeutralBg)
 	}
 
 	return style.Render(strings.ToUpper(label))
@@ -571,7 +572,7 @@ func renderHealthDoctorFooter(snapshot Snapshot, width int) string {
 	}
 
 	panelWidth := maxInt(24, width)
-	return subPaneStyle(doctorFooterColor(snapshot.DoctorSummary)).Width(panelWidth).Render(strings.Join(lines, "\n"))
+	return subPaneStyle(lipgloss.Color(doctorFooterColor(snapshot.DoctorSummary))).Width(panelWidth).Render(strings.Join(lines, "\n"))
 }
 
 func doctorFindings(checks []DoctorCheck) []DoctorCheck {

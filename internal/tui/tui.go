@@ -9,6 +9,10 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	bubblesprogress "charm.land/bubbles/v2/progress"
+	bubblespinner "charm.land/bubbles/v2/spinner"
+	bubblesstopwatch "charm.land/bubbles/v2/stopwatch"
+	bubblestimer "charm.land/bubbles/v2/timer"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -178,6 +182,10 @@ type autoRefreshMsg struct {
 type logWatchDoneMsg struct {
 	Service string
 	Err     error
+}
+
+type QuitBlockedMsg struct {
+	Reason string
 }
 
 type keyMap struct {
@@ -360,6 +368,7 @@ type Model struct {
 	autoRefresh      bool
 	autoRefreshID    int
 	showSecrets      bool
+	mouseEnabled     bool
 	errMessage       string
 	snapshot         Snapshot
 	loader           Loader
@@ -369,9 +378,17 @@ type Model struct {
 	clipboardWriter  ClipboardWriter
 	shellLauncher    ServiceShellLauncher
 	dbShellLauncher  DBShellLauncher
+	backgroundDark   bool
+	keyboardFeatures tea.KeyboardEnhancementsMsg
 	keys             keyMap
 	help             help.Model
 	viewport         viewport.Model
+	busySpinner      bubblespinner.Model
+	busyProgress     bubblesprogress.Model
+	busyStopwatch    bubblesstopwatch.Model
+	busyTimer        bubblestimer.Model
+	busyStartedAt    time.Time
+	busyBudget       time.Duration
 	banner           *actionBanner
 	confirmation     *confirmationState
 	runningAction    *runningAction
@@ -406,14 +423,18 @@ func NewFullModel(loader Loader, logWatchLauncher LogWatchLauncher, runner Actio
 
 func newModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRunner, configManager *ConfigManager) Model {
 	viewportModel := viewport.New()
+	viewportModel.MouseWheelEnabled = MouseEnabledFromEnv()
+	viewportModel.MouseWheelDelta = 2
 	helpModel := help.New()
 	helpModel.ShowAll = false
+	setThemeDark(true)
 
 	return Model{
 		active:           overviewSection,
 		layout:           expandedLayout,
 		loading:          true,
 		autoRefresh:      true,
+		mouseEnabled:     MouseEnabledFromEnv(),
 		loader:           loader,
 		logWatchLauncher: logWatchLauncher,
 		runner:           runner,
@@ -421,6 +442,10 @@ func newModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRun
 		keys:             defaultKeyMap(),
 		help:             helpModel,
 		viewport:         viewportModel,
+		busySpinner:      bubblespinner.New(bubblespinner.WithSpinner(bubblespinner.Line)),
+		busyProgress:     bubblesprogress.New(bubblesprogress.WithDefaultBlend(), bubblesprogress.WithoutPercentage()),
+		busyStopwatch:    bubblesstopwatch.New(bubblesstopwatch.WithInterval(time.Second)),
+		busyStartedAt:    time.Now(),
 		pinnedServices:   make(map[string]struct{}),
 		configEditor:     newConfigEditor(),
 	}
@@ -436,8 +461,19 @@ func (m Model) WithProductivity(copyWriter ClipboardWriter, shellLauncher Servic
 	return m
 }
 
+func (m Model) WithMouse(enabled bool) Model {
+	m.mouseEnabled = enabled
+	m.viewport.MouseWheelEnabled = enabled
+	return m
+}
+
 func (m Model) Init() tea.Cmd {
-	return loadSnapshotCmd(m.loader)
+	return tea.Batch(
+		loadSnapshotCmd(m.loader),
+		func() tea.Msg { return tea.RequestBackgroundColor() },
+		m.busySpinner.Tick,
+		m.busyStopwatch.Start(),
+	)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -446,6 +482,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.syncLayout()
+		return m, nil
+	case tea.BackgroundColorMsg:
+		m.backgroundDark = msg.IsDark()
+		setThemeDark(m.backgroundDark)
+		m.syncLayout()
+		return m, nil
+	case tea.KeyboardEnhancementsMsg:
+		m.keyboardFeatures = msg
+		return m, nil
+	case bubblespinner.TickMsg:
+		var cmd tea.Cmd
+		m.busySpinner, cmd = m.busySpinner.Update(msg)
+		if m.isBusy() {
+			m.syncLayout()
+			return m, cmd
+		}
+		return m, nil
+	case bubblesstopwatch.TickMsg:
+		var cmd tea.Cmd
+		m.busyStopwatch, cmd = m.busyStopwatch.Update(msg)
+		if m.isBusy() {
+			m.syncLayout()
+			return m, cmd
+		}
+		return m, nil
+	case bubblestimer.TickMsg:
+		var cmd tea.Cmd
+		m.busyTimer, cmd = m.busyTimer.Update(msg)
+		if m.isBusy() && m.busyBudget > 0 {
+			m.syncLayout()
+			return m, cmd
+		}
 		return m, nil
 	case snapshotMsg:
 		m.loading = false
@@ -461,26 +529,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.syncLayout()
+		finishCmd := m.finishBusy()
 		if m.autoRefresh {
 			m.autoRefreshID++
-			return m, autoRefreshCmd(m.autoRefreshID, m.refreshInterval())
+			return m, tea.Batch(finishCmd, autoRefreshCmd(m.autoRefreshID, m.refreshInterval()))
 		}
-		return m, nil
+		return m, finishCmd
 	case configOperationMsg:
 		m.runningConfigOp = nil
 		bannerID := m.setBanner(msg.Status, msg.Message)
 		m.syncLayout()
 		if msg.Err != nil {
-			return m, clearBannerCmd(bannerID)
+			return m, tea.Batch(m.finishBusy(), clearBannerCmd(bannerID))
 		}
 		if msg.Reload {
 			m.configEditor.baseline = m.configEditor.draft
 			m.configEditor.source = ConfigSourceLoaded
 			m.configEditor.sourceMessage = ""
 			m.loading = true
-			return m, tea.Batch(loadSnapshotCmd(m.loader), clearBannerCmd(bannerID))
+			return m, tea.Batch(m.beginBusy(m.currentBusyBudget()), loadSnapshotCmd(m.loader), clearBannerCmd(bannerID))
 		}
-		return m, clearBannerCmd(bannerID)
+		return m, tea.Batch(m.finishBusy(), clearBannerCmd(bannerID))
 	case copyDoneMsg:
 		cmd := m.completeCopy(msg)
 		m.syncLayout()
@@ -492,7 +561,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logWatchDoneMsg:
 		m.loading = true
 		m.autoRefreshID++
-		cmds := []tea.Cmd{loadSnapshotCmd(m.loader)}
+		cmds := []tea.Cmd{m.beginBusy(m.currentBusyBudget()), loadSnapshotCmd(m.loader)}
 		if msg.Err != nil {
 			bannerID := m.setBanner(output.StatusWarn, watchLogsErrorMessage(msg.Service, msg.Err))
 			cmds = append(cmds, clearBannerCmd(bannerID))
@@ -507,21 +576,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncLayout()
 		if msg.report.Refresh || lifecycleAction(msg.action.ID) {
 			m.loading = true
-			return m, tea.Batch(loadSnapshotCmd(m.loader), bannerCmd)
+			return m, tea.Batch(m.beginBusy(m.currentBusyBudget()), loadSnapshotCmd(m.loader), bannerCmd)
 		}
-		return m, bannerCmd
+		return m, tea.Batch(m.finishBusy(), bannerCmd)
 	case bannerClearMsg:
 		if m.banner != nil && m.banner.ID == msg.id {
 			m.banner = nil
 			m.syncLayout()
 		}
 		return m, nil
+	case QuitBlockedMsg:
+		bannerID := m.setBanner(output.StatusWarn, msg.Reason)
+		m.syncLayout()
+		return m, clearBannerCmd(bannerID)
 	case autoRefreshMsg:
 		if !m.autoRefresh || msg.id != m.autoRefreshID || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil || m.configEditor.dirty() {
 			return m, nil
 		}
 		m.loading = true
-		return m, loadSnapshotCmd(m.loader)
+		return m, tea.Batch(m.beginBusy(m.currentBusyBudget()), loadSnapshotCmd(m.loader))
 	case tea.KeyPressMsg:
 		if m.confirmation != nil {
 			switch {
@@ -671,7 +744,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.loading = true
 			m.autoRefreshID++
-			return m, loadSnapshotCmd(m.loader)
+			return m, tea.Batch(m.beginBusy(m.currentBusyBudget()), loadSnapshotCmd(m.loader))
 		case key.Matches(msg, m.keys.NextItem):
 			if !m.activeHasSelectionList() {
 				return m, nil
@@ -742,6 +815,11 @@ func (m Model) View() tea.View {
 
 	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, blocks...))
 	view.AltScreen = tuiAltScreenEnabled()
+	view.ReportFocus = true
+	view.KeyboardEnhancements.ReportEventTypes = true
+	if m.mouseEnabled {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
 	return view
 }
 
@@ -1287,19 +1365,19 @@ func (m *Model) startConfigSaveFlow() (tea.Cmd, bool) {
 func titleStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("229")).
-		Background(lipgloss.Color("24")).
+		Foreground(activeTheme().titleForeground).
+		Background(activeTheme().titleBackground).
 		Padding(0, 1)
 }
 
 func subtitleStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252"))
+		Foreground(activeTheme().subtitleForeground)
 }
 
 func headerMetaStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("117"))
+		Foreground(activeTheme().metaForeground)
 }
 
 func headerStatusStyle(m Model) lipgloss.Style {
@@ -1307,19 +1385,19 @@ func headerStatusStyle(m Model) lipgloss.Style {
 
 	switch {
 	case m.runningAction != nil:
-		return style.Foreground(lipgloss.Color("81"))
+		return style.Foreground(activeTheme().statusInfo)
 	case m.runningHandoff != nil:
-		return style.Foreground(lipgloss.Color("81"))
+		return style.Foreground(activeTheme().statusInfo)
 	case m.runningConfigOp != nil:
-		return style.Foreground(lipgloss.Color("81"))
+		return style.Foreground(activeTheme().statusInfo)
 	case m.confirmation != nil:
-		return style.Foreground(lipgloss.Color("221"))
+		return style.Foreground(activeTheme().statusWarn)
 	case m.palette != nil:
-		return style.Foreground(lipgloss.Color("117"))
+		return style.Foreground(activeTheme().metaForeground)
 	case m.loading:
-		return style.Foreground(lipgloss.Color("117"))
+		return style.Foreground(activeTheme().metaForeground)
 	default:
-		return style.Foreground(lipgloss.Color("78"))
+		return style.Foreground(activeTheme().statusOK)
 	}
 }
 
@@ -1330,19 +1408,19 @@ func headerShellStyle() lipgloss.Style {
 func sidebarStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("238")).
+		BorderForeground(activeTheme().sidebarBorder).
 		Padding(1, 1)
 }
 
 func navItemStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("251"))
+		Foreground(activeTheme().navForeground)
 }
 
 func activeNavItemStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("230")).
-		Background(lipgloss.Color("31")).
+		Foreground(activeTheme().navActiveForeground).
+		Background(activeTheme().navActiveBackground).
 		Bold(true).
 		Padding(0, 1)
 }
@@ -1350,37 +1428,37 @@ func activeNavItemStyle() lipgloss.Style {
 func mainPanelStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("31")).
+		BorderForeground(activeTheme().mainBorder).
 		Padding(1, 1)
 }
 
 func sectionTitleStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("80"))
+		Foreground(activeTheme().sectionForeground)
 }
 
 func subsectionTitleStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("117"))
+		Foreground(activeTheme().subsectionForeground)
 }
 
 func mutedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("244"))
+		Foreground(activeTheme().mutedForeground)
 }
 
 func errorBannerStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("230")).
-		Background(lipgloss.Color("160")).
+		Foreground(activeTheme().errorForeground).
+		Background(activeTheme().errorBackground).
 		Padding(0, 1)
 }
 
 func footerStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("245")).
+		Foreground(activeTheme().footerForeground).
 		Padding(0, 1)
 }
 
@@ -1410,6 +1488,9 @@ func renderHeader(m Model) string {
 		statusLabel = emptyLabel(m.palette.title)
 	case m.loading:
 		statusLabel = "Refreshing"
+	}
+	if m.isBusy() {
+		statusLabel = strings.TrimSpace(m.busySpinner.View() + " " + statusLabel)
 	}
 
 	mode := "external"
@@ -1441,6 +1522,9 @@ func renderHeader(m Model) string {
 		autoRefreshLabel,
 	)
 	metaSecondary := fmt.Sprintf("secrets: %s  •  updated: %s", onOffLabel(m.showSecrets), loadedAt)
+	if m.isBusy() {
+		metaSecondary += "  •  elapsed: " + formatDurationCompact(m.busyElapsed())
+	}
 
 	header := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -1451,10 +1535,17 @@ func renderHeader(m Model) string {
 	header = headerShellStyle().Render(header)
 
 	if m.errMessage == "" {
+		if progress := renderBusyProgress(m, maxInt(20, m.width-4)); progress != "" {
+			return lipgloss.JoinVertical(lipgloss.Left, header, headerShellStyle().Render(progress))
+		}
 		return header
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, errorBannerStyle().Render(m.errMessage))
+	body := lipgloss.JoinVertical(lipgloss.Left, header, errorBannerStyle().Render(m.errMessage))
+	if progress := renderBusyProgress(m, maxInt(20, m.width-4)); progress != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, body, headerShellStyle().Render(progress))
+	}
+	return body
 }
 
 func renderBody(m Model) string {
@@ -1984,17 +2075,17 @@ func serviceStatusBadge(status string) string {
 func statusStyle(status string) lipgloss.Style {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "running", "ok", "healthy":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("78")).Bold(true)
+		return lipgloss.NewStyle().Foreground(activeTheme().statusOK).Bold(true)
 	case "starting", "stopping", "restarting", "info", "health":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
+		return lipgloss.NewStyle().Foreground(activeTheme().statusInfo).Bold(true)
 	case "warning", "warn":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("221")).Bold(true)
+		return lipgloss.NewStyle().Foreground(activeTheme().statusWarn).Bold(true)
 	case "stopped", "not running", "missing", "not installed":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+		return lipgloss.NewStyle().Foreground(activeTheme().statusStopped)
 	case "error", "fail", "miss":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("203")).Bold(true)
+		return lipgloss.NewStyle().Foreground(activeTheme().statusFail).Bold(true)
 	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+		return lipgloss.NewStyle().Foreground(activeTheme().statusDefault)
 	}
 }
 
@@ -2091,4 +2182,128 @@ func minInt(a, b int) int {
 	}
 
 	return b
+}
+
+func (m Model) isBusy() bool {
+	return m.loading || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil
+}
+
+func (m *Model) beginBusy(budget time.Duration) tea.Cmd {
+	m.busyStartedAt = timeNow()
+	m.busyBudget = budget
+	m.busyStopwatch = bubblesstopwatch.New(bubblesstopwatch.WithInterval(time.Second))
+	cmds := []tea.Cmd{m.busySpinner.Tick, m.busyStopwatch.Start()}
+	if budget > 0 {
+		m.busyTimer = bubblestimer.New(budget, bubblestimer.WithInterval(time.Second))
+		cmds = append(cmds, m.busyTimer.Start())
+	} else {
+		m.busyTimer = bubblestimer.Model{}
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) finishBusy() tea.Cmd {
+	m.busyBudget = 0
+	m.busyStartedAt = time.Time{}
+	timer := m.busyTimer
+	m.busyTimer = bubblestimer.Model{}
+	cmds := make([]tea.Cmd, 0, 2)
+	if m.busyStopwatch.Running() {
+		cmds = append(cmds, m.busyStopwatch.Stop())
+	}
+	if timer.Running() {
+		cmds = append(cmds, timer.Stop())
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m Model) busyElapsed() time.Duration {
+	if m.busyStartedAt.IsZero() {
+		return 0
+	}
+	return timeNow().Sub(m.busyStartedAt)
+}
+
+func (m Model) currentBusyBudget() time.Duration {
+	switch {
+	case m.runningAction != nil && actionUsesStartupBudget(m.runningAction.Action.ID, m.snapshot.WaitForServices):
+		return time.Duration(m.snapshot.StartupTimeoutSec) * time.Second
+	case m.runningAction != nil && actionUsesStopBudget(m.runningAction.Action.ID):
+		return 15 * time.Second
+	case m.runningConfigOp != nil && strings.Contains(strings.ToLower(m.runningConfigOp.Message), "applying") && m.snapshot.WaitForServices:
+		return time.Duration(m.snapshot.StartupTimeoutSec) * time.Second
+	default:
+		return 0
+	}
+}
+
+func renderBusyProgress(m Model, width int) string {
+	if !m.isBusy() || m.busyBudget <= 0 {
+		return ""
+	}
+
+	elapsed := m.busyElapsed()
+	percent := 1.0
+	if elapsed <= 0 {
+		percent = 0
+	} else if elapsed < m.busyBudget {
+		percent = float64(elapsed) / float64(m.busyBudget)
+	}
+
+	progressWidth := minInt(44, maxInt(18, width/3))
+	progressBar := m.busyProgress
+	progressBar.SetWidth(progressWidth)
+	progressBar.PercentageStyle = mutedStyle()
+
+	return fmt.Sprintf(
+		"%s  %s / %s  •  %s left",
+		progressBar.ViewAs(percent),
+		formatDurationCompact(elapsed),
+		formatDurationCompact(m.busyBudget),
+		formatDurationCompact(remainingDuration(m.busyTimer.Timeout)),
+	)
+}
+
+func formatDurationCompact(value time.Duration) string {
+	if value <= 0 {
+		return "0s"
+	}
+
+	value = value.Round(time.Second)
+	if value < time.Minute {
+		return value.String()
+	}
+
+	minutes := int(value / time.Minute)
+	seconds := int((value % time.Minute) / time.Second)
+	if seconds == 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%dm%02ds", minutes, seconds)
+}
+
+func remainingDuration(value time.Duration) time.Duration {
+	if value <= 0 {
+		return 0
+	}
+	return value
+}
+
+func (m Model) QuitBlockedReason() string {
+	switch {
+	case m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil:
+		return "finish or wait for the current action before quitting"
+	case m.confirmation != nil:
+		return "confirm or cancel the current action before quitting"
+	case m.active == configSection && m.configEditor.editing:
+		return "finish or cancel the current config edit before quitting"
+	case m.configManager != nil && m.configEditor.needsSave():
+		return "save or reset the current config draft before quitting"
+	default:
+		return ""
+	}
+}
+
+func MouseEnabledFromEnv() bool {
+	return os.Getenv("STACKCTL_TUI_MOUSE") == "1"
 }

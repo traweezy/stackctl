@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"os/signal"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
+	"github.com/traweezy/stackctl/internal/logging"
 	"github.com/traweezy/stackctl/internal/system"
 	stacktui "github.com/traweezy/stackctl/internal/tui"
 )
@@ -23,7 +25,10 @@ import (
 const tuiLogWatchTail = 100
 
 func newTUICmd() *cobra.Command {
-	return &cobra.Command{
+	var mouseMode string
+	var debugLogFile string
+
+	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Open the interactive stack dashboard",
 		Long: "Open the interactive stack dashboard.\n\n" +
@@ -53,6 +58,16 @@ func newTUICmd() *cobra.Command {
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			mouseEnabled, err := resolveTUIMouseMode(mouseMode)
+			if err != nil {
+				return err
+			}
+			debugLogPath := resolveTUIDebugLogPath(cmd, debugLogFile)
+			log := logging.With("component", "tui")
+			var clipboardWriter stacktui.ClipboardWriter
+			if system.ClipboardAvailable() {
+				clipboardWriter = copyTUIValueToClipboard
+			}
 			model := stacktui.NewFullModel(func() (stacktui.Snapshot, error) {
 				return loadTUISnapshot()
 			}, buildTUILogWatchCommand, runTUIAction, &stacktui.ConfigManager{
@@ -62,13 +77,77 @@ func newTUICmd() *cobra.Command {
 				MarshalConfig:             deps.marshalConfig,
 				ManagedStackNeedsScaffold: deps.managedStackNeedsScaffold,
 				ScaffoldManagedStack:      deps.scaffoldManagedStack,
-			}).WithProductivity(copyTUIValueToClipboard, buildTUIServiceShellCommand, buildTUIDBShellCommand)
+			}).
+				WithMouse(mouseEnabled).
+				WithProductivity(clipboardWriter, buildTUIServiceShellCommand, buildTUIDBShellCommand)
 
-			program := tea.NewProgram(model)
-			_, err := program.Run()
+			debugLog, err := openTUIDebugLog(debugLogPath)
+			if err != nil {
+				return err
+			}
+			if debugLog != nil {
+				defer func() { _ = debugLog.Close() }()
+				log.Info("bubble tea debug logging enabled", "path", debugLogPath)
+			}
+
+			program := tea.NewProgram(model, tea.WithFilter(tuiProgramFilter))
+			_, err = program.Run()
+			if err != nil {
+				log.Error("tui exited with error", "error", err)
+			}
 			return err
 		},
 	}
+	cmd.Flags().StringVar(&mouseMode, "mouse", "auto", "Mouse support for scrolling and click-aware navigation (auto, on, off)")
+	cmd.Flags().StringVar(&debugLogFile, "debug-log-file", "", "Write Bubble Tea debug logs to this path")
+	mustRegisterFlagCompletion(cmd, "mouse", cobra.FixedCompletions([]string{"auto", "on", "off"}, cobra.ShellCompDirectiveNoFileComp))
+	return cmd
+}
+
+func openTUIDebugLog(path string) (*os.File, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
+	return tea.LogToFile(path, "stackctl-tui")
+}
+
+func resolveTUIMouseMode(mode string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "auto":
+		return stacktui.MouseEnabledFromEnv(), nil
+	case "on":
+		return true, nil
+	case "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid --mouse %q: use auto, on, or off", strings.TrimSpace(mode))
+	}
+}
+
+func resolveTUIDebugLogPath(cmd *cobra.Command, explicit string) string {
+	flag := cmd.Flags().Lookup("debug-log-file")
+	if flag == nil || !flag.Changed {
+		return logging.TUIDebugLogPath()
+	}
+	return strings.TrimSpace(explicit)
+}
+
+func tuiProgramFilter(model tea.Model, msg tea.Msg) tea.Msg {
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		return msg
+	}
+
+	current, ok := model.(stacktui.Model)
+	if !ok {
+		return msg
+	}
+
+	reason := current.QuitBlockedReason()
+	if reason == "" {
+		return msg
+	}
+
+	return stacktui.QuitBlockedMsg{Reason: reason}
 }
 
 func loadTUIConfig() (string, configpkg.Config, error) {
@@ -124,6 +203,7 @@ func loadTUISnapshot() (stacktui.Snapshot, error) {
 		return stacktui.Snapshot{}, err
 	}
 
+	logging.With("component", "tui", "stack", cfg.Stack.Name).Debug("building tui snapshot", "config_source", source)
 	return buildTUISnapshot(configPath, cfg, source, problem), nil
 }
 

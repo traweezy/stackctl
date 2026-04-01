@@ -473,3 +473,44 @@ func interactiveExitError(t *testing.T) error {
 
 	return err
 }
+
+func TestTUIExecCommandsSetStdin(t *testing.T) {
+	reader := strings.NewReader("input")
+
+	logCommand := &tuiLogWatchCommand{}
+	logCommand.SetStdin(reader)
+	if logCommand.stdin != reader {
+		t.Fatal("expected log watch command stdin to be stored")
+	}
+
+	serviceCommand := &tuiServiceShellCommand{}
+	serviceCommand.SetStdin(reader)
+	if serviceCommand.stdin != reader {
+		t.Fatal("expected service shell command stdin to be stored")
+	}
+
+	dbCommand := &tuiDBShellCommand{}
+	dbCommand.SetStdin(reader)
+	if dbCommand.stdin != reader {
+		t.Fatal("expected db shell command stdin to be stored")
+	}
+}
+
+func TestValidationIssuesErrorFormatsIssues(t *testing.T) {
+	if err := validationIssuesError(nil); err != nil {
+		t.Fatalf("expected no error for empty issues, got %v", err)
+	}
+
+	err := validationIssuesError([]configpkg.ValidationIssue{
+		{Field: "stack.dir", Message: "must not be empty"},
+		{Field: "ports.postgres", Message: "must be a valid port"},
+	})
+	if err == nil {
+		t.Fatal("expected validationIssuesError to return an error")
+	}
+	for _, fragment := range []string{"config validation failed", "stack.dir: must not be empty", "ports.postgres: must be a valid port"} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("validation error missing %q: %v", fragment, err)
+		}
+	}
+}

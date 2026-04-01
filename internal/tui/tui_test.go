@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	bubblestimer "charm.land/bubbles/v2/timer"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -21,11 +22,7 @@ func TestModelInitLoadsSnapshot(t *testing.T) {
 		return Snapshot{StackName: "dev-stack"}, nil
 	})
 
-	msg := model.Init()()
-	loaded, ok := msg.(snapshotMsg)
-	if !ok {
-		t.Fatalf("expected snapshotMsg, got %T", msg)
-	}
+	loaded := snapshotFromCmd(t, model.Init())
 	if loaded.err != nil {
 		t.Fatalf("unexpected load error: %v", loaded.err)
 	}
@@ -110,11 +107,7 @@ func TestModelNavigatesSectionsAndRefreshes(t *testing.T) {
 		t.Fatalf("expected refresh command")
 	}
 
-	refreshMsg := cmd()
-	loaded, ok := refreshMsg.(snapshotMsg)
-	if !ok {
-		t.Fatalf("expected refresh snapshotMsg, got %T", refreshMsg)
-	}
+	loaded := snapshotFromCmd(t, cmd)
 	if loaded.snapshot.StackName != "stack-1" {
 		t.Fatalf("unexpected refreshed snapshot: %+v", loaded.snapshot)
 	}
@@ -163,11 +156,7 @@ func TestModelAutoRefreshSchedulesAndCanBeDisabled(t *testing.T) {
 		t.Fatalf("expected loader command during auto-refresh")
 	}
 
-	loadedMsg := cmd()
-	loaded, ok := loadedMsg.(snapshotMsg)
-	if !ok {
-		t.Fatalf("expected snapshotMsg from auto-refresh loader, got %T", loadedMsg)
-	}
+	loaded := snapshotFromCmd(t, cmd)
 	if loaded.snapshot.StackName != "stack-1" {
 		t.Fatalf("unexpected auto-refreshed snapshot: %+v", loaded.snapshot)
 	}
@@ -212,7 +201,7 @@ func TestRenderHeaderPadsAndColorizesStatus(t *testing.T) {
 	if !strings.HasPrefix(lines[0], "  stackctl tui") {
 		t.Fatalf("expected title row to be padded right for alignment:\n%s", plain)
 	}
-	if !strings.HasPrefix(lines[1], " Refreshing  •") {
+	if !strings.Contains(lines[1], "Refreshing  •") {
 		t.Fatalf("expected status row to be padded and aligned:\n%s", plain)
 	}
 	if raw == plain {
@@ -228,6 +217,15 @@ func TestViewCanDisableAltScreenForAutomation(t *testing.T) {
 	view := updatedModel.(Model).View()
 	if view.AltScreen {
 		t.Fatal("expected automation mode to disable alt screen rendering")
+	}
+}
+
+func TestViewHonorsExplicitMouseConfiguration(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil }).WithMouse(true)
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	view := updatedModel.(Model).View()
+	if view.MouseMode != tea.MouseModeCellMotion {
+		t.Fatalf("expected cell-motion mouse mode, got %v", view.MouseMode)
 	}
 }
 
@@ -1246,6 +1244,42 @@ func TestCommandPaletteShowsRecentActionsAheadOfStaticEntries(t *testing.T) {
 	}
 }
 
+func TestPaletteSummaryShowsResultCountsAndPages(t *testing.T) {
+	items := make([]paletteAction, 0, 12)
+	for idx := 0; idx < 12; idx++ {
+		items = append(items, paletteAction{Title: fmt.Sprintf("Item %02d", idx+1)})
+	}
+	state := newPaletteState(paletteModeCommand, "Command palette", "Choose an action", items)
+	state.setPageSize(5)
+	if got := state.summary(); got != "1-5 of 12  •  page 1/3" {
+		t.Fatalf("unexpected first page summary: %q", got)
+	}
+
+	state.page(1)
+	if state.selected != 5 {
+		t.Fatalf("expected page jump to move selection to index 5, got %d", state.selected)
+	}
+	if got := state.summary(); got != "6-10 of 12  •  page 2/3" {
+		t.Fatalf("unexpected second page summary: %q", got)
+	}
+}
+
+func TestRenderBusyProgressIncludesRemainingCountdown(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	model.loading = true
+	model.busyBudget = 30 * time.Second
+	model.busyStartedAt = timeNow().Add(-12 * time.Second)
+	model.busyTimer = bubblestimer.New(18*time.Second, bubblestimer.WithInterval(time.Second))
+
+	progress := stripANSITest(renderBusyProgress(model, 120))
+	if !strings.Contains(progress, "12s / 30s") {
+		t.Fatalf("expected elapsed budget summary, got %q", progress)
+	}
+	if !strings.Contains(progress, "18s left") {
+		t.Fatalf("expected remaining countdown, got %q", progress)
+	}
+}
+
 func TestLogWatchDoneReloadsSnapshot(t *testing.T) {
 	loadCount := 0
 	model := NewInspectionModel(
@@ -1563,10 +1597,7 @@ func TestStacksSectionRunsSelectedStackLifecycleAction(t *testing.T) {
 		t.Fatalf("expected async stack action command")
 	}
 
-	msg, ok := cmd().(actionMsg)
-	if !ok {
-		t.Fatalf("expected actionMsg, got %T", cmd())
-	}
+	msg := msgOfType[actionMsg](t, cmd)
 	if msg.action.ID != ActionID("start-stack:staging") {
 		t.Fatalf("unexpected action id: %+v", msg.action)
 	}
@@ -1742,10 +1773,7 @@ func TestModelRunsStartActionOptimisticallyAndRecordsHistory(t *testing.T) {
 		t.Fatalf("expected async action command")
 	}
 
-	actionMsgValue, ok := cmd().(actionMsg)
-	if !ok {
-		t.Fatalf("expected actionMsg, got %T", cmd())
-	}
+	actionMsgValue := msgOfType[actionMsg](t, cmd)
 
 	updatedModel, cmd = current.Update(actionMsgValue)
 	current = updatedModel.(Model)
@@ -1850,10 +1878,7 @@ func TestModelRunsSelectedServiceActionOptimistically(t *testing.T) {
 		t.Fatalf("expected async service action command")
 	}
 
-	msg, ok := cmd().(actionMsg)
-	if !ok {
-		t.Fatalf("expected actionMsg, got %T", cmd())
-	}
+	msg := msgOfType[actionMsg](t, cmd)
 	if msg.action.ID != ActionID("restart-service:postgres") {
 		t.Fatalf("unexpected action id: %+v", msg.action)
 	}
@@ -1964,10 +1989,7 @@ func TestModelRestoresSnapshotWhenActionFails(t *testing.T) {
 		t.Fatalf("expected async restart command")
 	}
 
-	actionMsgValue, ok := cmd().(actionMsg)
-	if !ok {
-		t.Fatalf("expected actionMsg, got %T", cmd())
-	}
+	actionMsgValue := msgOfType[actionMsg](t, cmd)
 	updatedModel, _ = current.Update(actionMsgValue)
 	current = updatedModel.(Model)
 	if current.snapshot.Services[0].Status != "running" {
@@ -2597,10 +2619,7 @@ func TestConfigSectionAllowsManualScaffoldWhenAutoScaffoldDisabled(t *testing.T)
 		t.Fatal("expected scaffold command")
 	}
 
-	msg, ok := cmd().(configOperationMsg)
-	if !ok {
-		t.Fatalf("expected configOperationMsg, got %T", cmd())
-	}
+	msg := msgOfType[configOperationMsg](t, cmd)
 	if msg.Err != nil {
 		t.Fatalf("expected scaffold to succeed, got %+v", msg)
 	}
@@ -2776,10 +2795,7 @@ func TestConfigSectionSaveUpdatesHeaderAutoRefreshInterval(t *testing.T) {
 		t.Fatalf("expected save command for TUI interval")
 	}
 
-	msg, ok := cmd().(configOperationMsg)
-	if !ok {
-		t.Fatalf("expected configOperationMsg, got %T", cmd())
-	}
+	msg := msgOfType[configOperationMsg](t, cmd)
 	updatedModel, reloadCmd := current.Update(msg)
 	current = updatedModel.(Model)
 	loaded := snapshotFromCmd(t, reloadCmd)
@@ -2952,10 +2968,7 @@ func TestConfigSectionSaveUsesDraftAndReloadsSnapshot(t *testing.T) {
 		t.Fatalf("expected save command")
 	}
 
-	resultMsg, ok := cmd().(configOperationMsg)
-	if !ok {
-		t.Fatalf("expected configOperationMsg, got %T", cmd())
-	}
+	resultMsg := msgOfType[configOperationMsg](t, cmd)
 	if saveCalls != 1 {
 		t.Fatalf("expected one save call, got %d", saveCalls)
 	}
@@ -3009,10 +3022,7 @@ func TestConfigSectionSaveMentionsScaffoldForRunningManagedServices(t *testing.T
 		t.Fatalf("expected save command")
 	}
 
-	resultMsg, ok := cmd().(configOperationMsg)
-	if !ok {
-		t.Fatalf("expected configOperationMsg, got %T", cmd())
-	}
+	resultMsg := msgOfType[configOperationMsg](t, cmd)
 	if !strings.Contains(resultMsg.Message, "restart the stack to load the refreshed compose file") {
 		t.Fatalf("expected save message to mention restart follow-up, got %q", resultMsg.Message)
 	}
@@ -3057,10 +3067,7 @@ func TestConfigSectionApplyFromFreshManagedConfigSavesAndScaffolds(t *testing.T)
 		t.Fatalf("expected apply command")
 	}
 
-	resultMsg, ok := cmd().(configOperationMsg)
-	if !ok {
-		t.Fatalf("expected configOperationMsg, got %T", cmd())
-	}
+	resultMsg := msgOfType[configOperationMsg](t, cmd)
 	if saveCalls != 1 || scaffoldCalls != 1 {
 		t.Fatalf("expected one save and one scaffold call, got save=%d scaffold=%d", saveCalls, scaffoldCalls)
 	}
@@ -3116,10 +3123,7 @@ func TestConfigSectionApplyConfirmsRestartForRunningManagedChanges(t *testing.T)
 		t.Fatalf("expected save/apply command")
 	}
 
-	resultMsg, ok := cmd().(configOperationMsg)
-	if !ok {
-		t.Fatalf("expected configOperationMsg, got %T", cmd())
-	}
+	resultMsg := msgOfType[configOperationMsg](t, cmd)
 	if saveCalls != 1 || scaffoldCalls != 1 || restarted != 1 {
 		t.Fatalf("expected save, scaffold, and restart once, got save=%d scaffold=%d restart=%d", saveCalls, scaffoldCalls, restarted)
 	}
@@ -3155,10 +3159,7 @@ func TestConfigSectionApplyWarnsForManualFollowUpChanges(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected save command for manual-follow-up change")
 	}
-	resultMsg, ok := cmd().(configOperationMsg)
-	if !ok {
-		t.Fatalf("expected configOperationMsg, got %T", cmd())
-	}
+	resultMsg := msgOfType[configOperationMsg](t, cmd)
 	if !strings.Contains(resultMsg.Message, "future stackctl commands use the new stack target") {
 		t.Fatalf("expected manual-follow-up save guidance, got %q", resultMsg.Message)
 	}
@@ -3196,10 +3197,7 @@ func TestConfigSectionApplyDirectsExternalStacksToPlainSave(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected save command for external metadata-only changes")
 	}
-	resultMsg, ok := cmd().(configOperationMsg)
-	if !ok {
-		t.Fatalf("expected configOperationMsg, got %T", cmd())
-	}
+	resultMsg := msgOfType[configOperationMsg](t, cmd)
 	if !strings.Contains(resultMsg.Message, "external compose files were not changed") {
 		t.Fatalf("expected external save guidance, got %q", resultMsg.Message)
 	}
@@ -3281,29 +3279,42 @@ func (stubExecCommand) SetStderr(io.Writer) {}
 func snapshotFromCmd(t *testing.T, cmd tea.Cmd) snapshotMsg {
 	t.Helper()
 
-	msg := cmd()
-	if loaded, ok := msg.(snapshotMsg); ok {
-		return loaded
-	}
+	return msgOfType[snapshotMsg](t, cmd)
+}
 
+func msgOfType[T any](t *testing.T, cmd tea.Cmd) T {
+	t.Helper()
+
+	var zero T
+	if cmd == nil {
+		t.Fatalf("expected command for %T", zero)
+	}
+	value, ok := findMsgOfType[T](cmd())
+	if !ok {
+		t.Fatalf("expected %T from command", zero)
+	}
+	return value
+}
+
+func findMsgOfType[T any](msg tea.Msg) (T, bool) {
+	var zero T
+	value, ok := msg.(T)
+	if ok {
+		return value, true
+	}
 	batch, ok := msg.(tea.BatchMsg)
 	if !ok {
-		t.Fatalf("expected snapshotMsg or tea.BatchMsg, got %T", msg)
+		return zero, false
 	}
-
 	for _, child := range batch {
 		if child == nil {
 			continue
 		}
-		childMsg := child()
-		loaded, ok := childMsg.(snapshotMsg)
-		if ok {
-			return loaded
+		if value, ok := findMsgOfType[T](child()); ok {
+			return value, true
 		}
 	}
-
-	t.Fatalf("expected batched snapshotMsg, got %T", msg)
-	return snapshotMsg{}
+	return zero, false
 }
 
 func navigateToSection(t *testing.T, current Model, target section) Model {

@@ -2,6 +2,9 @@ package cmd
 
 import (
 	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -83,4 +86,116 @@ func TestLogsAllServicesWatchUsesComposeLogs(t *testing.T) {
 	if capturedTail != 50 || !follow {
 		t.Fatalf("unexpected log options: tail=%d follow=%v", capturedTail, follow)
 	}
+}
+
+func TestDefaultComposeLogsUsesContainerLogsForSingleService(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "podman.log")
+	writeLogsFakePodman(t, dir, logPath, "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+shellQuoteForLogsTest(logPath)+"\nif [ \"$1\" = \"logs\" ]; then\n  exit 0\nfi\necho \"unexpected podman args: $*\" >&2\nexit 1\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := configpkg.Default()
+	cfg.Stack.Dir = dir
+	runner := system.Runner{Stdout: io.Discard, Stderr: io.Discard}
+	err := defaultCommandDeps().composeLogs(context.Background(), runner, cfg, 25, true, "2m", "postgres")
+	if err != nil {
+		t.Fatalf("composeLogs returned error: %v", err)
+	}
+
+	assertLogsRecordedArgs(t, logPath, []string{
+		"logs",
+		"-f",
+		"--tail",
+		"25",
+		"--since",
+		"2m",
+		cfg.Services.PostgresContainer,
+	})
+}
+
+func TestDefaultComposeLogsSingleServiceSurfacesMissingContainer(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "podman.log")
+	writeLogsFakePodman(t, dir, logPath, "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+shellQuoteForLogsTest(logPath)+"\nif [ \"$1\" = \"logs\" ]; then\n  echo \"Error: no container with name or ID \\\"local-postgres\\\" found: no such container\" >&2\n  exit 1\nfi\nif [ \"$1\" = \"compose\" ]; then\n  echo \"compose logs should not be used for single-service logs\" >&2\n  exit 99\nfi\necho \"unexpected podman args: $*\" >&2\nexit 1\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := configpkg.Default()
+	cfg.Stack.Dir = dir
+	runner := system.Runner{Stdout: io.Discard, Stderr: io.Discard}
+	err := defaultCommandDeps().composeLogs(context.Background(), runner, cfg, 1, false, "", "postgres")
+	if err == nil {
+		t.Fatal("expected composeLogs to fail when the selected container is missing")
+	}
+	if !strings.Contains(err.Error(), "podman logs --tail 1 "+cfg.Services.PostgresContainer) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertLogsRecordedArgs(t, logPath, []string{
+		"logs",
+		"--tail",
+		"1",
+		cfg.Services.PostgresContainer,
+	})
+}
+
+func TestDefaultComposeLogsAllServicesStillUsesComposeLogs(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "podman.log")
+	writeLogsFakePodman(t, dir, logPath, "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+shellQuoteForLogsTest(logPath)+"\nif [ \"$1\" = \"compose\" ]; then\n  exit 0\nfi\necho \"unexpected podman args: $*\" >&2\nexit 1\n")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := configpkg.Default()
+	cfg.Stack.Dir = dir
+	runner := system.Runner{Stdout: io.Discard, Stderr: io.Discard}
+	err := defaultCommandDeps().composeLogs(context.Background(), runner, cfg, 10, false, "", "")
+	if err != nil {
+		t.Fatalf("composeLogs returned error: %v", err)
+	}
+
+	assertLogsRecordedArgs(t, logPath, []string{
+		"compose",
+		"-f",
+		configpkg.ComposePath(cfg),
+		"logs",
+		"--tail",
+		"10",
+	})
+}
+
+func writeLogsFakePodman(t *testing.T, dir, logPath, script string) {
+	t.Helper()
+
+	path := filepath.Join(dir, "podman")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake podman: %v", err)
+	}
+}
+
+func assertLogsRecordedArgs(t *testing.T, logPath string, want []string) {
+	t.Helper()
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read recorded args: %v", err)
+	}
+	got := strings.Fields(strings.TrimSpace(string(data)))
+	if !equalStringSlices(got, want) {
+		t.Fatalf("unexpected args:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func equalStringSlices(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func shellQuoteForLogsTest(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'"
 }

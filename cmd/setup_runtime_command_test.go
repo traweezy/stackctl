@@ -90,7 +90,7 @@ func TestSetupInteractiveDeclineContinuesWithoutSaving(t *testing.T) {
 	if saved {
 		t.Fatal("setup should not save config when interactive setup is declined")
 	}
-	if !strings.Contains(stdout, "config file not found") || !strings.Contains(stdout, "Next steps:") {
+	if !strings.Contains(stdout, "config file not found") || !strings.Contains(stdout, "Next steps") {
 		t.Fatalf("unexpected stdout: %s", stdout)
 	}
 }

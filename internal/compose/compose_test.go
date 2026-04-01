@@ -277,6 +277,60 @@ func TestDownRunsSingleComposeSubcommand(t *testing.T) {
 	})
 }
 
+func TestUpServicesRunsForceRecreateForSelectedServices(t *testing.T) {
+	cfg, logPath := writeFakePodman(t)
+
+	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
+	if err := client.UpServices(context.Background(), cfg, true, "postgres", "redis"); err != nil {
+		t.Fatalf("UpServices returned error: %v", err)
+	}
+
+	assertRecordedArgs(t, logPath, []string{
+		"compose",
+		"-f",
+		configpkg.ComposePath(cfg),
+		"up",
+		"-d",
+		"--no-deps",
+		"--force-recreate",
+		"postgres",
+		"redis",
+	})
+}
+
+func TestDownPathUsesCustomComposePath(t *testing.T) {
+	cfg, logPath := writeFakePodman(t)
+
+	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
+	if err := client.DownPath(context.Background(), cfg.Stack.Dir, "/tmp/custom-compose.yaml", false); err != nil {
+		t.Fatalf("DownPath returned error: %v", err)
+	}
+
+	assertRecordedArgs(t, logPath, []string{
+		"compose",
+		"-f",
+		"/tmp/custom-compose.yaml",
+		"down",
+	})
+}
+
+func TestStopServicesRunsComposeStop(t *testing.T) {
+	cfg, logPath := writeFakePodman(t)
+
+	client := Client{Runner: system.Runner{Stdout: io.Discard, Stderr: io.Discard}}
+	if err := client.StopServices(context.Background(), cfg, "postgres"); err != nil {
+		t.Fatalf("StopServices returned error: %v", err)
+	}
+
+	assertRecordedArgs(t, logPath, []string{
+		"compose",
+		"-f",
+		configpkg.ComposePath(cfg),
+		"stop",
+		"postgres",
+	})
+}
+
 func TestUpSuppressesComposeOutputOnSuccess(t *testing.T) {
 	cfg, _ := writeFakePodmanScript(t, "#!/bin/sh\necho created container\necho attached warning >&2\n")
 
@@ -344,6 +398,57 @@ func TestSupportsPSJSONFalseWhenPodmanComposeProviderIsPreferred(t *testing.T) {
 
 	if SupportsPSJSON() {
 		t.Fatal("expected podman-compose provider to disable compose ps json support")
+	}
+}
+
+func TestComposeJSONHelpersHandleNullStringAndErrors(t *testing.T) {
+	var names composeNames
+	if err := names.UnmarshalJSON([]byte(`"postgres"`)); err != nil {
+		t.Fatalf("composeNames string unmarshal: %v", err)
+	}
+	if len(names) != 1 || names[0] != "postgres" {
+		t.Fatalf("unexpected compose names from string: %+v", names)
+	}
+	if err := names.UnmarshalJSON([]byte(`null`)); err != nil {
+		t.Fatalf("composeNames null unmarshal: %v", err)
+	}
+	if names != nil {
+		t.Fatalf("expected compose names to reset to nil, got %+v", names)
+	}
+	if err := names.UnmarshalJSON([]byte(`{}`)); err == nil {
+		t.Fatal("expected composeNames to reject invalid JSON")
+	}
+
+	var ports composePorts
+	if err := ports.UnmarshalJSON([]byte(`[{"host_port":5432,"container_port":5432,"protocol":"tcp"}]`)); err != nil {
+		t.Fatalf("composePorts array unmarshal: %v", err)
+	}
+	if len(ports) != 1 || ports[0].HostPort != 5432 {
+		t.Fatalf("unexpected compose ports: %+v", ports)
+	}
+	if err := ports.UnmarshalJSON([]byte(`""`)); err != nil {
+		t.Fatalf("composePorts string unmarshal: %v", err)
+	}
+	if ports != nil {
+		t.Fatalf("expected string compose ports to become nil, got %+v", ports)
+	}
+	if err := ports.UnmarshalJSON([]byte(`{}`)); err == nil {
+		t.Fatal("expected composePorts to reject invalid JSON")
+	}
+}
+
+func TestListContainersReturnsComposeFailureDetail(t *testing.T) {
+	cfg := configpkg.Default()
+	t.Setenv("PODMAN_COMPOSE_PROVIDER", "podman")
+
+	_, err := ListContainers(context.Background(), cfg.Stack.Dir, configpkg.ComposePath(cfg), func(context.Context, string, string, ...string) (system.CommandResult, error) {
+		return system.CommandResult{ExitCode: 125, Stderr: "compose failed"}, nil
+	})
+	if err == nil {
+		t.Fatal("expected ListContainers to return an error")
+	}
+	if !strings.Contains(err.Error(), "compose failed") {
+		t.Fatalf("unexpected list-containers error: %v", err)
 	}
 }
 

@@ -187,6 +187,84 @@ func TestCompleteOpenTargetsUsesEnabledWebUIs(t *testing.T) {
 	}
 }
 
+func TestMustRegisterFlagCompletionPanicsForUnknownFlag(t *testing.T) {
+	cmd := &cobra.Command{Use: "stackctl"}
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected mustRegisterFlagCompletion to panic for an unknown flag")
+		}
+	}()
+
+	mustRegisterFlagCompletion(cmd, "missing", cobra.NoFileCompletions)
+}
+
+func TestCompleteExecArgsStopsAfterFirstService(t *testing.T) {
+	completions, directive := completeExecArgs(nil, []string{"postgres"}, "")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("unexpected directive: %v", directive)
+	}
+	if len(completions) != 0 {
+		t.Fatalf("expected no completions after the service arg, got %+v", completions)
+	}
+}
+
+func TestCompleteRunArgsStopsCompletingAfterDash(t *testing.T) {
+	cmd := &cobra.Command{
+		Use: "run",
+		Run: func(*cobra.Command, []string) {},
+	}
+	cmd.SetArgs([]string{"postgres", "--", "echo", "hi"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute command: %v", err)
+	}
+
+	completions, directive := completeRunArgs(cmd, nil, "")
+	if directive != cobra.ShellCompDirectiveDefault {
+		t.Fatalf("unexpected directive: %v", directive)
+	}
+	if len(completions) != 0 {
+		t.Fatalf("expected no completions after --, got %+v", completions)
+	}
+}
+
+func TestCompleteLogsServiceFlagUsesEnabledStackServices(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Setup.IncludePgAdmin = false
+		cfg.Setup.IncludeSeaweedFS = true
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+	})
+
+	completions, directive := completeLogsServiceFlag(nil, nil, "s")
+	if directive != cobra.ShellCompDirectiveNoFileComp {
+		t.Fatalf("unexpected directive: %v", directive)
+	}
+
+	choices := completionChoices(completions)
+	if !containsChoice(choices, "seaweedfs") {
+		t.Fatalf("expected stack service completion in %v", choices)
+	}
+	if containsChoice(choices, "pgadmin") {
+		t.Fatalf("did not expect disabled pgadmin in %v", choices)
+	}
+}
+
+func TestFilterCompletionsMatchesCaseInsensitivePrefixes(t *testing.T) {
+	filtered := filterCompletions([]cobra.Completion{
+		cobra.Completion("postgres"),
+		cobra.CompletionWithDesc("Redis", "cache"),
+		cobra.Completion("nats"),
+	}, "re")
+
+	choices := completionChoices(filtered)
+	if len(choices) != 1 || choices[0] != "Redis" {
+		t.Fatalf("unexpected filtered completions: %+v", choices)
+	}
+}
+
 func completionChoices(values []cobra.Completion) []string {
 	choices := make([]string, 0, len(values))
 	for _, value := range values {

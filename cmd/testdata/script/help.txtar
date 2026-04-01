@@ -10,6 +10,15 @@ stdout 'stack'
 stdout 'Lifecycle Commands'
 stdout 'Inspect Commands'
 stdout '--stack'
+stdout '--accessible'
+stdout '--plain'
+stdout '--log-level'
+stdout '--log-format'
+stdout '--log-file'
+
+exec stackctl tui --help
+stdout '--mouse'
+stdout '--debug-log-file'
 
 exec stackctl start --help
 stdout 'start [service...]'

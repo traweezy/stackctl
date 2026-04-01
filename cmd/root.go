@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
+	"github.com/traweezy/stackctl/internal/logging"
 )
 
 type App struct {
@@ -43,6 +44,19 @@ func NewRootCmd(app *App) *cobra.Command {
 			if rootOutput.Verbose && rootOutput.Quiet {
 				return fmt.Errorf("--verbose and --quiet cannot be used together")
 			}
+			if rootOutput.Accessible && rootOutput.PlainWizard {
+				return fmt.Errorf("--accessible and --plain cannot be used together")
+			}
+			if err := logging.ValidateLevel(rootOutput.LogLevel); err != nil {
+				return fmt.Errorf("invalid --log-level %q", strings.TrimSpace(rootOutput.LogLevel))
+			}
+			if err := logging.ValidateFormat(rootOutput.LogFormat); err != nil {
+				return fmt.Errorf("invalid --log-format %q: use text, json, or logfmt", strings.TrimSpace(rootOutput.LogFormat))
+			}
+			if err := applyRootEnvOverrides(cmd); err != nil {
+				return err
+			}
+			logging.Reset()
 			selected := strings.TrimSpace(stackName)
 			if selected == "" {
 				var err error
@@ -64,6 +78,11 @@ func NewRootCmd(app *App) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&stackName, "stack", "", "Select a named stack config (overrides STACKCTL_STACK and the saved current stack)")
 	cmd.PersistentFlags().BoolVarP(&rootOutput.Verbose, "verbose", "v", false, "Print extra lifecycle detail")
 	cmd.PersistentFlags().BoolVarP(&rootOutput.Quiet, "quiet", "q", false, "Suppress non-essential progress output")
+	cmd.PersistentFlags().BoolVar(&rootOutput.Accessible, "accessible", false, "Render interactive prompts and spinners in accessible mode")
+	cmd.PersistentFlags().BoolVar(&rootOutput.PlainWizard, "plain", false, "Force the legacy plain-text config wizard instead of the form UI")
+	cmd.PersistentFlags().StringVar(&rootOutput.LogLevel, "log-level", "", "Set the internal log level when --log-file is enabled")
+	cmd.PersistentFlags().StringVar(&rootOutput.LogFormat, "log-format", "", "Set the internal log format for --log-file (text, json, logfmt)")
+	cmd.PersistentFlags().StringVar(&rootOutput.LogFile, "log-file", "", "Write internal logs to this path ('-' writes to stderr)")
 	mustRegisterFlagCompletion(cmd, "stack", completeConfiguredStackNames)
 
 	startCmd := newStartCmd()
@@ -148,4 +167,54 @@ func NewRootCmd(app *App) *cobra.Command {
 
 func versionTemplate(app *App) string {
 	return fmt.Sprintf("stackctl %s\n", app.Version)
+}
+
+func applyRootEnvOverrides(cmd *cobra.Command) error {
+	if err := applyBoolEnvOverride(cmd, "accessible", "ACCESSIBLE"); err != nil {
+		return err
+	}
+	if err := applyBoolEnvOverride(cmd, "plain", "STACKCTL_WIZARD_PLAIN"); err != nil {
+		return err
+	}
+	if err := applyStringEnvOverride(cmd, "log-level", logging.EnvLogLevel); err != nil {
+		return err
+	}
+	if err := applyStringEnvOverride(cmd, "log-format", logging.EnvLogFormat); err != nil {
+		return err
+	}
+	if err := applyStringEnvOverride(cmd, "log-file", logging.EnvLogFile); err != nil {
+		return err
+	}
+	return nil
+}
+
+func applyBoolEnvOverride(cmd *cobra.Command, flagName, envVar string) error {
+	flag := cmd.Flags().Lookup(flagName)
+	if flag == nil || !flag.Changed {
+		return nil
+	}
+	value, err := cmd.Flags().GetBool(flagName)
+	if err != nil {
+		return err
+	}
+	if value {
+		return os.Setenv(envVar, "1")
+	}
+	return os.Unsetenv(envVar)
+}
+
+func applyStringEnvOverride(cmd *cobra.Command, flagName, envVar string) error {
+	flag := cmd.Flags().Lookup(flagName)
+	if flag == nil || !flag.Changed {
+		return nil
+	}
+	value, err := cmd.Flags().GetString(flagName)
+	if err != nil {
+		return err
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return os.Unsetenv(envVar)
+	}
+	return os.Setenv(envVar, value)
 }

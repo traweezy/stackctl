@@ -53,7 +53,9 @@ func newSetupCmd() *cobra.Command {
 				switch {
 				case nonInteractive:
 					cfg = deps.defaultConfig()
-					if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
+					if err := runSpinnerAction(cmd, "Preparing managed stack scaffold", func(context.Context) error {
+						return syncManagedScaffoldIfNeeded(cmd, cfg)
+					}); err != nil {
 						return err
 					}
 					if err := deps.saveConfig(path, cfg); err != nil {
@@ -77,7 +79,9 @@ func newSetupCmd() *cobra.Command {
 						if err != nil {
 							return err
 						}
-						if err := syncManagedScaffoldIfNeeded(cmd, cfg); err != nil {
+						if err := runSpinnerAction(cmd, "Preparing managed stack scaffold", func(context.Context) error {
+							return syncManagedScaffoldIfNeeded(cmd, cfg)
+						}); err != nil {
 							return err
 						}
 						if err := deps.saveConfig(path, cfg); err != nil {
@@ -111,7 +115,9 @@ func newSetupCmd() *cobra.Command {
 						}
 					}
 					if shouldScaffold {
-						if err := scaffoldManagedStack(cmd, cfg, true); err != nil {
+						if err := runSpinnerAction(cmd, "Refreshing managed stack scaffold", func(context.Context) error {
+							return scaffoldManagedStack(cmd, cfg, true)
+						}); err != nil {
 							return err
 						}
 					} else if err := output.StatusLine(cmd.OutOrStdout(), output.StatusWarn, "managed stack files are missing"); err != nil {
@@ -120,8 +126,12 @@ func newSetupCmd() *cobra.Command {
 				}
 			}
 
-			report, err := deps.runDoctor(context.Background())
-			if err != nil {
+			var report doctorpkg.Report
+			if err := runSpinnerAction(cmd, "Running environment diagnostics", func(ctx context.Context) error {
+				var runErr error
+				report, runErr = deps.runDoctor(ctx)
+				return runErr
+			}); err != nil {
 				return err
 			}
 			platform := deps.platform()
@@ -192,7 +202,9 @@ func newSetupCmd() *cobra.Command {
 				}
 
 				if platform.UsesPodmanMachine() {
-					if err := deps.preparePodmanMachine(context.Background(), runnerFor(cmd)); err != nil {
+					if err := runSpinnerAction(cmd, "Preparing Podman machine", func(ctx context.Context) error {
+						return deps.preparePodmanMachine(ctx, runnerFor(cmd))
+					}); err != nil {
 						return err
 					}
 					if err := statusLine(cmd, output.StatusOK, "podman machine is initialized and running"); err != nil {
@@ -201,7 +213,9 @@ func newSetupCmd() *cobra.Command {
 				}
 
 				if shouldEnableCockpit(report, missing, platform) {
-					if err := deps.enableCockpit(context.Background(), runnerFor(cmd)); err != nil {
+					if err := runSpinnerAction(cmd, "Enabling cockpit.socket", func(ctx context.Context) error {
+						return deps.enableCockpit(ctx, runnerFor(cmd))
+					}); err != nil {
 						return err
 					}
 					if err := statusLine(cmd, output.StatusOK, "enabled cockpit.socket"); err != nil {
@@ -254,6 +268,10 @@ func requiredRequirements(report doctorpkg.Report, cfg configpkg.Config, platfor
 }
 
 func printSetupNextSteps(cmd *cobra.Command, cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool) error {
+	if deps.isTerminal() {
+		return renderMarkdownBlock(cmd, setupNextStepsMarkdown(cfg, missing, needsPodmanMachine, needsManualCockpit))
+	}
+
 	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Next steps:"); err != nil {
 		return err
 	}
@@ -263,6 +281,18 @@ func printSetupNextSteps(cmd *cobra.Command, cfg configpkg.Config, missing []str
 		}
 	}
 	return nil
+}
+
+func setupNextStepsMarkdown(cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool) string {
+	steps := setupNextSteps(cfg, missing, needsPodmanMachine, needsManualCockpit)
+	lines := []string{
+		"## Next steps",
+		"",
+	}
+	for _, step := range steps {
+		lines = append(lines, "- "+step)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func setupNextSteps(cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool) []string {

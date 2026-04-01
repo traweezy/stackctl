@@ -11,6 +11,9 @@ import (
 	"strings"
 
 	huh "charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
+
+	"github.com/traweezy/stackctl/internal/logging"
 )
 
 const (
@@ -39,6 +42,12 @@ var (
 		"allkeys-random",
 		"volatile-random",
 		"volatile-ttl",
+	}
+	externalComposeFileSuggestions = []string{
+		"compose.yaml",
+		"compose.yml",
+		"docker-compose.yaml",
+		"docker-compose.yml",
 	}
 )
 
@@ -256,28 +265,36 @@ func newWizardState(cfg Config) wizardState {
 
 func runHuhWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	state := newWizardState(base)
+	log := logging.With("component", "wizard", "stack", state.StackName)
+	log.Debug("starting huh wizard")
 
 	form := buildWizardForm(&state).
 		WithInput(in).
 		WithOutput(out).
+		WithTheme(wizardTheme(out)).
 		WithAccessible(os.Getenv("ACCESSIBLE") != "")
 	if err := form.Run(); err != nil {
+		log.Warn("wizard form cancelled", "error", err)
 		return Config{}, err
 	}
 
 	confirmed, err := runWizardReview(in, out, state)
 	if err != nil {
+		log.Warn("wizard review failed", "error", err)
 		return Config{}, err
 	}
 	if !confirmed {
+		log.Info("wizard review cancelled")
 		return Config{}, errors.New("wizard cancelled")
 	}
 
 	cfg, err := state.toConfig(base)
 	if err != nil {
+		log.Error("wizard config conversion failed", "error", err)
 		return Config{}, err
 	}
 	cfg.ApplyDerivedFields()
+	log.Info("wizard completed", "stack", cfg.Stack.Name, "managed", cfg.Stack.Managed)
 
 	return cfg, nil
 }
@@ -304,14 +321,19 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			Description("Choose the stack identity and how much of the compose layout stackctl should own."),
 		huh.NewGroup(
 			wizardStepNote(state, wizardStepExternalStack),
-			huh.NewInput().
+			huh.NewFilePicker().
 				Title("Stack directory").
-				Description("Path to the external compose project. Relative paths are resolved to absolute paths before saving.").
+				Description("Browse to the external compose project directory. Relative paths are resolved to absolute paths before saving.").
+				CurrentDirectory(wizardFilePickerStartDir(state.ExternalStackDir)).
+				DirAllowed(true).
+				FileAllowed(false).
+				Height(10).
 				Value(&state.ExternalStackDir).
 				Validate(nonEmpty),
 			huh.NewInput().
 				Title("Compose file name").
-				Description("The compose file inside that directory that stackctl should target.").
+				Description("The compose file inside that directory that stackctl should target. Common names are suggested for quicker setup.").
+				Suggestions(externalComposeFileSuggestions).
 				Value(&state.ExternalComposeFile).
 				Validate(nonEmpty),
 		).
@@ -704,6 +726,7 @@ func runWizardReview(in io.Reader, out io.Writer, state wizardState) (bool, erro
 	).
 		WithInput(in).
 		WithOutput(out).
+		WithTheme(wizardTheme(out)).
 		WithAccessible(os.Getenv("ACCESSIBLE") != "")
 
 	if err := reviewForm.Run(); err != nil {
@@ -776,6 +799,17 @@ func wizardNextStepLabel(state *wizardState, target wizardStepID) string {
 	return ""
 }
 
+func wizardTheme(out io.Writer) huh.Theme {
+	isDark := true
+	if file, ok := out.(*os.File); ok {
+		isDark = lipgloss.HasDarkBackground(os.Stdin, file)
+	}
+
+	return huh.ThemeFunc(func(_ bool) *huh.Styles {
+		return huh.ThemeCharm(isDark)
+	})
+}
+
 func (s wizardState) includesService(name string) bool {
 	return slices.Contains(s.Services, name)
 }
@@ -796,6 +830,26 @@ func (s wizardState) needsMissingExternalDirConfirmation() bool {
 	}
 	info, err := os.Stat(absPath)
 	return err != nil || !info.IsDir()
+}
+
+func wizardFilePickerStartDir(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "."
+		}
+		return cwd
+	}
+	absPath, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "."
+	}
+	info, err := os.Stat(absPath)
+	if err == nil && info != nil && !info.IsDir() {
+		return filepath.Dir(absPath)
+	}
+	return absPath
 }
 
 func (s wizardState) toConfig(base Config) (Config, error) {

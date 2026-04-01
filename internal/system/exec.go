@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/traweezy/stackctl/internal/logging"
 )
 
 type Runner struct {
@@ -28,6 +30,8 @@ func (r Runner) Run(ctx context.Context, dir, name string, args ...string) error
 	if err := validateExecutable(name); err != nil {
 		return err
 	}
+	log := logging.With("component", "exec", "command", name, "arg_count", len(args), "dir", dir)
+	log.Debug("starting command")
 
 	// #nosec G204 -- executable names are restricted to an internal allowlist.
 	command := exec.CommandContext(ctx, name, args...)
@@ -40,8 +44,10 @@ func (r Runner) Run(ctx context.Context, dir, name string, args ...string) error
 	}
 
 	if err := command.Run(); err != nil {
+		log.Error("command failed", "error", err)
 		return fmt.Errorf("run %s: %w", formatCommand(name, args), err)
 	}
+	log.Debug("command completed")
 
 	return nil
 }
@@ -50,6 +56,8 @@ func RunExternalCommand(ctx context.Context, runner Runner, dir string, commandA
 	if len(commandArgs) == 0 {
 		return errors.New("no command specified")
 	}
+	log := logging.With("component", "external-exec", "command", commandArgs[0], "arg_count", len(commandArgs)-1, "dir", dir)
+	log.Debug("starting external command")
 
 	// #nosec G204 -- the command is supplied explicitly by the local CLI user.
 	command := exec.CommandContext(ctx, commandArgs[0], commandArgs[1:]...)
@@ -62,8 +70,10 @@ func RunExternalCommand(ctx context.Context, runner Runner, dir string, commandA
 	}
 
 	if err := command.Run(); err != nil {
+		log.Error("external command failed", "error", err)
 		return fmt.Errorf("run %s: %w", formatCommand(commandArgs[0], commandArgs[1:]), err)
 	}
+	log.Debug("external command completed")
 
 	return nil
 }
@@ -95,6 +105,8 @@ func CaptureResultWithEnv(ctx context.Context, dir string, env []string, name st
 	if err := validateExecutable(name); err != nil {
 		return CommandResult{}, err
 	}
+	log := logging.With("component", "capture", "command", name, "arg_count", len(args), "dir", dir)
+	log.Debug("capturing command output")
 
 	// #nosec G204 -- executable names are restricted to an internal allowlist.
 	command := exec.CommandContext(ctx, name, args...)
@@ -116,15 +128,19 @@ func CaptureResultWithEnv(ctx context.Context, dir string, env []string, name st
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
+			log.Warn("captured command exited non-zero", "exit_code", result.ExitCode, "stdout_bytes", len(result.Stdout), "stderr_bytes", len(result.Stderr))
 			return result, nil
 		}
+		log.Error("captured command failed", "error", err)
 		return result, fmt.Errorf("run %s: %w", formatCommand(name, args), err)
 	}
 
-	return CommandResult{
+	result := CommandResult{
 		Stdout: stdout.String(),
 		Stderr: stderr.String(),
-	}, nil
+	}
+	log.Debug("captured command completed", "stdout_bytes", len(result.Stdout), "stderr_bytes", len(result.Stderr))
+	return result, nil
 }
 
 func formatCommand(name string, args []string) string {

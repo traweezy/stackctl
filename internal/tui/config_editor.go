@@ -159,9 +159,9 @@ func (configListDelegate) Render(w io.Writer, m list.Model, index int, item list
 	line := prefix + fmt.Sprintf("%-*s %s", labelWidth, label, value)
 	style := lipgloss.NewStyle().Width(lineWidth).MaxWidth(lineWidth)
 	if index == m.Index() {
-		style = style.Foreground(lipgloss.Color("230")).Background(lipgloss.Color("31")).Bold(true)
+		style = style.Foreground(activeTheme().listSelectedFg).Background(activeTheme().listSelectedBg).Bold(true)
 	} else {
-		style = style.Foreground(lipgloss.Color("251"))
+		style = style.Foreground(activeTheme().listForeground)
 	}
 	fmt.Fprint(w, style.Render(line))
 }
@@ -265,7 +265,7 @@ func (e *configEditor) setSize(width, height int, showSecrets bool) {
 	e.width = width
 	e.height = height
 	layout := e.layoutMetrics()
-	listInnerWidth := maxInt(8, layout.leftWidth-subPaneStyle("238").GetHorizontalFrameSize())
+	listInnerWidth := maxInt(8, layout.leftWidth-subPaneStyle(lipgloss.Color("238")).GetHorizontalFrameSize())
 	e.fieldList.SetSize(listInnerWidth, layout.fieldListHeight)
 	e.refreshList(showSecrets)
 }
@@ -280,8 +280,8 @@ func (e configEditor) layoutMetrics() configEditorLayout {
 		rightWidth = maxInt(20, width-2)
 	}
 
-	listStyle := subPaneStyle("238").Width(leftWidth)
-	detailStyle := subPaneStyle("31").Width(rightWidth)
+	listStyle := subPaneStyle(lipgloss.Color("238")).Width(leftWidth)
+	detailStyle := subPaneStyle(lipgloss.Color("31")).Width(rightWidth)
 	minListTotal := listStyle.GetVerticalFrameSize() + configListChromeLines + 1
 	minDetailTotal := detailStyle.GetVerticalFrameSize() + 4
 	bodyHeight := height
@@ -721,13 +721,13 @@ func (e configEditor) View(showSecrets bool) string {
 	leftWidth := layout.leftWidth
 	rightWidth := layout.rightWidth
 
-	listPane := subPaneStyle("238").Width(leftWidth)
-	detailPane := subPaneStyle("31").Width(rightWidth)
+	listPane := subPaneStyle(lipgloss.Color("238")).Width(leftWidth)
+	detailPane := subPaneStyle(lipgloss.Color("31")).Width(rightWidth)
 
 	listContent := clipAndPadText(strings.Join([]string{
 		detailHeading("Config fields"),
 		mutedStyle().Render(e.listSummary()),
-		e.renderFieldList(layout.fieldListHeight, layout.leftWidth-subPaneStyle("238").GetHorizontalFrameSize()),
+		e.renderFieldList(layout.fieldListHeight, layout.leftWidth-subPaneStyle(lipgloss.Color("238")).GetHorizontalFrameSize()),
 	}, "\n"), layout.listContentHeight)
 
 	detailContent := clipAndPadText(e.renderDetail(showSecrets, layout.detailContentHgt), layout.detailContentHgt)
@@ -909,9 +909,9 @@ func renderConfigListRow(row configListItem, selected bool, width int) string {
 	line := prefix + fmt.Sprintf("%-*s %s", labelWidth, label, value)
 	style := lipgloss.NewStyle().Width(lineWidth).MaxWidth(lineWidth)
 	if selected {
-		style = style.Foreground(lipgloss.Color("230")).Background(lipgloss.Color("31")).Bold(true)
+		style = style.Foreground(activeTheme().listSelectedFg).Background(activeTheme().listSelectedBg).Bold(true)
 	} else {
-		style = style.Foreground(lipgloss.Color("251"))
+		style = style.Foreground(activeTheme().listForeground)
 	}
 
 	return style.Render(line)
@@ -967,7 +967,7 @@ func (e configEditor) diffText(showSecrets bool) (string, error) {
 }
 
 func (e configEditor) detailWidth() int {
-	frameWidth := subPaneStyle("31").GetHorizontalFrameSize()
+	frameWidth := subPaneStyle(lipgloss.Color("31")).GetHorizontalFrameSize()
 	_, rightWidth, stacked := splitPaneWidths(e.width, 42, 54)
 	if stacked {
 		return maxInt(20, e.width-frameWidth)
@@ -976,7 +976,7 @@ func (e configEditor) detailWidth() int {
 }
 
 func (e configEditor) workflowPanel(width int) string {
-	color := "240"
+	color := lipgloss.Color("240")
 	innerWidth := maxInt(24, width-subPaneStyle(color).GetHorizontalFrameSize())
 	line := truncateEnd(fmt.Sprintf("Keys    %s", e.workflowKeysSummary()), innerWidth)
 	return subPaneStyle(color).Width(width).Render(line)
@@ -987,7 +987,7 @@ func (e configEditor) workflowMiniStripContent(width int) string {
 }
 
 func (e configEditor) statusPanel(width int) string {
-	color := e.statusPanelColor()
+	color := lipgloss.Color(e.statusPanelColor())
 	innerWidth := maxInt(24, width-subPaneStyle(color).GetHorizontalFrameSize())
 	line := truncateEnd(fmt.Sprintf("Status  %s", e.workflowStatusLine()), innerWidth)
 	return subPaneStyle(color).Width(width).Render(line)
@@ -1904,11 +1904,11 @@ func configFieldStateChip(state string) string {
 func configFieldStateStyle(state string) lipgloss.Style {
 	switch state {
 	case "invalid":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("160")).Bold(true)
+		return lipgloss.NewStyle().Foreground(activeTheme().fieldInvalidFg).Background(activeTheme().fieldInvalidBg).Bold(true)
 	case "editing":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("81")).Bold(true)
+		return lipgloss.NewStyle().Foreground(activeTheme().fieldSavedFg).Background(activeTheme().fieldSavedBg).Bold(true)
 	case "edited":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("221")).Bold(true)
+		return lipgloss.NewStyle().Foreground(activeTheme().fieldPendingFg).Background(activeTheme().fieldPendingBg).Bold(true)
 	default:
 		return lipgloss.NewStyle()
 	}

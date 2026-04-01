@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -111,6 +112,104 @@ func TestResolvePackageManagerChoiceErrorsWhenRecommendedCommandMissing(t *testi
 	)
 	if err == nil || !strings.Contains(err.Error(), "brew") || !strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestFormatPackageManagerRecommendationMessages(t *testing.T) {
+	available := FormatPackageManagerRecommendation(PackageManagerRecommendation{
+		Name:      "apt",
+		Command:   "apt-get",
+		Available: true,
+		Reason:    "recommended for this Debian/Ubuntu-family Linux host",
+	})
+	if !strings.Contains(available, "available via apt-get") {
+		t.Fatalf("unexpected available recommendation: %q", available)
+	}
+
+	unavailable := FormatPackageManagerRecommendation(PackageManagerRecommendation{
+		Name:      "brew",
+		Command:   "brew",
+		Available: false,
+		Reason:    "recommended for this macOS host",
+	})
+	if !strings.Contains(unavailable, "install brew first") {
+		t.Fatalf("unexpected unavailable recommendation: %q", unavailable)
+	}
+
+	empty := FormatPackageManagerRecommendation(PackageManagerRecommendation{})
+	if !strings.Contains(empty, "No supported package manager") {
+		t.Fatalf("unexpected empty recommendation: %q", empty)
+	}
+}
+
+func TestCurrentPlatformHelpersReflectRuntime(t *testing.T) {
+	platform := CurrentPlatform()
+
+	if platform.GOOS != runtime.GOOS {
+		t.Fatalf("unexpected runtime GOOS: %+v", platform)
+	}
+	if DetectPackageManager() != platform.PackageManager {
+		t.Fatalf("DetectPackageManager did not match CurrentPlatform: %+v", platform)
+	}
+
+	recommendation := CurrentPackageManagerRecommendation()
+	if recommendation.Name != "" && recommendation.Command != PackageManagerCommand(recommendation.Name) {
+		t.Fatalf("unexpected current recommendation: %+v", recommendation)
+	}
+}
+
+func TestPlatformCapabilityHelpers(t *testing.T) {
+	linux := Platform{
+		GOOS:           "linux",
+		PackageManager: "dnf",
+		ServiceManager: ServiceManagerSystemd,
+	}
+	if !linux.SupportsCockpitAutoEnable() {
+		t.Fatalf("expected systemd dnf host to support cockpit auto-enable: %+v", linux)
+	}
+	if !linux.SupportsSSCheck() {
+		t.Fatalf("expected linux host to support ss checks: %+v", linux)
+	}
+
+	darwin := Platform{GOOS: "darwin", PackageManager: "brew"}
+	if darwin.SupportsCockpitAutoEnable() {
+		t.Fatalf("expected darwin host to skip cockpit auto-enable: %+v", darwin)
+	}
+	if darwin.SupportsSSCheck() {
+		t.Fatalf("expected darwin host to skip ss checks: %+v", darwin)
+	}
+}
+
+func TestRecommendPackageManagerFallsBackToDetectedCommand(t *testing.T) {
+	recommendation := RecommendPackageManager(
+		Platform{GOOS: "linux", DistroID: "unknown", PackageManager: "unsupported"},
+		func(name string) bool { return name == "pacman" },
+	)
+
+	if recommendation.Name != "pacman" || recommendation.Command != "pacman" || !recommendation.Available {
+		t.Fatalf("unexpected fallback recommendation: %+v", recommendation)
+	}
+	if !strings.Contains(recommendation.Reason, "available package-manager commands") {
+		t.Fatalf("unexpected fallback recommendation reason: %+v", recommendation)
+	}
+}
+
+func TestPlatformPackageManagerReasonCoversKnownFamilies(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform Platform
+		want     string
+	}{
+		{name: "darwin", platform: Platform{GOOS: "darwin"}, want: "macOS"},
+		{name: "fedora", platform: Platform{GOOS: "linux", DistroID: "fedora"}, want: "Fedora/RHEL-family"},
+		{name: "opensuse", platform: Platform{GOOS: "linux", DistroID: "opensuse-tumbleweed"}, want: "openSUSE-family"},
+		{name: "generic", platform: Platform{GOOS: "linux", DistroID: "gentoo"}, want: "gentoo Linux host"},
+	}
+
+	for _, tc := range tests {
+		if got := platformPackageManagerReason(tc.platform); !strings.Contains(got, tc.want) {
+			t.Fatalf("%s: unexpected package-manager reason %q", tc.name, got)
+		}
 	}
 }
 

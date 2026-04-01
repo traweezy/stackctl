@@ -378,6 +378,35 @@ func lifecycleAction(action ActionID) bool {
 	}
 }
 
+func actionUsesStartupBudget(action ActionID, waitForServices bool) bool {
+	if !waitForServices {
+		return false
+	}
+	switch {
+	case action == ActionStart || action == ActionRestart:
+		return true
+	case strings.HasPrefix(string(action), actionStartServicePrefix),
+		strings.HasPrefix(string(action), actionRestartServicePrefix),
+		strings.HasPrefix(string(action), actionStartStackPrefix),
+		strings.HasPrefix(string(action), actionRestartStackPrefix):
+		return true
+	default:
+		return false
+	}
+}
+
+func actionUsesStopBudget(action ActionID) bool {
+	switch {
+	case action == ActionStop:
+		return true
+	case strings.HasPrefix(string(action), actionStopServicePrefix),
+		strings.HasPrefix(string(action), actionStopStackPrefix):
+		return true
+	default:
+		return false
+	}
+}
+
 func serviceActionTarget(action ActionID) (string, string, bool) {
 	value := string(action)
 	switch {
@@ -507,7 +536,7 @@ func renderConfirmation(state *confirmationState) string {
 
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("221")).
+		BorderForeground(activeTheme().statusWarn).
 		Width(56).
 		Padding(0, 1).
 		Render(strings.Join(lines, "\n"))
@@ -525,6 +554,7 @@ func renderHistory(history []historyEntry) string {
 		lines = append(lines, statusStyle(entry.Status).Render(fmt.Sprintf("%s  %s", serviceStatusBadge(entry.Status), entry.Action)))
 		lines = append(lines, fmt.Sprintf("Status: %s", historyStatusLabel(entry)))
 		lines = append(lines, fmt.Sprintf("When: %s", historyTimestamp(entry)))
+		lines = append(lines, fmt.Sprintf("Duration: %s", historyDuration(entry)))
 		lines = append(lines, fmt.Sprintf("Message: %s", emptyLabel(entry.Message)))
 		for _, detail := range entry.Details {
 			lines = append(lines, mutedStyle().Render("  "+detail))
@@ -562,16 +592,26 @@ func historyTimestamp(entry historyEntry) string {
 	return entry.CompletedAt.Format("2006-01-02 15:04:05")
 }
 
+func historyDuration(entry historyEntry) string {
+	if entry.StartedAt.IsZero() {
+		return "0s"
+	}
+	if entry.CompletedAt.IsZero() {
+		return formatDurationCompact(timeNow().Sub(entry.StartedAt))
+	}
+	return formatDurationCompact(entry.CompletedAt.Sub(entry.StartedAt))
+}
+
 func bannerStyle(status string) lipgloss.Style {
 	switch status {
 	case output.StatusOK:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("28")).Padding(0, 1)
+		return lipgloss.NewStyle().Foreground(activeTheme().bannerOKFg).Background(activeTheme().bannerOKBg).Padding(0, 1)
 	case output.StatusWarn:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("16")).Background(lipgloss.Color("221")).Padding(0, 1)
+		return lipgloss.NewStyle().Foreground(activeTheme().bannerWarnFg).Background(activeTheme().bannerWarnBg).Padding(0, 1)
 	case output.StatusFail, output.StatusMiss:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("160")).Padding(0, 1)
+		return lipgloss.NewStyle().Foreground(activeTheme().bannerFailFg).Background(activeTheme().bannerFailBg).Padding(0, 1)
 	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("230")).Background(lipgloss.Color("24")).Padding(0, 1)
+		return lipgloss.NewStyle().Foreground(activeTheme().bannerInfoFg).Background(activeTheme().bannerInfoBg).Padding(0, 1)
 	}
 }
 
@@ -580,11 +620,11 @@ func actionChipStyle(action ActionSpec, m Model) lipgloss.Style {
 
 	switch {
 	case m.confirmation != nil && m.confirmation.Kind == confirmationAction && m.confirmation.Action.ID == action.ID:
-		return style.Foreground(lipgloss.Color("221"))
+		return style.Foreground(activeTheme().statusWarn)
 	case m.runningAction != nil && m.runningAction.Action.ID == action.ID:
-		return style.Foreground(lipgloss.Color("81"))
+		return style.Foreground(activeTheme().statusInfo)
 	default:
-		return style.Foreground(lipgloss.Color("252"))
+		return style.Foreground(activeTheme().subtitleForeground)
 	}
 }
 
@@ -614,7 +654,7 @@ func (m Model) beginAction(action ActionSpec) (tea.Model, tea.Cmd) {
 	m.snapshot = applyOptimisticUpdate(m.snapshot, action.ID)
 	m.syncLayout()
 
-	return m, runActionCmd(m.runner, action, historyID)
+	return m, tea.Batch(m.beginBusy(m.currentBusyBudget()), runActionCmd(m.runner, action, historyID))
 }
 
 func runActionCmd(runner ActionRunner, action ActionSpec, historyID int) tea.Cmd {

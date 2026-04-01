@@ -747,6 +747,42 @@ func TestRootRejectsVerboseAndQuietTogether(t *testing.T) {
 	}
 }
 
+func TestRootRejectsAccessibleAndPlainTogether(t *testing.T) {
+	withTestDeps(t, nil)
+
+	_, _, err := executeRoot(t, "--accessible", "--plain", "version")
+	if err == nil || !strings.Contains(err.Error(), "--accessible and --plain cannot be used together") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRootAppliesInteractiveAndLoggingFlagOverrides(t *testing.T) {
+	withTestDeps(t, nil)
+
+	_, _, err := executeRoot(t,
+		"--accessible",
+		"--log-level", "debug",
+		"--log-format", "json",
+		"--log-file", "-",
+		"version",
+	)
+	if err != nil {
+		t.Fatalf("version returned error: %v", err)
+	}
+	if got := os.Getenv("ACCESSIBLE"); got != "1" {
+		t.Fatalf("expected ACCESSIBLE override, got %q", got)
+	}
+	if got := os.Getenv("STACKCTL_LOG_LEVEL"); got != "debug" {
+		t.Fatalf("expected STACKCTL_LOG_LEVEL override, got %q", got)
+	}
+	if got := os.Getenv("STACKCTL_LOG_FORMAT"); got != "json" {
+		t.Fatalf("expected STACKCTL_LOG_FORMAT override, got %q", got)
+	}
+	if got := os.Getenv("STACKCTL_LOG_FILE"); got != "-" {
+		t.Fatalf("expected STACKCTL_LOG_FILE override, got %q", got)
+	}
+}
+
 func TestSetupRejectsConflictingModes(t *testing.T) {
 	withTestDeps(t, nil)
 

@@ -50,3 +50,20 @@ func TestWaitForPortReturnsWhenPortStartsListening(t *testing.T) {
 		t.Fatalf("WaitForPort returned error: %v", err)
 	}
 }
+
+func TestPortInUseReportsFreePort(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen failed: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+
+	inUse, err := PortInUse(port)
+	if err != nil {
+		t.Fatalf("PortInUse returned error: %v", err)
+	}
+	if inUse {
+		t.Fatal("expected closed port to report as free")
+	}
+}

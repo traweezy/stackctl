@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	bubblespaginator "charm.land/bubbles/v2/paginator"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -85,14 +86,16 @@ type paletteAction struct {
 }
 
 type paletteState struct {
-	mode     paletteMode
-	title    string
-	prompt   string
-	input    textinput.Model
-	items    []paletteAction
-	filtered []paletteAction
-	selected int
-	offset   int
+	mode      paletteMode
+	title     string
+	prompt    string
+	input     textinput.Model
+	items     []paletteAction
+	filtered  []paletteAction
+	paginator bubblespaginator.Model
+	pageSize  int
+	selected  int
+	offset    int
 }
 
 type runningHandoff struct {
@@ -135,13 +138,18 @@ func newPaletteState(mode paletteMode, title, prompt string, items []paletteActi
 	input.Prompt = "> "
 	input.Placeholder = "Type to filter"
 	input.Focus()
+	pager := bubblespaginator.New()
+	pager.Type = bubblespaginator.Arabic
+	pager.ArabicFormat = "page %d/%d"
 
 	state := &paletteState{
-		mode:   mode,
-		title:  strings.TrimSpace(title),
-		prompt: strings.TrimSpace(prompt),
-		input:  input,
-		items:  append([]paletteAction(nil), items...),
+		mode:      mode,
+		title:     strings.TrimSpace(title),
+		prompt:    strings.TrimSpace(prompt),
+		input:     input,
+		items:     append([]paletteAction(nil), items...),
+		paginator: pager,
+		pageSize:  8,
 	}
 	state.applyFilter()
 	return state
@@ -180,6 +188,7 @@ func (p *paletteState) applyFilter() {
 		p.filtered = append(p.filtered, match.action)
 	}
 	p.clampSelection()
+	p.syncPagination()
 }
 
 func (p *paletteState) clampSelection() {
@@ -206,6 +215,27 @@ func (p *paletteState) move(step int) {
 		return
 	}
 	p.selected = (p.selected + step + len(p.filtered)) % len(p.filtered)
+	p.syncPagination()
+}
+
+func (p *paletteState) page(step int) {
+	if len(p.filtered) == 0 {
+		p.selected = 0
+		p.offset = 0
+		return
+	}
+	p.syncPagination()
+	target := p.paginator.Page + step
+	if target < 0 {
+		target = 0
+	}
+	if maxPage := maxInt(0, p.paginator.TotalPages-1); target > maxPage {
+		target = maxPage
+	}
+	p.paginator.Page = target
+	start, _ := p.paginator.GetSliceBounds(len(p.filtered))
+	p.selected = start
+	p.offset = start
 }
 
 func (p *paletteState) selectedAction() (paletteAction, bool) {
@@ -297,7 +327,7 @@ func renderPalettePanel(state *paletteState, width, height int) string {
 	panelHeight := minInt(18, maxInt(10, height-4))
 	panelStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("81")).
+		BorderForeground(activeTheme().paletteBorder).
 		Padding(0, 1).
 		Width(panelWidth)
 
@@ -310,22 +340,16 @@ func renderPalettePanel(state *paletteState, width, height int) string {
 	}
 	header = append(header, "")
 	queryLine := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")).
+		Foreground(activeTheme().paletteInput).
 		Render(state.input.View())
 
 	lines := append(header, queryLine, "")
-	availableRows := maxInt(4, panelHeight-panelStyle.GetVerticalFrameSize()-len(lines)-2)
+	availableRows := maxInt(4, panelHeight-panelStyle.GetVerticalFrameSize()-len(lines)-3)
+	state.setPageSize(availableRows)
 	if len(state.filtered) == 0 {
 		lines = append(lines, mutedStyle().Render("No matching commands."))
 	} else {
-		if state.selected < state.offset {
-			state.offset = state.selected
-		}
-		if state.selected >= state.offset+availableRows {
-			state.offset = state.selected - availableRows + 1
-		}
-		start := maxInt(0, state.offset)
-		end := minInt(len(state.filtered), start+availableRows)
+		start, end := state.paginator.GetSliceBounds(len(state.filtered))
 		for idx := start; idx < end; idx++ {
 			lines = append(lines, renderPaletteEntry(state.filtered[idx], idx == state.selected, innerWidth))
 		}
@@ -335,7 +359,8 @@ func renderPalettePanel(state *paletteState, width, height int) string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle().Render("type to filter  •  ↑/↓ choose  •  enter run  •  esc close"))
+	lines = append(lines, mutedStyle().Render(state.summary()))
+	lines = append(lines, mutedStyle().Render("type to filter  •  ↑/↓ choose  •  pgup/pgdn page  •  enter run  •  esc close"))
 
 	return lipgloss.Place(
 		width,
@@ -344,6 +369,50 @@ func renderPalettePanel(state *paletteState, width, height int) string {
 		lipgloss.Center,
 		panelStyle.Render(strings.Join(lines, "\n")),
 	)
+}
+
+func (p *paletteState) setPageSize(size int) {
+	if size < 1 {
+		size = 1
+	}
+	p.pageSize = size
+	p.syncPagination()
+}
+
+func (p *paletteState) syncPagination() {
+	if p.pageSize < 1 {
+		p.pageSize = 8
+	}
+	p.paginator.PerPage = p.pageSize
+	if len(p.filtered) == 0 {
+		p.paginator.Page = 0
+		p.paginator.TotalPages = 0
+		p.offset = 0
+		return
+	}
+	p.paginator.SetTotalPages(len(p.filtered))
+	lastPage := maxInt(0, p.paginator.TotalPages-1)
+	page := p.selected / p.pageSize
+	if page > lastPage {
+		page = lastPage
+	}
+	if page < 0 {
+		page = 0
+	}
+	p.paginator.Page = page
+	start, _ := p.paginator.GetSliceBounds(len(p.filtered))
+	p.offset = start
+}
+
+func (p *paletteState) summary() string {
+	if p == nil || len(p.filtered) == 0 {
+		return "0 results"
+	}
+	start, end := p.paginator.GetSliceBounds(len(p.filtered))
+	if p.paginator.TotalPages <= 1 {
+		return fmt.Sprintf("%d results", len(p.filtered))
+	}
+	return fmt.Sprintf("%d-%d of %d  •  %s", start+1, end, len(p.filtered), p.paginator.View())
 }
 
 func renderPaletteEntry(action paletteAction, selected bool, width int) string {
@@ -833,6 +902,12 @@ func (m *Model) handlePaletteKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case "down":
 		m.palette.move(1)
 		return nil, true
+	case "pgup":
+		m.palette.page(-1)
+		return nil, true
+	case "pgdown":
+		m.palette.page(1)
+		return nil, true
 	}
 
 	var cmd tea.Cmd
@@ -934,11 +1009,6 @@ func (m *Model) togglePinnedService(serviceName string) tea.Cmd {
 }
 
 func (m *Model) startCopyAction(action paletteAction) tea.Cmd {
-	if m.clipboardWriter == nil {
-		bannerID := m.setBanner(output.StatusWarn, "clipboard copy is unavailable in this model")
-		return clearBannerCmd(bannerID)
-	}
-
 	service, ok := selectedServiceByKey(m.snapshot, action.ServiceKey)
 	if !ok {
 		bannerID := m.setBanner(output.StatusWarn, "selected service is no longer available")
@@ -950,27 +1020,32 @@ func (m *Model) startCopyAction(action paletteAction) tea.Cmd {
 		return clearBannerCmd(bannerID)
 	}
 
+	if m.clipboardWriter == nil {
+		return terminalCopyCmd(target.Value, action, fmt.Sprintf("copied %s to clipboard", target.Label))
+	}
+
 	return copyValueCmd(m.clipboardWriter, target.Value, action, fmt.Sprintf("copied %s to clipboard", target.Label))
 }
 
 func (m *Model) startCopyTextAction(action paletteAction) tea.Cmd {
-	if m.clipboardWriter == nil {
-		bannerID := m.setBanner(output.StatusWarn, "clipboard copy is unavailable in this model")
-		return clearBannerCmd(bannerID)
-	}
 	if strings.TrimSpace(action.CopyValue) == "" {
 		bannerID := m.setBanner(output.StatusWarn, "copy value is unavailable for this action")
 		return clearBannerCmd(bannerID)
+	}
+
+	successMessage := fmt.Sprintf(
+		"copied %s to clipboard",
+		strings.ToLower(strings.TrimPrefix(action.Title, "Copy ")),
+	)
+	if m.clipboardWriter == nil {
+		return terminalCopyCmd(action.CopyValue, action, successMessage)
 	}
 
 	return copyValueCmd(
 		m.clipboardWriter,
 		action.CopyValue,
 		action,
-		fmt.Sprintf(
-			"copied %s to clipboard",
-			strings.ToLower(strings.TrimPrefix(action.Title, "Copy ")),
-		),
+		successMessage,
 	)
 }
 
@@ -983,6 +1058,18 @@ func copyValueCmd(copyWriter ClipboardWriter, value string, action paletteAction
 			err:     err,
 		}
 	}
+}
+
+func terminalCopyCmd(value string, action paletteAction, successMessage string) tea.Cmd {
+	return tea.Batch(
+		tea.SetClipboard(value),
+		func() tea.Msg {
+			return copyDoneMsg{
+				action:  action,
+				message: successMessage,
+			}
+		},
+	)
 }
 
 func (m *Model) startServiceLogWatch(action paletteAction) tea.Cmd {
@@ -1098,15 +1185,18 @@ func (m *Model) startHandoffAction(action paletteAction, execCmd tea.ExecCommand
 	m.setBanner(status, pendingMessage)
 	m.syncLayout()
 
-	return tea.Exec(execCmd, func(err error) tea.Msg {
-		return handoffDoneMsg{
-			historyID: historyID,
-			action:    action,
-			message:   doneMessage,
-			err:       err,
-			refresh:   refresh,
-		}
-	})
+	return tea.Batch(
+		m.beginBusy(m.currentBusyBudget()),
+		tea.Exec(execCmd, func(err error) tea.Msg {
+			return handoffDoneMsg{
+				historyID: historyID,
+				action:    action,
+				message:   doneMessage,
+				err:       err,
+				refresh:   refresh,
+			}
+		}),
+	)
 }
 
 func (m *Model) completeHandoff(msg handoffDoneMsg) tea.Cmd {
@@ -1143,9 +1233,9 @@ func (m *Model) completeHandoff(msg handoffDoneMsg) tea.Cmd {
 	if msg.refresh {
 		m.loading = true
 		m.autoRefreshID++
-		return tea.Batch(loadSnapshotCmd(m.loader), clearBannerCmd(bannerID))
+		return tea.Batch(m.beginBusy(m.currentBusyBudget()), loadSnapshotCmd(m.loader), clearBannerCmd(bannerID))
 	}
-	return clearBannerCmd(bannerID)
+	return tea.Batch(m.finishBusy(), clearBannerCmd(bannerID))
 }
 
 func (m *Model) completeCopy(msg copyDoneMsg) tea.Cmd {

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/traweezy/stackctl/internal/logging"
 )
 
 var ErrNotFound = errors.New("stackctl config not found")
@@ -152,23 +154,29 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	log := logging.With("component", "config", "path", resolvedPath)
+	log.Debug("loading config")
 
 	// #nosec G304 -- config paths are chosen explicitly by the local CLI user.
 	data, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			log.Debug("config file not found")
 			return Config{}, ErrNotFound
 		}
+		log.Error("config read failed", "error", err)
 		return Config{}, fmt.Errorf("read config %q: %w", resolvedPath, err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		log.Error("config parse failed", "error", err)
 		return Config{}, fmt.Errorf("parse config %q: %w", resolvedPath, err)
 	}
 	applyLegacySetupDefaults(data, &cfg)
 
 	cfg.ApplyDerivedFields()
+	log.Debug("config loaded", "stack", cfg.Stack.Name, "managed", cfg.Stack.Managed, "bytes", len(data))
 
 	return cfg, nil
 }
@@ -178,21 +186,26 @@ func Save(path string, cfg Config) error {
 	if err != nil {
 		return err
 	}
+	log := logging.With("component", "config", "path", resolvedPath)
 
 	cfg.ApplyDerivedFields()
 
 	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o750); err != nil {
+		log.Error("config directory create failed", "error", err)
 		return fmt.Errorf("create config directory for %q: %w", resolvedPath, err)
 	}
 
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
+		log.Error("config marshal failed", "error", err)
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
 	if err := os.WriteFile(resolvedPath, data, 0o600); err != nil {
+		log.Error("config write failed", "error", err)
 		return fmt.Errorf("write config %q: %w", resolvedPath, err)
 	}
+	log.Debug("config saved", "stack", cfg.Stack.Name, "managed", cfg.Stack.Managed, "bytes", len(data))
 
 	return nil
 }
@@ -202,8 +215,10 @@ func Marshal(cfg Config) ([]byte, error) {
 
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
+		logging.With("component", "config").Error("config marshal failed", "error", err)
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
+	logging.With("component", "config").Debug("config marshaled", "stack", cfg.Stack.Name, "managed", cfg.Stack.Managed, "bytes", len(data))
 
 	return data, nil
 }

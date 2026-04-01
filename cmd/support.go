@@ -1,22 +1,32 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
+	huhspinner "charm.land/huh/v2/spinner"
+	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
+	"github.com/traweezy/stackctl/internal/logging"
 	"github.com/traweezy/stackctl/internal/output"
 	"github.com/traweezy/stackctl/internal/system"
 )
 
 type rootOutputOptions struct {
-	Verbose bool
-	Quiet   bool
+	Verbose     bool
+	Quiet       bool
+	Accessible  bool
+	PlainWizard bool
+	LogLevel    string
+	LogFormat   string
+	LogFile     string
 }
 
 var rootOutput rootOutputOptions
@@ -119,10 +129,14 @@ func scaffoldManagedStack(cmd *cobra.Command, cfg configpkg.Config, force bool) 
 		return nil
 	}
 
+	log := logging.With("component", "scaffold", "stack", cfg.Stack.Name, "force", force)
+	log.Debug("scaffolding managed stack")
 	result, err := deps.scaffoldManagedStack(cfg, force)
 	if err != nil {
+		log.Error("managed stack scaffold failed", "error", err)
 		return err
 	}
+	log.Info("managed stack scaffold completed", "compose_path", result.ComposePath)
 
 	if result.CreatedDir {
 		if err := statusLine(cmd, output.StatusOK, fmt.Sprintf("created managed stack directory %s", result.StackDir)); err != nil {
@@ -260,4 +274,37 @@ func verboseLine(cmd *cobra.Command, message string) error {
 
 func verboseComposeFile(cmd *cobra.Command, cfg configpkg.Config) error {
 	return verboseLine(cmd, fmt.Sprintf("Using compose file %s", deps.composePath(cfg)))
+}
+
+func runSpinnerAction(cmd *cobra.Command, title string, action func(context.Context) error) error {
+	if quietRequested(cmd) || !deps.isTerminal() {
+		return action(context.Background())
+	}
+
+	spinner := huhspinner.New().
+		Title(strings.TrimSpace(title)).
+		WithInput(deps.stdin).
+		WithOutput(cmd.ErrOrStderr()).
+		WithTheme(commandSpinnerTheme(cmd.ErrOrStderr())).
+		WithAccessible(os.Getenv("ACCESSIBLE") != "")
+
+	return spinner.ActionWithErr(action).Run()
+}
+
+func commandSpinnerTheme(out io.Writer) huhspinner.Theme {
+	isDark := true
+	if file, ok := out.(*os.File); ok {
+		isDark = lipgloss.HasDarkBackground(os.Stdin, file)
+	}
+
+	return huhspinner.ThemeFunc(func(_ bool) *huhspinner.Styles {
+		return huhspinner.ThemeDefault(isDark)
+	})
+}
+
+func renderMarkdownBlock(cmd *cobra.Command, markdown string) error {
+	if quietRequested(cmd) {
+		return nil
+	}
+	return output.RenderMarkdown(cmd.OutOrStdout(), markdown)
 }

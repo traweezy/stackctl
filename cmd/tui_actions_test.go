@@ -293,6 +293,79 @@ func TestRunTUIActionRestartUsesDownUpAndWait(t *testing.T) {
 	}
 }
 
+func TestRunTUIStopStackLoadsNamedStackAndAnnotatesReport(t *testing.T) {
+	var composeDownCalls int
+
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.DefaultForStack("staging")
+		cfg.ApplyDerivedFields()
+		value.configFilePathForStack = func(string) (string, error) { return "/tmp/stackctl/stacks/staging.yaml", nil }
+		value.stat = func(string) (os.FileInfo, error) { return fakeFileInfo{name: "staging.yaml"}, nil }
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
+			composeDownCalls++
+			return nil
+		}
+	})
+
+	report, err := runTUIStopStack("staging")
+	if err != nil {
+		t.Fatalf("runTUIStopStack returned error: %v", err)
+	}
+	if composeDownCalls != 1 {
+		t.Fatalf("expected composeDown once, got %d", composeDownCalls)
+	}
+	if report.Message != "stack staging stopped" || !report.Refresh {
+		t.Fatalf("unexpected stop-stack report: %+v", report)
+	}
+	if !strings.Contains(strings.Join(report.Details, "\n"), "/tmp/stackctl/stacks/staging.yaml") {
+		t.Fatalf("expected stack config path in report details: %+v", report.Details)
+	}
+}
+
+func TestRunTUIRestartStackLoadsNamedStackAndWaits(t *testing.T) {
+	var composeDownCalls int
+	var composeUpCalls int
+	var waitedPorts []int
+
+	withTestDeps(t, func(value *commandDeps) {
+		cfg := configpkg.DefaultForStack("staging")
+		cfg.ApplyDerivedFields()
+		value.configFilePathForStack = func(string) (string, error) { return "/tmp/stackctl/stacks/staging.yaml", nil }
+		value.stat = func(string) (os.FileInfo, error) { return fakeFileInfo{name: "staging.yaml"}, nil }
+		value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		value.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
+			composeDownCalls++
+			return nil
+		}
+		value.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+			composeUpCalls++
+			return nil
+		}
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg)}, nil
+		}
+		value.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+			waitedPorts = append(waitedPorts, port)
+			return nil
+		}
+	})
+
+	report, err := runTUIRestartStack("staging")
+	if err != nil {
+		t.Fatalf("runTUIRestartStack returned error: %v", err)
+	}
+	if composeDownCalls != 1 || composeUpCalls != 1 {
+		t.Fatalf("unexpected restart counts: down=%d up=%d", composeDownCalls, composeUpCalls)
+	}
+	if len(waitedPorts) == 0 {
+		t.Fatalf("expected restart to wait for service ports, got %+v", waitedPorts)
+	}
+	if report.Message != "stack staging restarted" || !report.Refresh {
+		t.Fatalf("unexpected restart-stack report: %+v", report)
+	}
+}
+
 func TestRunTUIActionStartNamedStackUsesSelectedProfileConfig(t *testing.T) {
 	var composeUpCalls int
 	var waitedPorts []int
