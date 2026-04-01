@@ -26,6 +26,8 @@ const tuiLogWatchTail = 100
 
 func newTUICmd() *cobra.Command {
 	var mouseMode string
+	var altScreenMode string
+	var helpViewMode string
 	var debugLogFile string
 
 	cmd := &cobra.Command{
@@ -55,12 +57,21 @@ func newTUICmd() *cobra.Command {
 			"e for a service shell, d for the Postgres db\n" +
 			"shell, and press w from the service and health panels to open\n" +
 			"live logs for the selected compose service in the full terminal\n" +
-			"viewer.",
+			"viewer. Use --accessible to start with mouse off, alt-screen off,\n" +
+			"and the full help footer unless you override those defaults.",
 		Example:           "  stackctl tui",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mouseEnabled, err := resolveTUIMouseMode(mouseMode)
+			if err != nil {
+				return err
+			}
+			altScreenEnabled, err := resolveTUIAltScreenMode(altScreenMode)
+			if err != nil {
+				return err
+			}
+			helpExpanded, err := resolveTUIHelpViewMode(helpViewMode)
 			if err != nil {
 				return err
 			}
@@ -81,6 +92,8 @@ func newTUICmd() *cobra.Command {
 				ScaffoldManagedStack:      deps.scaffoldManagedStack,
 			}).
 				WithMouse(mouseEnabled).
+				WithAltScreen(altScreenEnabled).
+				WithHelpExpanded(helpExpanded).
 				WithProductivity(clipboardWriter, buildTUIServiceShellCommand, buildTUIDBShellCommand)
 
 			debugLog, err := openTUIDebugLog(debugLogPath)
@@ -101,8 +114,12 @@ func newTUICmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&mouseMode, "mouse", "auto", "Mouse support for scrolling and click-aware navigation (auto, on, off)")
+	cmd.Flags().StringVar(&altScreenMode, "alt-screen", "auto", "Alternate screen handling for the dashboard (auto, on, off)")
+	cmd.Flags().StringVar(&helpViewMode, "help-view", "auto", "Initial footer help density (auto, short, full)")
 	cmd.Flags().StringVar(&debugLogFile, "debug-log-file", "", "Write Bubble Tea debug logs to this path")
 	mustRegisterFlagCompletion(cmd, "mouse", cobra.FixedCompletions([]string{"auto", "on", "off"}, cobra.ShellCompDirectiveNoFileComp))
+	mustRegisterFlagCompletion(cmd, "alt-screen", cobra.FixedCompletions([]string{"auto", "on", "off"}, cobra.ShellCompDirectiveNoFileComp))
+	mustRegisterFlagCompletion(cmd, "help-view", cobra.FixedCompletions([]string{"auto", "short", "full"}, cobra.ShellCompDirectiveNoFileComp))
 	return cmd
 }
 
@@ -116,6 +133,9 @@ func openTUIDebugLog(path string) (*os.File, error) {
 func resolveTUIMouseMode(mode string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "", "auto":
+		if rootOutput.Accessible {
+			return false, nil
+		}
 		return stacktui.MouseEnabledFromEnv(), nil
 	case "on":
 		return true, nil
@@ -123,6 +143,35 @@ func resolveTUIMouseMode(mode string) (bool, error) {
 		return false, nil
 	default:
 		return false, fmt.Errorf("invalid --mouse %q: use auto, on, or off", strings.TrimSpace(mode))
+	}
+}
+
+func resolveTUIAltScreenMode(mode string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "auto":
+		if rootOutput.Accessible {
+			return false, nil
+		}
+		return stacktui.AltScreenEnabledFromEnv(), nil
+	case "on":
+		return true, nil
+	case "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid --alt-screen %q: use auto, on, or off", strings.TrimSpace(mode))
+	}
+}
+
+func resolveTUIHelpViewMode(mode string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "auto":
+		return rootOutput.Accessible, nil
+	case "short":
+		return false, nil
+	case "full":
+		return true, nil
+	default:
+		return false, fmt.Errorf("invalid --help-view %q: use auto, short, or full", strings.TrimSpace(mode))
 	}
 }
 

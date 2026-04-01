@@ -220,12 +220,40 @@ func TestViewCanDisableAltScreenForAutomation(t *testing.T) {
 	}
 }
 
+func TestViewHonorsExplicitAltScreenConfiguration(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil }).WithAltScreen(false)
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	view := updatedModel.(Model).View()
+	if view.AltScreen {
+		t.Fatal("expected explicit alt-screen override to disable alt screen rendering")
+	}
+}
+
 func TestViewHonorsExplicitMouseConfiguration(t *testing.T) {
 	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil }).WithMouse(true)
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	view := updatedModel.(Model).View()
 	if view.MouseMode != tea.MouseModeCellMotion {
 		t.Fatalf("expected cell-motion mouse mode, got %v", view.MouseMode)
+	}
+}
+
+func TestFooterCanStartInExpandedHelpMode(t *testing.T) {
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil }).WithHelpExpanded(true)
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	current := updatedModel.(Model)
+
+	footer := stripANSITest(current.footerView())
+	for _, fragment := range []string{
+		"tab/l",
+		"shift+tab/h",
+		"y/enter",
+		"n",
+		"r",
+	} {
+		if !strings.Contains(footer, fragment) {
+			t.Fatalf("expected expanded help footer to contain %q:\n%s", fragment, footer)
+		}
 	}
 }
 

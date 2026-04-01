@@ -87,10 +87,65 @@ func TestTUICmdHelpDocumentsInspectionPanelsAndLiveLogs(t *testing.T) {
 		"Stacks pane lets you inspect saved profiles, switch the active stack, start or stop selected stack profiles, and remove profiles",
 		"switch the active item inside split inspection panes",
 		"press w from the service and health panels to open live logs",
+		"--alt-screen string",
+		"--help-view string",
 	} {
 		if !strings.Contains(collapsed, fragment) {
 			t.Fatalf("expected tui help to contain %q:\n%s", fragment, stdout)
 		}
+	}
+}
+
+func TestResolveTUIMouseModeAccessibleAutoDisablesMouse(t *testing.T) {
+	original := rootOutput
+	rootOutput.Accessible = true
+	t.Cleanup(func() { rootOutput = original })
+
+	enabled, err := resolveTUIMouseMode("auto")
+	if err != nil {
+		t.Fatalf("resolveTUIMouseMode returned error: %v", err)
+	}
+	if enabled {
+		t.Fatal("expected accessible auto mode to disable mouse support")
+	}
+}
+
+func TestResolveTUIAltScreenModeAutoHonorsAccessibleAndEnv(t *testing.T) {
+	original := rootOutput
+	rootOutput.Accessible = true
+	t.Cleanup(func() { rootOutput = original })
+	t.Setenv("STACKCTL_TUI_NO_ALT_SCREEN", "")
+
+	enabled, err := resolveTUIAltScreenMode("auto")
+	if err != nil {
+		t.Fatalf("resolveTUIAltScreenMode returned error: %v", err)
+	}
+	if enabled {
+		t.Fatal("expected accessible auto mode to disable alt-screen")
+	}
+
+	rootOutput.Accessible = false
+	t.Setenv("STACKCTL_TUI_NO_ALT_SCREEN", "1")
+	enabled, err = resolveTUIAltScreenMode("auto")
+	if err != nil {
+		t.Fatalf("resolveTUIAltScreenMode returned error: %v", err)
+	}
+	if enabled {
+		t.Fatal("expected env automation override to disable alt-screen")
+	}
+}
+
+func TestResolveTUIHelpViewModeAutoHonorsAccessible(t *testing.T) {
+	original := rootOutput
+	rootOutput.Accessible = true
+	t.Cleanup(func() { rootOutput = original })
+
+	expanded, err := resolveTUIHelpViewMode("auto")
+	if err != nil {
+		t.Fatalf("resolveTUIHelpViewMode returned error: %v", err)
+	}
+	if !expanded {
+		t.Fatal("expected accessible auto mode to expand help")
 	}
 }
 

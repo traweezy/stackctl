@@ -36,16 +36,25 @@ command palette, including stack-wide connect/env/ports copy helpers,
 e for a service shell, d for the Postgres db
 shell, and press w from the service and health panels to open
 live logs for the selected compose service in the full terminal
-viewer.
+viewer. Use --accessible to start with mouse off, alt-screen off,
+and the full help footer unless you override those defaults.
 
 
 .SH OPTIONS
+\fB--alt-screen\fP="auto"
+	Alternate screen handling for the dashboard (auto, on, off)
+
+.PP
 \fB--debug-log-file\fP=""
 	Write Bubble Tea debug logs to this path
 
 .PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for tui
+
+.PP
+\fB--help-view\fP="auto"
+	Initial footer help density (auto, short, full)
 
 .PP
 \fB--mouse\fP="auto"

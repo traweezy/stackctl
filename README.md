@@ -554,6 +554,7 @@ Examples:
 ```bash
 stackctl tui
 stackctl tui --mouse on
+stackctl tui --alt-screen off --help-view full
 stackctl tui --debug-log-file /tmp/stackctl-tui.log
 ```
 
@@ -671,6 +672,12 @@ Notes:
   `d` jumps straight into `psql` when Postgres is selected
 - `--mouse on` enables explicit mouse scrolling and click-aware navigation for
   the TUI; `--mouse off` disables it even if `STACKCTL_TUI_MOUSE=1` is set
+- `--alt-screen off` keeps the dashboard in the main terminal buffer, which is
+  useful for automation, terminal recording, and screen-reader friendly flows
+- `--help-view full` starts with the expanded shortcut footer already open
+- root `--accessible` now carries into `stackctl tui` by default: it starts
+  with mouse off, alt-screen off, and the full help footer unless you override
+  those TUI flags explicitly
 - the config field list intentionally shortens long values such as stack paths;
   the full value always stays visible in the detail pane and diff preview
 - long-running actions usually mean image pulls, Podman startup, or service
@@ -684,6 +691,8 @@ Flags:
 | Flag | Meaning |
 | --- | --- |
 | `--mouse` | Mouse support for scrolling and click-aware navigation (`auto`, `on`, `off`) |
+| `--alt-screen` | Alternate screen handling for the dashboard (`auto`, `on`, `off`) |
+| `--help-view` | Initial footer help density (`auto`, `short`, `full`) |
 | `--debug-log-file` | Write Bubble Tea debug logs to this path for TUI troubleshooting |
 
 ### TUI productivity workflows

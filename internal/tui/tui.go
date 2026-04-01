@@ -369,6 +369,7 @@ type Model struct {
 	autoRefreshID    int
 	showSecrets      bool
 	mouseEnabled     bool
+	altScreen        bool
 	errMessage       string
 	snapshot         Snapshot
 	loader           Loader
@@ -435,6 +436,7 @@ func newModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRun
 		loading:          true,
 		autoRefresh:      true,
 		mouseEnabled:     MouseEnabledFromEnv(),
+		altScreen:        AltScreenEnabledFromEnv(),
 		loader:           loader,
 		logWatchLauncher: logWatchLauncher,
 		runner:           runner,
@@ -464,6 +466,16 @@ func (m Model) WithProductivity(copyWriter ClipboardWriter, shellLauncher Servic
 func (m Model) WithMouse(enabled bool) Model {
 	m.mouseEnabled = enabled
 	m.viewport.MouseWheelEnabled = enabled
+	return m
+}
+
+func (m Model) WithAltScreen(enabled bool) Model {
+	m.altScreen = enabled
+	return m
+}
+
+func (m Model) WithHelpExpanded(expanded bool) Model {
+	m.help.ShowAll = expanded
 	return m
 }
 
@@ -798,7 +810,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
 		view := tea.NewView("Loading stackctl tui...")
-		view.AltScreen = tuiAltScreenEnabled()
+		view.AltScreen = m.altScreen
 		return view
 	}
 
@@ -814,7 +826,7 @@ func (m Model) View() tea.View {
 	blocks = append(blocks, body, footer)
 
 	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, blocks...))
-	view.AltScreen = tuiAltScreenEnabled()
+	view.AltScreen = m.altScreen
 	view.ReportFocus = true
 	view.KeyboardEnhancements.ReportEventTypes = true
 	if m.mouseEnabled {
@@ -823,7 +835,7 @@ func (m Model) View() tea.View {
 	return view
 }
 
-func tuiAltScreenEnabled() bool {
+func AltScreenEnabledFromEnv() bool {
 	return os.Getenv("STACKCTL_TUI_NO_ALT_SCREEN") != "1"
 }
 
