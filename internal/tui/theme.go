@@ -76,7 +76,7 @@ func newTheme(isDark bool) theme {
 	pick := lipgloss.LightDark(isDark)
 
 	return theme{
-		hasDarkBackground: isDark,
+		hasDarkBackground:    isDark,
 		titleForeground:      pick(lipgloss.Color("#0f172a"), lipgloss.Color("#f8fafc")),
 		titleBackground:      pick(lipgloss.Color("#bfdbfe"), lipgloss.Color("#1d4ed8")),
 		subtitleForeground:   pick(lipgloss.Color("#334155"), lipgloss.Color("#cbd5e1")),
