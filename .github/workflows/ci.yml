@@ -40,11 +40,16 @@ jobs:
           cache: true
 
       - name: Install gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}
+          tool_bin="$(go env GOBIN)"
+          if [ -z "$tool_bin" ]; then
+            tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
+          fi
+          echo "$tool_bin" >> "$GITHUB_PATH"
 
       - name: Run gosec
-        run: |
-          "$(go env GOPATH)/bin/gosec" ./...
+        run: gosec ./...
 
   govulncheck:
     name: Security / govulncheck
@@ -60,11 +65,16 @@ jobs:
           cache: true
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          tool_bin="$(go env GOBIN)"
+          if [ -z "$tool_bin" ]; then
+            tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
+          fi
+          echo "$tool_bin" >> "$GITHUB_PATH"
 
       - name: Run govulncheck
-        run: |
-          "$(go env GOPATH)/bin/govulncheck" ./...
+        run: govulncheck ./...
 
   gitleaks:
     name: Security / gitleaks
@@ -82,11 +92,16 @@ jobs:
           cache: true
 
       - name: Install gitleaks
-        run: go install github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}
+          tool_bin="$(go env GOBIN)"
+          if [ -z "$tool_bin" ]; then
+            tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
+          fi
+          echo "$tool_bin" >> "$GITHUB_PATH"
 
       - name: Run gitleaks
-        run: |
-          "$(go env GOPATH)/bin/gitleaks" git --no-banner --redact .
+        run: gitleaks git --no-banner --redact .
 
   fmt-check:
     name: Quality / format
@@ -144,11 +159,16 @@ jobs:
           cache: true
 
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          tool_bin="$(go env GOBIN)"
+          if [ -z "$tool_bin" ]; then
+            tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
+          fi
+          echo "$tool_bin" >> "$GITHUB_PATH"
 
       - name: Run golangci-lint
-        run: |
-          "$(go env GOPATH)/bin/golangci-lint" run ./...
+        run: golangci-lint run ./...
 
   mod-tidy-check:
     name: Quality / mod tidy

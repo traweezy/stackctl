@@ -139,7 +139,7 @@ func (configListDelegate) Render(w io.Writer, m list.Model, index int, item list
 	lineWidth := maxInt(8, m.Width())
 
 	if row.kind == configListGroupRow {
-		fmt.Fprint(w, subsectionTitleStyle().Width(lineWidth).MaxWidth(lineWidth).Render(truncateEnd(row.group, lineWidth)))
+		_, _ = fmt.Fprint(w, subsectionTitleStyle().Width(lineWidth).MaxWidth(lineWidth).Render(truncateEnd(row.group, lineWidth)))
 		return
 	}
 
@@ -163,7 +163,7 @@ func (configListDelegate) Render(w io.Writer, m list.Model, index int, item list
 	} else {
 		style = style.Foreground(activeTheme().listForeground)
 	}
-	fmt.Fprint(w, style.Render(line))
+	_, _ = fmt.Fprint(w, style.Render(line))
 }
 
 type configEditor struct {

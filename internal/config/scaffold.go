@@ -296,7 +296,7 @@ func scaffoldFileNeedsWrite(path string, expected []byte) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	current, err := root.ReadFile(filepath.Base(path))
 	if err != nil {

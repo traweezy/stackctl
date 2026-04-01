@@ -30,8 +30,8 @@ type packageBackend struct {
 }
 
 const (
-	zypperInstallAttempts   = 3
-	zypperRetryDelaySeconds = 2 * time.Second
+	zypperInstallAttempts = 3
+	zypperRetryDelay      = 2 * time.Second
 )
 
 var packageBackends = map[string]packageBackend{
@@ -192,7 +192,7 @@ func runZypperInstallWithRetry(ctx context.Context, runner Runner, packages []st
 		}
 
 		writeRunnerNotice(runner.Stderr, "zypper install attempt %d failed; cleaning metadata and retrying\n", attempt)
-		timer := time.NewTimer(zypperRetryDelaySeconds)
+		timer := time.NewTimer(zypperRetryDelay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()

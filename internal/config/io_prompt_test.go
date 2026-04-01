@@ -986,8 +986,8 @@ func TestShouldUsePlainWizardDoesNotForceLegacyFlowForAccessibleTerminals(t *tes
 	if err != nil {
 		t.Fatalf("pty.Open returned error: %v", err)
 	}
-	defer ptmx.Close()
-	defer tty.Close()
+	defer func() { _ = ptmx.Close() }()
+	defer func() { _ = tty.Close() }()
 
 	if shouldUsePlainWizard(tty, tty) {
 		t.Fatal("expected accessible terminals to keep the Huh wizard flow")

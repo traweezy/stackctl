@@ -360,13 +360,13 @@ func writeInstallSmokeArchive(t *testing.T, archivePath, binaryPath string) {
 	if err != nil {
 		t.Fatalf("create archive: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	gzipWriter := gzip.NewWriter(file)
-	defer gzipWriter.Close()
+	defer func() { _ = gzipWriter.Close() }()
 
 	tarWriter := tar.NewWriter(gzipWriter)
-	defer tarWriter.Close()
+	defer func() { _ = tarWriter.Close() }()
 
 	header := &tar.Header{
 		Name: "stackctl",
@@ -388,7 +388,7 @@ func writeInstallSmokeChecksums(t *testing.T, checksumsPath, archiveName, archiv
 	if err != nil {
 		t.Fatalf("open archive: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {

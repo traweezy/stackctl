@@ -113,7 +113,7 @@ func CurrentStackName() (string, error) {
 		}
 		return "", fmt.Errorf("open current stack root %q: %w", configDir, err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 
 	data, err := root.ReadFile(CurrentStackFileName)
 	if err != nil {
