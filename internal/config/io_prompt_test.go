@@ -28,6 +28,9 @@ func TestSaveLoadAndMarshalRoundTrip(t *testing.T) {
 	if loaded.Stack.Name != cfg.Stack.Name {
 		t.Fatalf("loaded config stack name = %q", loaded.Stack.Name)
 	}
+	if loaded.SchemaVersion != CurrentSchemaVersion {
+		t.Fatalf("loaded config schema version = %d", loaded.SchemaVersion)
+	}
 	if loaded.TUI.AutoRefreshIntervalSec != 12 {
 		t.Fatalf("loaded config TUI auto-refresh interval = %d", loaded.TUI.AutoRefreshIntervalSec)
 	}
@@ -38,6 +41,9 @@ func TestSaveLoadAndMarshalRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "stack:") {
 		t.Fatalf("marshal output missing stack section: %s", string(data))
+	}
+	if !strings.Contains(string(data), "schema_version: 1") {
+		t.Fatalf("marshal output missing schema version: %s", string(data))
 	}
 	if strings.Contains(string(data), "open_cockpit_on_start") || strings.Contains(string(data), "open_pgadmin_on_start") {
 		t.Fatalf("marshal output should not include removed open-on-start fields: %s", string(data))
@@ -97,6 +103,9 @@ system:
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
+	if cfg.SchemaVersion != CurrentSchemaVersion {
+		t.Fatalf("expected legacy config to normalize schema version, got %d", cfg.SchemaVersion)
+	}
 	if !cfg.Behavior.WaitForServicesStart || cfg.Behavior.StartupTimeoutSec != 30 {
 		t.Fatalf("unexpected behavior config: %+v", cfg.Behavior)
 	}
@@ -144,6 +153,9 @@ system:
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
+	if cfg.SchemaVersion != CurrentSchemaVersion {
+		t.Fatalf("expected default schema version, got %d", cfg.SchemaVersion)
+	}
 	if cfg.TUI.AutoRefreshIntervalSec != DefaultTUIAutoRefreshIntervalSeconds {
 		t.Fatalf("expected default TUI auto-refresh interval, got %+v", cfg.TUI)
 	}
@@ -180,6 +192,9 @@ system:
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
+	if cfg.SchemaVersion != CurrentSchemaVersion {
+		t.Fatalf("expected default schema version, got %d", cfg.SchemaVersion)
+	}
 	if !cfg.Setup.IncludePostgres || !cfg.Setup.IncludeRedis || !cfg.Setup.IncludeNATS || !cfg.Setup.IncludePgAdmin || !cfg.Setup.IncludeCockpit {
 		t.Fatalf("expected legacy config to inherit service defaults, got %+v", cfg.Setup)
 	}
@@ -192,6 +207,38 @@ func TestLoadMissingConfigReturnsErrNotFound(t *testing.T) {
 	_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
 	if err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestLoadRejectsUnsupportedSchemaVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := `schema_version: 99
+stack:
+  name: dev-stack
+  dir: /tmp/dev-stack
+  compose_file: compose.yaml
+  managed: false
+connection:
+  host: localhost
+setup:
+  include_postgres: true
+  include_redis: true
+  include_nats: true
+  include_pgadmin: true
+  include_cockpit: true
+  scaffold_default_stack: false
+behavior:
+  wait_for_services_on_start: true
+  startup_timeout_seconds: 30
+system:
+  package_manager: apt
+`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "unsupported schema_version 99") {
+		t.Fatalf("unexpected load error: %v", err)
 	}
 }
 

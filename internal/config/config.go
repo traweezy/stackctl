@@ -15,18 +15,22 @@ import (
 var ErrNotFound = errors.New("stackctl config not found")
 
 type Config struct {
-	Stack      StackConfig      `yaml:"stack"`
-	Services   ServicesConfig   `yaml:"services"`
-	Connection ConnectionConfig `yaml:"connection"`
-	Ports      PortsConfig      `yaml:"ports"`
-	URLs       URLsConfig       `yaml:"urls"`
-	Behavior   BehaviorConfig   `yaml:"behavior"`
-	Setup      SetupConfig      `yaml:"setup"`
-	TUI        TUIConfig        `yaml:"tui"`
-	System     SystemConfig     `yaml:"system"`
+	SchemaVersion int              `yaml:"schema_version"`
+	Stack         StackConfig      `yaml:"stack"`
+	Services      ServicesConfig   `yaml:"services"`
+	Connection    ConnectionConfig `yaml:"connection"`
+	Ports         PortsConfig      `yaml:"ports"`
+	URLs          URLsConfig       `yaml:"urls"`
+	Behavior      BehaviorConfig   `yaml:"behavior"`
+	Setup         SetupConfig      `yaml:"setup"`
+	TUI           TUIConfig        `yaml:"tui"`
+	System        SystemConfig     `yaml:"system"`
 }
 
-const DefaultTUIAutoRefreshIntervalSeconds = 30
+const (
+	CurrentSchemaVersion                 = 1
+	DefaultTUIAutoRefreshIntervalSeconds = 30
+)
 
 type StackConfig struct {
 	Name        string `yaml:"name"`
@@ -174,6 +178,10 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parse config %q: %w", resolvedPath, err)
 	}
 	applyLegacySetupDefaults(data, &cfg)
+	if err := cfg.normalizeSchemaVersion(); err != nil {
+		log.Error("config schema validation failed", "error", err)
+		return Config{}, fmt.Errorf("validate config schema for %q: %w", resolvedPath, err)
+	}
 
 	cfg.ApplyDerivedFields()
 	log.Debug("config loaded", "stack", cfg.Stack.Name, "managed", cfg.Stack.Managed, "bytes", len(data))
@@ -224,6 +232,7 @@ func Marshal(cfg Config) ([]byte, error) {
 }
 
 func (c *Config) ApplyDerivedFields() {
+	c.SchemaVersion = CurrentSchemaVersion
 	c.Stack.Name = normalizeStackName(c.Stack.Name)
 	if c.Stack.Managed {
 		if managedDir, err := ManagedStackDir(c.Stack.Name); err == nil {
@@ -361,6 +370,18 @@ func (c *Config) ApplyDerivedFields() {
 	}
 	if c.TUI.AutoRefreshIntervalSec <= 0 {
 		c.TUI.AutoRefreshIntervalSec = DefaultTUIAutoRefreshIntervalSeconds
+	}
+}
+
+func (c *Config) normalizeSchemaVersion() error {
+	switch c.SchemaVersion {
+	case 0:
+		c.SchemaVersion = CurrentSchemaVersion
+		return nil
+	case CurrentSchemaVersion:
+		return nil
+	default:
+		return fmt.Errorf("unsupported schema_version %d (current %d)", c.SchemaVersion, CurrentSchemaVersion)
 	}
 }
 

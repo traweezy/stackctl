@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1089,6 +1090,25 @@ func TestVersionIncludesOptionalMetadata(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "git_commit: abc123") || !strings.Contains(stdout, "build_date: 2026-03-21") {
 		t.Fatalf("unexpected version output: %s", stdout)
+	}
+}
+
+func TestVersionJSONIncludesOptionalMetadata(t *testing.T) {
+	app := NewApp()
+	app.GitCommit = "abc123"
+	app.BuildDate = "2026-03-21"
+
+	stdout, _, err := executeAppRoot(t, app, "version", "--json")
+	if err != nil {
+		t.Fatalf("version --json returned error: %v", err)
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("unmarshal version json: %v\n%s", err, stdout)
+	}
+	if payload["version"] != app.Version || payload["git_commit"] != "abc123" || payload["build_date"] != "2026-03-21" {
+		t.Fatalf("unexpected version json payload: %+v", payload)
 	}
 }
 

@@ -7,6 +7,7 @@ func Default() Config {
 func DefaultForStack(stackName string) Config {
 	name := normalizeStackName(stackName)
 	cfg := Config{
+		SchemaVersion: CurrentSchemaVersion,
 		Stack: StackConfig{
 			Name:    name,
 			Managed: true,
