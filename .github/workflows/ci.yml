@@ -20,6 +20,9 @@ env:
   GOVULNCHECK_VERSION: v1.1.4
   GITLEAKS_VERSION: v8.30.1
   GOLANGCI_LINT_VERSION: v2.11.4
+  GORELEASER_VERSION: v2.15.2
+  SYFT_VERSION: v1.42.3
+  COSIGN_VERSION: v3.0.5
   COVERAGE_THRESHOLD: "75.0"
 
 jobs:
@@ -399,6 +402,49 @@ jobs:
           path: .tmp/journey-smoke
           retention-days: 7
 
+  release-dry-run:
+    name: Release / snapshot dry-run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    needs:
+      - unit-tests
+      - race-tests
+      - coverage
+      - integration-tests
+      - install-script-smoke
+      - package-manager-smoke
+      - journey-smoke
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install release toolchain
+        run: |
+          go install github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}
+          go install github.com/anchore/syft/cmd/syft@${SYFT_VERSION}
+          go install github.com/sigstore/cosign/v3/cmd/cosign@${COSIGN_VERSION}
+          tool_bin="$(go env GOBIN)"
+          if [ -z "$tool_bin" ]; then
+            tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
+          fi
+          echo "$tool_bin" >> "$GITHUB_PATH"
+
+      - name: Run GoReleaser snapshot dry-run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          goreleaser release --snapshot --clean
+
   build:
     name: Build / binary
     runs-on: ubuntu-latest
@@ -410,6 +456,7 @@ jobs:
       - install-script-smoke
       - package-manager-smoke
       - journey-smoke
+      - release-dry-run
     steps:
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0

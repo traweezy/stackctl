@@ -56,6 +56,13 @@ jobs:
           go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
           go install github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}
           go install github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}
+          go install github.com/anchore/syft/cmd/syft@${SYFT_VERSION}
+          go install github.com/sigstore/cosign/v3/cmd/cosign@${COSIGN_VERSION}
+          tool_bin="$(go env GOBIN)"
+          if [ -z "$tool_bin" ]; then
+            tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
+          fi
+          echo "$tool_bin" >> "$GITHUB_PATH"
 
       - name: Run gitleaks
         run: |
@@ -88,7 +95,13 @@ jobs:
 
       - name: Verify GoReleaser config
         run: |
-          "$(go env GOPATH)/bin/goreleaser" check
+          goreleaser check
+
+      - name: Run GoReleaser snapshot dry-run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          goreleaser release --snapshot --clean
 
       - name: Verify go.mod and go.sum are tidy
         shell: bash
@@ -139,12 +152,17 @@ jobs:
           go install github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}
           go install github.com/anchore/syft/cmd/syft@${SYFT_VERSION}
           go install github.com/sigstore/cosign/v3/cmd/cosign@${COSIGN_VERSION}
+          tool_bin="$(go env GOBIN)"
+          if [ -z "$tool_bin" ]; then
+            tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
+          fi
+          echo "$tool_bin" >> "$GITHUB_PATH"
 
       - name: Run GoReleaser
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          "$(go env GOPATH)/bin/goreleaser" release --clean
+          goreleaser release --clean
 
       - name: Attest release artifacts
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
