@@ -48,7 +48,7 @@ All in a single CLI.
 > - `setup --install` supports `apt`, `dnf`/`yum`, `pacman`, `zypper`, `apk`, and Homebrew
 > - macOS support uses Homebrew plus `podman machine`
 > - hosted CI continuously verifies Linux build, installer, package-manager, and Podman runtime paths
-> - full-host Linux distro and macOS journeys are release-qualified in `platform-lab`; they are not run on every push
+> - full-host Linux distro and macOS journeys are qualified in `platform-lab` on a weekly schedule and as a required release-tag gate; they are not run on every push
 > - Windows is not supported
 
 ## What stackctl is for
@@ -225,8 +225,9 @@ journey-smoke script, run the full Go integration suite, and enforce a
 two-phase runner preflight. Linux platform-lab runners are expected to provide
 the correct distro label, the native package manager, and passwordless `sudo`;
 macOS runners are expected to provide Homebrew and a Podman installation that
-can reach `podman machine` once setup completes. Those self-hosted jobs are
-release-qualification coverage rather than a per-push guarantee.
+can reach `podman machine` once setup completes. Those self-hosted jobs now run
+on a weekly schedule and are also required before tagged releases publish, but
+they are still not part of the normal per-push CI path.
 
 ## Quick start
 
@@ -1701,6 +1702,10 @@ bash scripts/check-coverage.sh
 bash scripts/install-smoke.sh
 goreleaser release --snapshot --clean
 ```
+
+Tagged releases also wait for the self-hosted `platform-lab` workflow, so
+Linux distro and macOS Homebrew plus `podman machine` journeys are part of the
+actual release gate instead of a manual side check.
 
 Each tagged release is expected to publish:
 

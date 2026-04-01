@@ -134,10 +134,19 @@ jobs:
           mkdir -p dist
           go build -trimpath -o dist/stackctl .
 
+  platform-lab:
+    name: Release / platform lab
+    needs: [verify]
+    uses: ./.github/workflows/platform-lab.yml
+    with:
+      run_linux_vm_smoke: true
+      run_macos_smoke: true
+    secrets: inherit
+
   goreleaser:
     name: Release / goreleaser
     runs-on: ubuntu-latest
-    needs: [verify]
+    needs: [verify, platform-lab]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

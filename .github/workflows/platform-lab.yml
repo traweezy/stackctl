@@ -1,6 +1,16 @@
 name: platform-lab
 
 on:
+  workflow_call:
+    inputs:
+      run_linux_vm_smoke:
+        required: false
+        default: false
+        type: boolean
+      run_macos_smoke:
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       run_linux_vm_smoke:
@@ -13,6 +23,8 @@ on:
         required: true
         default: false
         type: boolean
+  schedule:
+    - cron: "0 8 * * 1"
 
 permissions:
   contents: read
@@ -22,7 +34,7 @@ env:
 
 jobs:
   linux-vm-smoke:
-    if: ${{ inputs.run_linux_vm_smoke }}
+    if: ${{ github.event_name == 'schedule' || inputs.run_linux_vm_smoke }}
     name: Platform lab / linux (${{ matrix.name }})
     runs-on: [self-hosted, linux, x64, "${{ matrix.label }}"]
     timeout-minutes: 30
@@ -129,7 +141,7 @@ jobs:
           retention-days: 7
 
   macos-brew-smoke:
-    if: ${{ inputs.run_macos_smoke }}
+    if: ${{ github.event_name == 'schedule' || inputs.run_macos_smoke }}
     name: Platform lab / macos brew
     runs-on: [self-hosted, macOS, ARM64, brew]
     timeout-minutes: 30

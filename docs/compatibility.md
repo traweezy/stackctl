@@ -121,8 +121,8 @@ runtime version floor above.
 
 ### Release-qualified
 
-These paths are qualified before final releases but are not currently run on
-every push:
+These paths are qualified on a weekly schedule and as part of the tagged
+release gate, but they are not run on every push:
 
 - full-host Linux distro journeys on self-hosted runners
 - macOS Homebrew plus `podman machine` journeys on self-hosted runners
