@@ -43,9 +43,29 @@ archives:
       {{ .ProjectName }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
     files:
       - README.md
+      - CHANGELOG.md
+      - SECURITY.md
 
 checksum:
   name_template: checksums.txt
 
+sboms:
+  - id: archive-sboms
+    artifacts: archive
+    documents:
+      - "${artifact}.spdx.json"
+    disable: false
+
+signs:
+  - id: checksum-sigstore
+    cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+
 changelog:
-  sort: asc
+  use: github-native

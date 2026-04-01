@@ -11,6 +11,18 @@ concurrency:
 
 permissions:
   contents: write
+  attestations: write
+  id-token: write
+
+env:
+  GOSEC_VERSION: v2.25.0
+  GOVULNCHECK_VERSION: v1.1.4
+  GITLEAKS_VERSION: v8.30.1
+  GOLANGCI_LINT_VERSION: v2.11.4
+  GORELEASER_VERSION: v2.15.2
+  SYFT_VERSION: v1.42.3
+  COSIGN_VERSION: v3.0.5
+  COVERAGE_THRESHOLD: "75.0"
 
 jobs:
   verify:
@@ -20,12 +32,12 @@ jobs:
       PODMAN_COMPOSE_PROVIDER: podman-compose
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -39,10 +51,11 @@ jobs:
 
       - name: Install verification tools
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@latest
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-          go install github.com/zricethezav/gitleaks/v8@latest
+          go install github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          go install github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}
+          go install github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}
 
       - name: Run gitleaks
         run: |
@@ -73,6 +86,10 @@ jobs:
         run: |
           "$(go env GOPATH)/bin/golangci-lint" run ./...
 
+      - name: Verify GoReleaser config
+        run: |
+          "$(go env GOPATH)/bin/goreleaser" check
+
       - name: Verify go.mod and go.sum are tidy
         shell: bash
         run: |
@@ -85,13 +102,21 @@ jobs:
       - name: Run race tests
         run: go test ./... -race -count=1
 
+      - name: Enforce coverage threshold
+        env:
+          STACKCTL_COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD }}
+        run: bash scripts/check-coverage.sh
+
+      - name: Run install smoke test
+        run: bash scripts/install-smoke.sh
+
       - name: Run integration tests
         run: go test ./integration -tags=integration -count=1
 
       - name: Build binary
         run: |
           mkdir -p dist
-          go build -o dist/stackctl .
+          go build -trimpath -o dist/stackctl .
 
   goreleaser:
     name: Release / goreleaser
@@ -99,21 +124,29 @@ jobs:
     needs: [verify]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Install GoReleaser
-        run: go install github.com/goreleaser/goreleaser/v2@v2.14.3
+      - name: Install release toolchain
+        run: |
+          go install github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}
+          go install github.com/anchore/syft/cmd/syft@${SYFT_VERSION}
+          go install github.com/sigstore/cosign/v3/cmd/cosign@${COSIGN_VERSION}
 
       - name: Run GoReleaser
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           "$(go env GOPATH)/bin/goreleaser" release --clean
+
+      - name: Attest release artifacts
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-checksums: ./dist/checksums.txt

@@ -1,0 +1,10 @@
+* @traweezy
+
+/.github/workflows/ @traweezy
+/.goreleaser.yaml @traweezy
+/README.md @traweezy
+/CHANGELOG.md @traweezy
+/SECURITY.md @traweezy
+/scripts/install.sh @traweezy
+/scripts/check-coverage.sh @traweezy
+/scripts/install-smoke.sh @traweezy

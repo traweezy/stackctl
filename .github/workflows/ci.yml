@@ -15,22 +15,29 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  GOSEC_VERSION: v2.25.0
+  GOVULNCHECK_VERSION: v1.1.4
+  GITLEAKS_VERSION: v8.30.1
+  GOLANGCI_LINT_VERSION: v2.11.4
+  COVERAGE_THRESHOLD: "75.0"
+
 jobs:
   gosec:
     name: Security / gosec
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Install gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+        run: go install github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}
 
       - name: Run gosec
         run: |
@@ -41,16 +48,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
 
       - name: Run govulncheck
         run: |
@@ -61,18 +68,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Install gitleaks
-        run: go install github.com/zricethezav/gitleaks/v8@latest
+        run: go install github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}
 
       - name: Run gitleaks
         run: |
@@ -84,10 +91,10 @@ jobs:
     needs: [gosec, govulncheck, gitleaks]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -108,10 +115,10 @@ jobs:
     needs: [gosec, govulncheck, gitleaks]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -125,16 +132,16 @@ jobs:
     needs: [gosec, govulncheck, gitleaks]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
 
       - name: Run golangci-lint
         run: |
@@ -146,10 +153,10 @@ jobs:
     needs: [gosec, govulncheck, gitleaks]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -166,10 +173,10 @@ jobs:
     needs: [fmt-check, vet, lint, mod-tidy-check]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -183,16 +190,42 @@ jobs:
     needs: [fmt-check, vet, lint, mod-tidy-check]
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Run race tests
         run: go test ./... -race -count=1
+
+  coverage:
+    name: Test / coverage
+    runs-on: ubuntu-latest
+    needs: [fmt-check, vet, lint, mod-tidy-check]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Enforce coverage threshold
+        env:
+          STACKCTL_COVERAGE_THRESHOLD: ${{ env.COVERAGE_THRESHOLD }}
+        run: bash scripts/check-coverage.sh
+
+      - name: Upload coverage profile
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-profile
+          path: tmp/coverage.out
+          retention-days: 7
 
   integration-tests:
     name: Test / integration
@@ -202,10 +235,10 @@ jobs:
       PODMAN_COMPOSE_PROVIDER: podman-compose
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -219,6 +252,23 @@ jobs:
 
       - name: Run integration tests
         run: go test ./integration -tags=integration -count=1
+
+  install-script-smoke:
+    name: Test / install smoke
+    runs-on: ubuntu-latest
+    needs: [fmt-check, vet, lint, mod-tidy-check]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run installer smoke test
+        run: bash scripts/install-smoke.sh
 
   package-manager-smoke:
     name: Test / package-manager smoke (${{ matrix.name }})
@@ -255,7 +305,7 @@ jobs:
             expect_cockpit: "0"
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Run package-manager smoke
         shell: bash
@@ -271,7 +321,7 @@ jobs:
 
       - name: Upload package-manager smoke logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: package-manager-smoke-${{ matrix.name }}
           path: .tmp/package-manager-smoke/${{ matrix.name }}.log
@@ -285,10 +335,10 @@ jobs:
       PODMAN_COMPOSE_PROVIDER: podman-compose
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -343,7 +393,7 @@ jobs:
 
       - name: Upload journey smoke logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: journey-smoke-logs
           path: .tmp/journey-smoke
@@ -352,13 +402,20 @@ jobs:
   build:
     name: Build / binary
     runs-on: ubuntu-latest
-    needs: [unit-tests, race-tests, integration-tests, package-manager-smoke, journey-smoke]
+    needs:
+      - unit-tests
+      - race-tests
+      - coverage
+      - integration-tests
+      - install-script-smoke
+      - package-manager-smoke
+      - journey-smoke
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -366,10 +423,10 @@ jobs:
       - name: Build binary
         run: |
           mkdir -p dist
-          go build -o dist/stackctl .
+          go build -trimpath -o dist/stackctl .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: stackctl-linux-amd64
           path: dist/stackctl

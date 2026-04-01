@@ -1,0 +1,36 @@
+# Security Policy
+
+## Supported Versions
+
+Security fixes are provided for:
+
+- the latest tagged release
+- the current `master` branch on a best-effort basis before the next release
+
+Older tagged releases are not supported.
+
+## Reporting a Vulnerability
+
+Do not open public issues for suspected vulnerabilities.
+
+Prefer GitHub private vulnerability reporting for this repository if it is
+available. If private reporting is unavailable, contact the maintainer
+privately through GitHub before disclosing details publicly.
+
+When reporting a vulnerability, include:
+
+- the affected `stackctl` version and platform
+- clear reproduction steps or a proof of concept
+- the security impact you observed or expect
+- any mitigation or workaround already identified
+
+## Release Artifact Verification
+
+Tagged releases are intended to ship with:
+
+- `checksums.txt`
+- `checksums.txt.sigstore.json`
+- per-archive SPDX SBOMs (`*.spdx.json`)
+- GitHub artifact attestations for the archives listed in `checksums.txt`
+
+Consumers should verify release artifacts before use.

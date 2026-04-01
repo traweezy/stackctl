@@ -1,12 +1,20 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -89,6 +97,69 @@ func TestInstallScriptFailsOnChecksumMismatch(t *testing.T) {
 	}
 	if !bytes.Contains(stderr.Bytes(), []byte("Checksum verification failed")) {
 		t.Fatalf("expected checksum failure in stderr:\n%s", stderr.String())
+	}
+}
+
+func TestInstallScriptSmokeFromLocalReleaseServer(t *testing.T) {
+	if os.Getenv("STACKCTL_RUN_INSTALL_SMOKE") != "1" {
+		t.Skip("set STACKCTL_RUN_INSTALL_SMOKE=1 to run the installer smoke test")
+	}
+
+	osName, archName := installSmokeAssetLabels(t)
+	workspace := t.TempDir()
+	versionTag := "v0.20.1-smoke"
+	archiveName := "stackctl_" + osName + "_" + archName + ".tar.gz"
+	binaryPath := filepath.Join(workspace, "stackctl")
+	archivePath := filepath.Join(workspace, archiveName)
+	checksumsPath := filepath.Join(workspace, "checksums.txt")
+	installDir := filepath.Join(workspace, "bin")
+
+	buildInstallSmokeBinary(t, binaryPath)
+	writeInstallSmokeArchive(t, archivePath, binaryPath)
+	writeInstallSmokeChecksums(t, checksumsPath, archiveName, archivePath)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/traweezy/stackctl/releases/latest":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": versionTag})
+		case "/traweezy/stackctl/releases/download/" + versionTag + "/" + archiveName:
+			http.ServeFile(w, r, archivePath)
+		case "/traweezy/stackctl/releases/download/" + versionTag + "/checksums.txt":
+			http.ServeFile(w, r, checksumsPath)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd := exec.Command("bash", "scripts/install.sh", "--dir", installDir, "--repo", "traweezy/stackctl")
+	cmd.Env = append(
+		os.Environ(),
+		"STACKCTL_INSTALL_API_BASE_URL="+server.URL,
+		"STACKCTL_INSTALL_DOWNLOAD_BASE_URL="+server.URL,
+	)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("install script returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	installedPath := filepath.Join(installDir, "stackctl")
+	versionCmd := exec.Command(installedPath, "version")
+	output, err := versionCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run installed binary: %v\noutput:\n%s", err, string(output))
+	}
+	if !strings.Contains(string(output), version) {
+		t.Fatalf("unexpected installed binary version output: %q", string(output))
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("Verified archive checksum.")) {
+		t.Fatalf("expected checksum verification message in stdout:\n%s", stdout.String())
 	}
 }
 
@@ -236,4 +307,106 @@ func writeTestScript(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write test script %s: %v", path, err)
 	}
+}
+
+func installSmokeAssetLabels(t *testing.T) (string, string) {
+	t.Helper()
+
+	var osName string
+	switch runtime.GOOS {
+	case "linux":
+		osName = "Linux"
+	case "darwin":
+		osName = "Darwin"
+	default:
+		t.Skipf("installer smoke test does not support GOOS=%s", runtime.GOOS)
+	}
+
+	var archName string
+	switch runtime.GOARCH {
+	case "amd64":
+		archName = "x86_64"
+	case "arm64":
+		archName = "arm64"
+	default:
+		t.Skipf("installer smoke test does not support GOARCH=%s", runtime.GOARCH)
+	}
+
+	return osName, archName
+}
+
+func buildInstallSmokeBinary(t *testing.T, binaryPath string) {
+	t.Helper()
+
+	cmd := exec.Command("go", "build", "-trimpath", "-o", binaryPath, ".")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	cmd.Dir = repoRoot(t)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build install smoke binary: %v\noutput:\n%s", err, string(output))
+	}
+}
+
+func writeInstallSmokeArchive(t *testing.T, archivePath, binaryPath string) {
+	t.Helper()
+
+	binaryData, err := os.ReadFile(binaryPath)
+	if err != nil {
+		t.Fatalf("read built binary: %v", err)
+	}
+
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("create archive: %v", err)
+	}
+	defer file.Close()
+
+	gzipWriter := gzip.NewWriter(file)
+	defer gzipWriter.Close()
+
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	header := &tar.Header{
+		Name: "stackctl",
+		Mode: 0o755,
+		Size: int64(len(binaryData)),
+	}
+	if err := tarWriter.WriteHeader(header); err != nil {
+		t.Fatalf("write tar header: %v", err)
+	}
+	if _, err := tarWriter.Write(binaryData); err != nil {
+		t.Fatalf("write tar body: %v", err)
+	}
+}
+
+func writeInstallSmokeChecksums(t *testing.T, checksumsPath, archiveName, archivePath string) {
+	t.Helper()
+
+	file, err := os.Open(archivePath)
+	if err != nil {
+		t.Fatalf("open archive: %v", err)
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		t.Fatalf("hash archive: %v", err)
+	}
+
+	checksumLine := hex.EncodeToString(hash.Sum(nil)) + "  " + archiveName + "\n"
+	if err := os.WriteFile(checksumsPath, []byte(checksumLine), 0o644); err != nil {
+		t.Fatalf("write checksums file: %v", err)
+	}
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	return dir
 }

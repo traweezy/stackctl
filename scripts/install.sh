@@ -4,6 +4,8 @@ set -euo pipefail
 REPO="${STACKCTL_INSTALL_REPO:-traweezy/stackctl}"
 INSTALL_DIR="${STACKCTL_INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${STACKCTL_INSTALL_VERSION:-}"
+API_BASE_URL="${STACKCTL_INSTALL_API_BASE_URL:-https://api.github.com}"
+DOWNLOAD_BASE_URL="${STACKCTL_INSTALL_DOWNLOAD_BASE_URL:-https://github.com}"
 USE_SUDO=0
 
 usage() {
@@ -123,7 +125,7 @@ esac
 asset="stackctl_${os}_${arch}.tar.gz"
 
 if [[ -z "$VERSION" ]]; then
-  api_url="https://api.github.com/repos/${REPO}/releases/latest"
+  api_url="${API_BASE_URL%/}/repos/${REPO}/releases/latest"
   VERSION="$(curl -fsSL "$api_url" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
 fi
 
@@ -132,8 +134,8 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
-download_url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
-checksums_url="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
+download_url="${DOWNLOAD_BASE_URL%/}/${REPO}/releases/download/${VERSION}/${asset}"
+checksums_url="${DOWNLOAD_BASE_URL%/}/${REPO}/releases/download/${VERSION}/checksums.txt"
 tmp_dir="$(mktemp -d)"
 archive_path="${tmp_dir}/${asset}"
 checksums_path="${tmp_dir}/checksums.txt"
