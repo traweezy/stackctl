@@ -42,9 +42,12 @@ archives:
     name_template: >-
       {{ .ProjectName }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
     files:
+      - LICENSE
       - README.md
       - CHANGELOG.md
       - SECURITY.md
+      - docs/compatibility.md
+      - docs/output-contract.md
 
 checksum:
   name_template: checksums.txt

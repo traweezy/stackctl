@@ -41,12 +41,14 @@ stackctl provides:
 All in a single CLI.
 
 > [!IMPORTANT]
-> `stackctl` supports Linux and macOS for local runtime setup.
+> `stackctl` targets Linux and macOS for local runtime setup.
 >
 > - release binaries are published for Linux and macOS (`x86_64`, `arm64`)
 > - the installer script supports both Linux and macOS
 > - `setup --install` supports `apt`, `dnf`/`yum`, `pacman`, `zypper`, `apk`, and Homebrew
 > - macOS support uses Homebrew plus `podman machine`
+> - hosted CI continuously verifies Linux build, installer, package-manager, and Podman runtime paths
+> - full-host Linux distro and macOS journeys are release-qualified in `platform-lab`; they are not run on every push
 > - Windows is not supported
 
 ## What stackctl is for
@@ -80,6 +82,16 @@ The runtime inspection commands are intentionally split:
 - `stackctl doctor` checks the environment and expected ports
 - `stackctl health` checks whether the configured endpoints are reachable
 
+## Compatibility And Support
+
+Before `1.0.0`, `stackctl` is already freezing the surfaces that are intended to
+define the `1.x` contract.
+
+See:
+
+- [docs/compatibility.md](./docs/compatibility.md)
+- [docs/output-contract.md](./docs/output-contract.md)
+
 ## Install
 
 ### Quick install from GitHub Releases
@@ -103,6 +115,9 @@ Install a specific release:
 curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | \
   bash -s -- --version v0.20.1
 ```
+
+The bootstrap script is fetched from the default branch and then installs the
+latest or requested tagged release archive.
 
 The installer downloads the release archive plus `checksums.txt` and verifies
 the archive checksum before extracting it.
@@ -201,7 +216,8 @@ journey-smoke script, run the full Go integration suite, and enforce a
 two-phase runner preflight. Linux platform-lab runners are expected to provide
 the correct distro label, the native package manager, and passwordless `sudo`;
 macOS runners are expected to provide Homebrew and a Podman installation that
-can reach `podman machine` once setup completes.
+can reach `podman machine` once setup completes. Those self-hosted jobs are
+release-qualification coverage rather than a per-push guarantee.
 
 ## Quick start
 
@@ -1486,9 +1502,15 @@ Examples:
 
 ```bash
 stackctl version
+stackctl version --json
 ```
 
-Flags: `-h`, `--help` only.
+Flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `-j`, `--json` | Print version details as JSON |
+| `-h`, `--help` | Show help |
 
 ### `stackctl completion`
 
@@ -1668,6 +1690,7 @@ go test -race ./...
 go test ./integration -tags=integration -count=1
 bash scripts/check-coverage.sh
 bash scripts/install-smoke.sh
+goreleaser release --snapshot --clean
 ```
 
 Each tagged release is expected to publish:
@@ -1678,6 +1701,12 @@ Each tagged release is expected to publish:
 - per-archive SPDX SBOMs
 - GitHub-generated release notes
 - GitHub artifact attestations for the archives referenced by `checksums.txt`
+
+Releases are also expected to preserve the documented compatibility and output
+contracts in:
+
+- [docs/compatibility.md](./docs/compatibility.md)
+- [docs/output-contract.md](./docs/output-contract.md)
 
 Example:
 
