@@ -196,7 +196,8 @@ Manual verification and rollback guidance lives in
   `stackctl --help`
 - report security issues privately as described in [SECURITY.md](./SECURITY.md)
 - use GitHub issues for bugs and feature requests
-- keep changes small, tested, and documented when sending pull requests
+- see [CONTRIBUTING.md](./CONTRIBUTING.md) for the local verification and docs
+  expectations behind pull requests
 
 ## Status
 
