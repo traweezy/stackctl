@@ -1,0 +1,6 @@
+* [Home](Home)
+* [Troubleshooting](Troubleshooting)
+* [macOS + Homebrew + podman machine](macOS-Homebrew-podman-machine)
+* [Upgrade and rollback](Upgrade-and-rollback)
+* [FAQ](FAQ)
+* [Architecture overview](Architecture-overview)

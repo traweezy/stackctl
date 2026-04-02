@@ -53,3 +53,8 @@ Release verification expectations live in:
 Tagged release archives include this docs tree alongside the binary, license,
 changelog, and security policy so operators can keep the local reference set
 with the installed release.
+
+## Future wiki seed
+
+If the project later enables a GitHub wiki, starter pages live under
+[wiki-seed/README.md](./wiki-seed/README.md).
