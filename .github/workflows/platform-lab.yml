@@ -103,6 +103,12 @@ jobs:
           STACKCTL_PLATFORM_LAB_PHASE=post-setup \
             bash scripts/platform-lab-preflight.sh | tee ".tmp/platform-lab/${{ matrix.name }}-preflight-post-setup.log"
 
+      - name: Warm managed service images
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/prepull-managed-images.sh
+
       - name: Run platform smoke
         shell: bash
         run: |
@@ -189,6 +195,12 @@ jobs:
           mkdir -p .tmp/platform-lab
           STACKCTL_PLATFORM_LAB_PHASE=post-setup \
             bash scripts/platform-lab-preflight.sh | tee .tmp/platform-lab/macos-preflight-post-setup.log
+
+      - name: Warm managed service images
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/prepull-managed-images.sh
 
       - name: Run platform smoke
         shell: bash

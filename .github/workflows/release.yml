@@ -50,6 +50,10 @@ jobs:
           podman --version
           podman compose version
 
+      - name: Warm managed service images
+        shell: bash
+        run: bash scripts/prepull-managed-images.sh
+
       - name: Install verification tools
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}

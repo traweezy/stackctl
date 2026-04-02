@@ -294,6 +294,10 @@ jobs:
           podman --version
           podman compose version
 
+      - name: Warm managed service images
+        shell: bash
+        run: bash scripts/prepull-managed-images.sh
+
       - name: Run integration tests
         run: go test ./integration -tags=integration -count=1
 
@@ -393,6 +397,10 @@ jobs:
           sudo apt-get install -y podman podman-compose
           podman --version
           podman compose version
+
+      - name: Warm managed service images
+        shell: bash
+        run: bash scripts/prepull-managed-images.sh
 
       - name: Run journey smoke
         shell: bash
