@@ -14,6 +14,7 @@ reference.
 - [compatibility.md](./compatibility.md)
 - [homebrew.md](./homebrew.md)
 - [output-contract.md](./output-contract.md)
+- [release-checklist.md](./release-checklist.md)
 
 ## Command reference
 
