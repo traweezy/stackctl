@@ -12,6 +12,7 @@ reference.
 - [../README.md](../README.md)
 - [install-and-upgrade.md](./install-and-upgrade.md)
 - [compatibility.md](./compatibility.md)
+- [homebrew.md](./homebrew.md)
 - [output-contract.md](./output-contract.md)
 
 ## Command reference
