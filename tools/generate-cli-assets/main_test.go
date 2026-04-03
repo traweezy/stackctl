@@ -54,6 +54,18 @@ func TestRecreateDirRemovesExistingContents(t *testing.T) {
 	}
 }
 
+func TestRecreateDirReturnsErrorWhenParentIsFile(t *testing.T) {
+	root := openTempRoot(t)
+
+	if err := root.WriteFile("docs", []byte("blocking file"), 0o600); err != nil {
+		t.Fatalf("write blocking file: %v", err)
+	}
+
+	if err := recreateDir(root, markdownDir); err == nil {
+		t.Fatal("expected recreateDir to fail when a parent path is a file")
+	}
+}
+
 func TestWriteCompletionFileWritesContent(t *testing.T) {
 	root := openTempRoot(t)
 
@@ -95,6 +107,15 @@ func TestWriteCompletionFileClosesFileOnGeneratorError(t *testing.T) {
 	}
 }
 
+func TestWriteCompletionFileReturnsOpenErrorWhenParentIsMissing(t *testing.T) {
+	root := openTempRoot(t)
+
+	target := filepath.Join(completionsDir, "stackctl.test")
+	if err := writeCompletionFile(root, target, func(io.Writer) error { return nil }); err == nil {
+		t.Fatal("expected completion file creation to fail without a parent directory")
+	}
+}
+
 func TestNormalizeManDatesClearsTHDate(t *testing.T) {
 	root := openTempRoot(t)
 
@@ -118,6 +139,14 @@ func TestNormalizeManDatesClearsTHDate(t *testing.T) {
 	}
 	if !strings.Contains(string(normalized), ".TH \"stackctl\" \"1\" \"\" \"stackctl\" \"stackctl\"") {
 		t.Fatalf("expected normalized .TH date field:\n%s", string(normalized))
+	}
+}
+
+func TestNormalizeManDatesReturnsWalkErrorForMissingPath(t *testing.T) {
+	root := openTempRoot(t)
+
+	if err := normalizeManDates(root, manDir); err == nil {
+		t.Fatal("expected normalizeManDates to fail when the man directory is missing")
 	}
 }
 
@@ -156,6 +185,28 @@ func TestGenerateCLIAssetsCreatesDocsManAndCompletions(t *testing.T) {
 	}
 }
 
+func TestGenerateCLIAssetsReturnsErrorWhenDocsParentIsFile(t *testing.T) {
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tempDir, "docs"), []byte("blocking file"), 0o600); err != nil {
+		t.Fatalf("write blocking file: %v", err)
+	}
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(originalWD)
+	})
+
+	if err := generateCLIAssets(); err == nil {
+		t.Fatal("expected generateCLIAssets to fail when docs is a file")
+	}
+}
+
 func TestMainGeneratesCLIAssetsFromCurrentDirectory(t *testing.T) {
 	tempDir := t.TempDir()
 	cmd := exec.Command(os.Args[0], "-test.run=TestGenerateCLIAssetsMainHelper")
@@ -190,9 +241,46 @@ func TestMainGeneratesCLIAssetsFromCurrentDirectory(t *testing.T) {
 	}
 }
 
+func TestMainPrintsErrorAndExitsNonZeroWhenGenerationFails(t *testing.T) {
+	tempDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tempDir, "docs"), []byte("blocking file"), 0o600); err != nil {
+		t.Fatalf("write blocking file: %v", err)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestGenerateCLIAssetsMainHelper")
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(), testGenerateMainModeEnv+"=failure")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected exit error, got %v", err)
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout output, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "generate CLI assets:") {
+		t.Fatalf("expected stderr to include generation failure, got %q", stderr.String())
+	}
+}
+
 func TestGenerateCLIAssetsMainHelper(t *testing.T) {
-	if os.Getenv(testGenerateMainModeEnv) == "" {
+	mode := os.Getenv(testGenerateMainModeEnv)
+	if mode == "" {
 		return
+	}
+	if mode == "failure" {
+		if err := os.WriteFile("docs", []byte("blocking file"), 0o600); err != nil {
+			t.Fatalf("write blocking file: %v", err)
+		}
 	}
 
 	main()
