@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/traweezy/stackctl/internal/logging"
+	"github.com/traweezy/stackctl/internal/system"
 )
 
 var ErrNotFound = errors.New("stackctl config not found")
@@ -154,6 +155,10 @@ type SystemConfig struct {
 }
 
 func Load(path string) (Config, error) {
+	return loadWithPlatform(path, system.CurrentPlatform())
+}
+
+func loadWithPlatform(path string, platform system.Platform) (Config, error) {
 	resolvedPath, err := resolvePath(path)
 	if err != nil {
 		return Config{}, err
@@ -177,7 +182,7 @@ func Load(path string) (Config, error) {
 		log.Error("config parse failed", "error", err)
 		return Config{}, fmt.Errorf("parse config %q: %w", resolvedPath, err)
 	}
-	applyLegacySetupDefaults(data, &cfg)
+	applyLegacySetupDefaults(data, &cfg, platform)
 	if err := cfg.normalizeSchemaVersion(); err != nil {
 		log.Error("config schema validation failed", "error", err)
 		return Config{}, fmt.Errorf("validate config schema for %q: %w", resolvedPath, err)
@@ -444,7 +449,7 @@ func (c Config) EnabledStackServiceCount() int {
 	return count
 }
 
-func applyLegacySetupDefaults(data []byte, cfg *Config) {
+func applyLegacySetupDefaults(data []byte, cfg *Config, platform system.Platform) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return
@@ -457,7 +462,7 @@ func applyLegacySetupDefaults(data []byte, cfg *Config) {
 		cfg.Setup.IncludeRedis = true
 	}
 	if !yamlPathPresent(&root, "setup", "include_cockpit") {
-		cfg.Setup.IncludeCockpit = true
+		cfg.Setup.IncludeCockpit = platform.SupportsCockpit()
 	}
 	if !yamlPathPresent(&root, "setup", "include_nats") {
 		cfg.Setup.IncludeNATS = true
@@ -466,10 +471,15 @@ func applyLegacySetupDefaults(data []byte, cfg *Config) {
 		cfg.Setup.IncludePgAdmin = true
 	}
 	if !yamlPathPresent(&root, "setup", "install_cockpit") {
-		cfg.Setup.InstallCockpit = true
+		cfg.Setup.InstallCockpit = platform.SupportsCockpit()
 	}
 	if !yamlPathPresent(&root, "setup", "scaffold_default_stack") {
 		cfg.Setup.ScaffoldDefaultStack = true
+	}
+	if !yamlPathPresent(&root, "system", "package_manager") {
+		if packageManager := strings.TrimSpace(platform.PackageManager); packageManager != "" {
+			cfg.System.PackageManager = packageManager
+		}
 	}
 	if !yamlPathPresent(&root, "services", "postgres", "max_connections") {
 		cfg.Services.Postgres.MaxConnections = 100

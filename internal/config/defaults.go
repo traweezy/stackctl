@@ -1,7 +1,20 @@
 package config
 
+import (
+	"strings"
+
+	"github.com/traweezy/stackctl/internal/system"
+)
+
 func Default() Config {
 	return DefaultForStack(DefaultStackName)
+}
+
+func DefaultForStackOnPlatform(stackName string, platform system.Platform) Config {
+	cfg := DefaultForStack(stackName)
+	ApplyPlatformDefaults(&cfg, platform)
+	cfg.ApplyDerivedFields()
+	return cfg
 }
 
 func DefaultForStack(stackName string) Config {
@@ -94,4 +107,18 @@ func DefaultForStack(stackName string) Config {
 	cfg.ApplyDerivedFields()
 
 	return cfg
+}
+
+func ApplyPlatformDefaults(cfg *Config, platform system.Platform) {
+	if cfg == nil {
+		return
+	}
+
+	if packageManager := strings.TrimSpace(platform.PackageManager); packageManager != "" {
+		cfg.System.PackageManager = packageManager
+	}
+	if !platform.SupportsCockpit() {
+		cfg.Setup.IncludeCockpit = false
+		cfg.Setup.InstallCockpit = false
+	}
 }

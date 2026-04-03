@@ -3,6 +3,8 @@ package config
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/traweezy/stackctl/internal/system"
 )
 
 func TestDefaultConfigHasDerivedURLs(t *testing.T) {
@@ -108,5 +110,31 @@ func TestDefaultForNamedStackUsesStackSpecificManagedDefaults(t *testing.T) {
 	}
 	if cfg.Services.SeaweedFS.DataVolume != "stackctl-staging-seaweedfs-data" {
 		t.Fatalf("unexpected seaweedfs data volume: %s", cfg.Services.SeaweedFS.DataVolume)
+	}
+}
+
+func TestDefaultForStackOnPlatformUsesHostAwareSetupDefaults(t *testing.T) {
+	darwin := DefaultForStackOnPlatform("dev-stack", system.Platform{
+		GOOS:           "darwin",
+		PackageManager: "brew",
+		ServiceManager: system.ServiceManagerNone,
+	})
+	if darwin.System.PackageManager != "brew" {
+		t.Fatalf("unexpected darwin package manager default: %+v", darwin.System)
+	}
+	if darwin.Setup.IncludeCockpit || darwin.Setup.InstallCockpit {
+		t.Fatalf("expected cockpit defaults to be disabled on darwin: %+v", darwin.Setup)
+	}
+
+	linux := DefaultForStackOnPlatform("dev-stack", system.Platform{
+		GOOS:           "linux",
+		PackageManager: "apt",
+		ServiceManager: system.ServiceManagerSystemd,
+	})
+	if linux.System.PackageManager != "apt" {
+		t.Fatalf("unexpected linux package manager default: %+v", linux.System)
+	}
+	if !linux.Setup.IncludeCockpit || !linux.Setup.InstallCockpit {
+		t.Fatalf("expected cockpit defaults to stay enabled on supported linux hosts: %+v", linux.Setup)
 	}
 }

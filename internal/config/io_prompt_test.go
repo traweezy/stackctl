@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/creack/pty/v2"
+
+	"github.com/traweezy/stackctl/internal/system"
 )
 
 func TestSaveLoadAndMarshalRoundTrip(t *testing.T) {
@@ -99,7 +101,11 @@ system:
 		t.Fatalf("write failed: %v", err)
 	}
 
-	cfg, err := Load(path)
+	cfg, err := loadWithPlatform(path, system.Platform{
+		GOOS:           "linux",
+		PackageManager: "apt",
+		ServiceManager: system.ServiceManagerSystemd,
+	})
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -200,6 +206,47 @@ system:
 	}
 	if !cfg.Setup.InstallCockpit {
 		t.Fatalf("expected legacy config to default install_cockpit, got %+v", cfg.Setup)
+	}
+}
+
+func TestLoadAppliesPlatformDefaultsToLegacyMissingSetupFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := `stack:
+  name: dev-stack
+  dir: /tmp/dev-stack
+  compose_file: compose.yaml
+  managed: false
+services:
+  postgres_container: local-postgres
+  redis_container: local-redis
+connection:
+  host: localhost
+ports:
+  postgres: 5432
+  redis: 6379
+behavior:
+  wait_for_services_on_start: true
+  startup_timeout_seconds: 30
+setup:
+  scaffold_default_stack: false
+`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	cfg, err := loadWithPlatform(path, system.Platform{
+		GOOS:           "darwin",
+		PackageManager: "brew",
+		ServiceManager: system.ServiceManagerNone,
+	})
+	if err != nil {
+		t.Fatalf("loadWithPlatform returned error: %v", err)
+	}
+	if cfg.System.PackageManager != "brew" {
+		t.Fatalf("expected platform package manager fallback, got %+v", cfg.System)
+	}
+	if cfg.Setup.IncludeCockpit || cfg.Setup.InstallCockpit {
+		t.Fatalf("expected unsupported host to disable cockpit legacy defaults, got %+v", cfg.Setup)
 	}
 }
 

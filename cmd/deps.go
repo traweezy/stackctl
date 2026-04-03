@@ -88,17 +88,7 @@ func defaultCommandDeps() commandDeps {
 		rename:                 os.Rename,
 		marshalConfig:          configpkg.Marshal,
 		defaultConfig: func() configpkg.Config {
-			cfg := configpkg.DefaultForStack(configpkg.SelectedStackName())
-			platform := system.CurrentPlatform()
-			if strings.TrimSpace(platform.PackageManager) != "" {
-				cfg.System.PackageManager = platform.PackageManager
-			}
-			if !platform.SupportsCockpit() {
-				cfg.Setup.IncludeCockpit = false
-				cfg.Setup.InstallCockpit = false
-			}
-			cfg.ApplyDerivedFields()
-			return cfg
+			return configpkg.DefaultForStackOnPlatform(configpkg.SelectedStackName(), system.CurrentPlatform())
 		},
 		validateConfig:            configpkg.Validate,
 		runWizard:                 configpkg.RunWizard,
