@@ -52,10 +52,10 @@ if [[ "${1:-}" == "run" && "${2:-}" == "view" ]]; then
   count="$(read_count "$view_count_file")"
   write_count "$view_count_file" "$((count + 1))"
   if (( count == 0 )); then
-    printf 'Test CI Run\tabc1234\tin_progress\t\t3\t1\t1\t1\t0\n'
+    printf 'Test CI Run\037abc1234\037in_progress\037\0373\0371\0371\0371\0370\n'
     exit 0
   fi
-  printf 'Test CI Run\tabc1234\tcompleted\tsuccess\t3\t3\t0\t0\t0\n'
+  printf 'Test CI Run\037abc1234\037completed\037success\0373\0373\0370\0370\0370\n'
   exit 0
 fi
 
@@ -81,6 +81,9 @@ exit 1
 	}
 	if !strings.Contains(text, "status=in_progress") {
 		t.Fatalf("expected in-progress snapshot in output:\n%s", text)
+	}
+	if !strings.Contains(text, "completed=1/3 running=1 queued=1") {
+		t.Fatalf("expected stable job counters in output:\n%s", text)
 	}
 	if !strings.Contains(text, "Run 12345 finished with conclusion=success") {
 		t.Fatalf("expected success conclusion in output:\n%s", text)
@@ -131,11 +134,11 @@ fi
 
 if [[ "${1:-}" == "run" && "${2:-}" == "view" ]]; then
   if [[ "${3:-}" == "111" ]]; then
-    printf 'Old CI Run\tabc1234\tin_progress\t\t4\t1\t1\t2\t0\n'
+    printf 'Old CI Run\037abc1234\037in_progress\037\0374\0371\0371\0372\0370\n'
     exit 0
   fi
   if [[ "${3:-}" == "222" ]]; then
-    printf 'New CI Run\tdef5678\tcompleted\tsuccess\t4\t4\t0\t0\t0\n'
+    printf 'New CI Run\037def5678\037completed\037success\0374\0374\0370\0370\0370\n'
     exit 0
   fi
 fi
@@ -162,6 +165,9 @@ exit 1
 	}
 	if !strings.Contains(text, "Tracking run 222") {
 		t.Fatalf("expected watcher to switch to newer run in output:\n%s", text)
+	}
+	if !strings.Contains(text, "completed=1/4 running=1 queued=2") {
+		t.Fatalf("expected stable counters for the first branch run:\n%s", text)
 	}
 	if !strings.Contains(text, "Run 222 finished with conclusion=success") {
 		t.Fatalf("expected new run success conclusion in output:\n%s", text)

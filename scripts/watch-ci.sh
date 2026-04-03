@@ -107,7 +107,7 @@ resolve_run_id() {
 read_run_snapshot() {
   gh run view "$1" \
     --json displayTitle,headSha,status,conclusion,jobs \
-    --jq '[.displayTitle, (.headSha[0:7]), .status, (.conclusion // ""), (.jobs | length), ([.jobs[] | select(.status == "completed")] | length), ([.jobs[] | select(.status == "in_progress")] | length), ([.jobs[] | select(.status == "queued" or .status == "waiting" or .status == "requested" or .status == "pending")] | length), ([.jobs[] | select(.status == "completed" and .conclusion != "success")] | length)] | @tsv'
+    --jq '[.displayTitle, (.headSha[0:7]), .status, (.conclusion // ""), (.jobs | length), ([.jobs[] | select(.status == "completed")] | length), ([.jobs[] | select(.status == "in_progress")] | length), ([.jobs[] | select(.status == "queued" or .status == "waiting" or .status == "requested" or .status == "pending")] | length), ([.jobs[] | select(.status == "completed" and .conclusion != "success")] | length)] | join("\u001f")'
 }
 
 print_failed_jobs() {
@@ -149,7 +149,7 @@ while true; do
   fi
 
   snapshot="$(read_run_snapshot "$current_run_id")"
-  IFS=$'\t' read -r title short_sha status conclusion total_jobs completed_jobs running_jobs queued_jobs failed_jobs <<<"$snapshot"
+  IFS=$'\x1f' read -r title short_sha status conclusion total_jobs completed_jobs running_jobs queued_jobs failed_jobs <<<"$snapshot"
 
   state_key="${current_run_id}:${status}:${conclusion}:${completed_jobs}:${running_jobs}:${queued_jobs}:${failed_jobs}"
   if [[ "$state_key" != "$last_state" ]]; then
