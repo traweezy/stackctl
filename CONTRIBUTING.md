@@ -34,6 +34,8 @@ Podman environment available locally.
 For most changes, run:
 
 ```bash
+bash scripts/check-workflows.sh
+bash scripts/check-shell-scripts.sh
 go test ./... -count=1
 go test ./... -race -count=1
 go vet ./...

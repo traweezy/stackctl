@@ -17,11 +17,13 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  ACTIONLINT_VERSION: v1.7.11
   GOSEC_VERSION: v2.25.0
   GOVULNCHECK_VERSION: v1.1.4
   GITLEAKS_VERSION: v8.30.1
   GOLANGCI_LINT_VERSION: v2.11.4
   GORELEASER_VERSION: v2.15.2
+  SHELLCHECK_VERSION: v0.11.0
   SYFT_VERSION: v1.42.3
   COSIGN_VERSION: v3.0.5
   COVERAGE_THRESHOLD: "75.0"
@@ -42,7 +44,7 @@ jobs:
 
       - name: Install gosec
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}
+          go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
           tool_bin="$(go env GOBIN)"
           if [ -z "$tool_bin" ]; then
             tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
@@ -67,7 +69,7 @@ jobs:
 
       - name: Install govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
           tool_bin="$(go env GOBIN)"
           if [ -z "$tool_bin" ]; then
             tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
@@ -94,7 +96,7 @@ jobs:
 
       - name: Install gitleaks
         run: |
-          go install github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}
+          go install "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}"
           tool_bin="$(go env GOBIN)"
           if [ -z "$tool_bin" ]; then
             tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
@@ -103,6 +105,61 @@ jobs:
 
       - name: Run gitleaks
         run: gitleaks git --no-banner --redact .
+
+  workflow-lint:
+    name: Quality / actionlint
+    runs-on: ubuntu-latest
+    needs: [gosec, govulncheck, gitleaks]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install actionlint
+        run: |
+          go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
+          tool_bin="$(go env GOBIN)"
+          if [ -z "$tool_bin" ]; then
+            tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
+          fi
+          echo "$tool_bin" >> "$GITHUB_PATH"
+
+      - name: Install shellcheck
+        shell: bash
+        run: |
+          shellcheck_root="${RUNNER_TEMP}/shellcheck"
+          mkdir -p "$shellcheck_root"
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" | tar -xJ -C "$shellcheck_root"
+          echo "$shellcheck_root/shellcheck-${SHELLCHECK_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Run actionlint
+        shell: bash
+        run: bash scripts/check-workflows.sh
+
+  shell-lint:
+    name: Quality / shellcheck
+    runs-on: ubuntu-latest
+    needs: [gosec, govulncheck, gitleaks]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install shellcheck
+        shell: bash
+        run: |
+          shellcheck_root="${RUNNER_TEMP}/shellcheck"
+          mkdir -p "$shellcheck_root"
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" | tar -xJ -C "$shellcheck_root"
+          echo "$shellcheck_root/shellcheck-${SHELLCHECK_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Run shellcheck
+        shell: bash
+        run: bash scripts/check-shell-scripts.sh
 
   fmt-check:
     name: Quality / format
@@ -161,7 +218,7 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}
+          go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
           tool_bin="$(go env GOBIN)"
           if [ -z "$tool_bin" ]; then
             tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"
@@ -214,7 +271,7 @@ jobs:
   unit-tests:
     name: Test / unit
     runs-on: ubuntu-latest
-    needs: [fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
+    needs: [workflow-lint, shell-lint, fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -231,7 +288,7 @@ jobs:
   race-tests:
     name: Test / race
     runs-on: ubuntu-latest
-    needs: [fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
+    needs: [workflow-lint, shell-lint, fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -248,7 +305,7 @@ jobs:
   coverage:
     name: Test / coverage
     runs-on: ubuntu-latest
-    needs: [fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
+    needs: [workflow-lint, shell-lint, fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -274,7 +331,7 @@ jobs:
   integration-tests:
     name: Test / integration
     runs-on: ubuntu-latest
-    needs: [fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
+    needs: [workflow-lint, shell-lint, fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
     env:
       PODMAN_COMPOSE_PROVIDER: podman-compose
     steps:
@@ -304,7 +361,7 @@ jobs:
   install-script-smoke:
     name: Test / install smoke
     runs-on: ubuntu-latest
-    needs: [fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
+    needs: [workflow-lint, shell-lint, fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -321,7 +378,7 @@ jobs:
   package-manager-smoke:
     name: Test / package-manager smoke (${{ matrix.name }})
     runs-on: ubuntu-latest
-    needs: [fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
+    needs: [workflow-lint, shell-lint, fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -378,7 +435,7 @@ jobs:
   journey-smoke:
     name: Test / journey smoke
     runs-on: ubuntu-latest
-    needs: [fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
+    needs: [workflow-lint, shell-lint, fmt-check, vet, lint, mod-tidy-check, generated-cli-assets]
     env:
       PODMAN_COMPOSE_PROVIDER: podman-compose
     steps:
@@ -479,9 +536,9 @@ jobs:
 
       - name: Install release toolchain
         run: |
-          go install github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}
-          go install github.com/anchore/syft/cmd/syft@${SYFT_VERSION}
-          go install github.com/sigstore/cosign/v3/cmd/cosign@${COSIGN_VERSION}
+          go install "github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}"
+          go install "github.com/anchore/syft/cmd/syft@${SYFT_VERSION}"
+          go install "github.com/sigstore/cosign/v3/cmd/cosign@${COSIGN_VERSION}"
           tool_bin="$(go env GOBIN)"
           if [ -z "$tool_bin" ]; then
             tool_bin="$(go env GOPATH | awk -F: '{print $1}')/bin"

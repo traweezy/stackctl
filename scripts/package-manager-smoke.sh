@@ -50,39 +50,39 @@ run_zypper_install() {
   done
 }
 
-core_packages="podman podman-compose skopeo"
+set -- podman podman-compose skopeo
 if [ "$manager" != "brew" ]; then
-  core_packages="$core_packages buildah"
+  set -- "$@" buildah
 fi
+core_packages="$*"
 
-install_packages="$core_packages"
 if [ "$expect_cockpit" = "1" ]; then
-  install_packages="$install_packages cockpit cockpit-podman"
+  set -- "$@" cockpit cockpit-podman
 fi
 
 echo "==> package manager: $manager"
-echo "==> packages: $install_packages"
+echo "==> packages: $*"
 
 case "$manager" in
   apt)
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y $install_packages
+    apt-get install -y "$@"
     ;;
   dnf)
-    dnf install -y $install_packages
+    dnf install -y "$@"
     ;;
   yum)
-    yum install -y $install_packages
+    yum install -y "$@"
     ;;
   pacman)
-    pacman -Syu --noconfirm --needed $install_packages
+    pacman -Syu --noconfirm --needed "$@"
     ;;
   zypper)
-    run_zypper_install $install_packages
+    run_zypper_install "$@"
     ;;
   apk)
-    apk add $install_packages
+    apk add "$@"
     ;;
   *)
     echo "unsupported package manager: $manager" >&2

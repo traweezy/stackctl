@@ -23,6 +23,8 @@ Confirm that the branch is in a releasable state:
 Run the normal local release qualification commands:
 
 ```bash
+bash scripts/check-workflows.sh
+bash scripts/check-shell-scripts.sh
 go test ./... -count=1
 go test ./... -race -count=1
 go test ./integration -tags=integration -count=1
