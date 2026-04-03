@@ -264,10 +264,6 @@ func newWizardState(cfg Config) wizardState {
 	return state
 }
 
-func runHuhWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
-	return runHuhWizardWithPlatform(in, out, base, platformForInteractiveConfig(base, system.CurrentPlatform()))
-}
-
 func runHuhWizardWithPlatform(in io.Reader, out io.Writer, base Config, platform system.Platform) (Config, error) {
 	normalizedBase := base
 	NormalizeCockpitSettingsForPlatform(&normalizedBase, platformForInteractiveConfig(normalizedBase, platform))

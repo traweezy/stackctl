@@ -225,7 +225,6 @@ func newSetupCmd() *cobra.Command {
 					}
 				}
 
-				missing = nil
 				missingLabels = nil
 				needsMachine = false
 			}

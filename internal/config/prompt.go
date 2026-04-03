@@ -26,10 +26,6 @@ func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	return runHuhWizardWithPlatform(in, out, base, platformForInteractiveConfig(base, system.CurrentPlatform()))
 }
 
-func runPlainWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
-	return runPlainWizardWithPlatform(in, out, base, platformForInteractiveConfig(base, system.CurrentPlatform()))
-}
-
 func runPlainWizardWithPlatform(in io.Reader, out io.Writer, base Config, platform system.Platform) (Config, error) {
 	session := promptSession{
 		reader: bufio.NewReader(in),
