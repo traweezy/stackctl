@@ -123,7 +123,7 @@ func runPlainWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	if err := session.printSection("System"); err != nil {
 		return Config{}, err
 	}
-	if err := session.printNote(packageManagerRecommendationNote()); err != nil {
+	if err := session.printNote(CurrentPackageManagerFieldDescription()); err != nil {
 		return Config{}, err
 	}
 
@@ -564,6 +564,9 @@ func (p promptSession) configureCockpit(cfg *Config) error {
 	if err := p.printSection("Cockpit"); err != nil {
 		return err
 	}
+	if err := p.printNote(CurrentCockpitHelperDescription()); err != nil {
+		return err
+	}
 
 	cockpitPort, err := p.askPort("Cockpit port", cfg.Ports.Cockpit)
 	if err != nil {
@@ -571,6 +574,9 @@ func (p promptSession) configureCockpit(cfg *Config) error {
 	}
 	cfg.Ports.Cockpit = cockpitPort
 
+	if err := p.printNote(CurrentCockpitInstallDescription()); err != nil {
+		return err
+	}
 	installCockpit, err := p.askBool("Install Cockpit during setup", cfg.Setup.InstallCockpit)
 	if err != nil {
 		return err

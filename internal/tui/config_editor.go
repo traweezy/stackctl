@@ -2843,7 +2843,7 @@ var configFieldSpecs = []configFieldSpec{
 		Key:         "setup.include_cockpit",
 		Group:       "Setup",
 		Label:       "Include Cockpit",
-		Description: "Enable Cockpit in stackctl helper output, dashboard actions, and open commands.",
+		Description: configpkg.CurrentCockpitHelperDescription(),
 		Kind:        configFieldBool,
 		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.IncludeCockpit },
 		SetBool: func(cfg *configpkg.Config, value bool) error {
@@ -2855,7 +2855,7 @@ var configFieldSpecs = []configFieldSpec{
 		Key:         "setup.install_cockpit",
 		Group:       "Setup",
 		Label:       "Install Cockpit",
-		Description: "Install and enable Cockpit during setup when the package manager supports it.",
+		Description: configpkg.CurrentCockpitInstallDescription(),
 		Kind:        configFieldBool,
 		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.InstallCockpit },
 		SetBool: func(cfg *configpkg.Config, value bool) error {
@@ -2885,7 +2885,7 @@ var configFieldSpecs = []configFieldSpec{
 		Key:             "system.package_manager",
 		Group:           "System",
 		Label:           "Package manager",
-		Description:     "The package manager stackctl should use for setup and doctor fix flows. The current-machine recommendation appears first in suggestions.",
+		Description:     configpkg.CurrentPackageManagerFieldDescription(),
 		SuggestionTitle: "Common values",
 		Kind:            configFieldString,
 		GetString:       func(cfg configpkg.Config) string { return cfg.System.PackageManager },

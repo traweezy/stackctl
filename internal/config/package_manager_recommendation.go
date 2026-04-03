@@ -32,7 +32,3 @@ func packageManagerWizardSuggestions(current string) []string {
 
 	return values
 }
-
-func packageManagerRecommendationNote() string {
-	return system.FormatPackageManagerRecommendation(system.CurrentPackageManagerRecommendation())
-}

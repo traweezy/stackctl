@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/traweezy/stackctl/internal/system"
 )
 
 func TestPackageManagerWizardSuggestionsNormalizesAndDeduplicates(t *testing.T) {
@@ -97,5 +99,28 @@ func TestValidationTextHelpers(t *testing.T) {
 	}
 	if err := validPostgresLogDurationText("0"); err == nil {
 		t.Fatal("expected invalid postgres log duration to fail")
+	}
+}
+
+func TestPlatformCopyHelpers(t *testing.T) {
+	darwin := system.Platform{GOOS: "darwin", PackageManager: "brew", ServiceManager: system.ServiceManagerNone}
+	if got := CockpitHelperDescriptionForPlatform(darwin); !strings.Contains(got, "macOS") {
+		t.Fatalf("expected darwin cockpit helper copy to mention macOS, got %q", got)
+	}
+	if got := CockpitInstallDescriptionForPlatform(darwin); !strings.Contains(got, "does not support Cockpit installation") {
+		t.Fatalf("unexpected darwin cockpit install copy: %q", got)
+	}
+	if got := PackageManagerFieldDescriptionForPlatform(darwin); !strings.Contains(got, "brew") {
+		t.Fatalf("expected darwin package-manager copy to mention brew, got %q", got)
+	}
+
+	dnf := system.Platform{GOOS: "linux", PackageManager: "dnf", ServiceManager: system.ServiceManagerSystemd}
+	if got := CockpitInstallDescriptionForPlatform(dnf); !strings.Contains(got, "install and enable Cockpit automatically") {
+		t.Fatalf("unexpected dnf cockpit install copy: %q", got)
+	}
+
+	apt := system.Platform{GOOS: "linux", PackageManager: "apt", ServiceManager: system.ServiceManagerSystemd}
+	if got := CockpitInstallDescriptionForPlatform(apt); !strings.Contains(got, "handled manually") {
+		t.Fatalf("unexpected apt cockpit install copy: %q", got)
 	}
 }

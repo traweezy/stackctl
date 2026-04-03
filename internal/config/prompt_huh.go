@@ -657,7 +657,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			wizardStepNote(state, wizardStepCockpit),
 			huh.NewConfirm().
 				Title("Include Cockpit helpers").
-				Description("Cockpit is managed outside the compose stack. Enable this if you want helper output, open actions, and optional setup-time installation.").
+				Description(CurrentCockpitHelperDescription()).
 				Value(&state.IncludeCockpit),
 		).
 			Title("Cockpit").
@@ -671,7 +671,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 				Validate(validPortText),
 			huh.NewConfirm().
 				Title("Install Cockpit during setup").
-				Description("If enabled, `stackctl setup --install` will try to install cockpit helpers automatically on supported platforms and otherwise leave manual guidance.").
+				Description(CurrentCockpitInstallDescription()).
 				Value(&state.InstallCockpit),
 		).
 			Title("Cockpit Settings").
@@ -695,7 +695,7 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			wizardStepNote(state, wizardStepSystem),
 			huh.NewInput().
 				Title("Package manager").
-				Description("Used by `stackctl setup --install` and `stackctl doctor --fix` for supported dependency installation on the local machine. "+packageManagerRecommendationNote()).
+				Description(CurrentPackageManagerFieldDescription()).
 				Suggestions(packageManagerWizardSuggestions(state.PackageManager)).
 				Value(&state.PackageManager).
 				Validate(nonEmpty),
