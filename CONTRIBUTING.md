@@ -57,6 +57,15 @@ If you change release packaging, also qualify the snapshot release path:
 goreleaser release --snapshot --clean
 ```
 
+If you change README or docs links, also run:
+
+```bash
+bash scripts/check-links.sh
+```
+
+If GitHub link checks get rate-limited locally, export `GITHUB_TOKEN` first or
+make sure `gh auth` is available so the script can reuse that token.
+
 ## Generated assets
 
 The generated CLI docs, man pages, and shell completions are part of the repo.

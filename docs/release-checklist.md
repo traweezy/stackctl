@@ -25,6 +25,7 @@ Run the normal local release qualification commands:
 ```bash
 bash scripts/check-workflows.sh
 bash scripts/check-shell-scripts.sh
+bash scripts/check-links.sh
 go test ./... -count=1
 go test ./... -race -count=1
 go test ./integration -tags=integration -count=1

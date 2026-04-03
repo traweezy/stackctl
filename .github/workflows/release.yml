@@ -22,6 +22,7 @@ env:
   GITLEAKS_VERSION: v8.30.1
   GOLANGCI_LINT_VERSION: v2.11.4
   GORELEASER_VERSION: v2.15.2
+  LYCHEE_VERSION: lychee-v0.23.0
   SHELLCHECK_VERSION: v0.11.0
   SYFT_VERSION: v1.42.3
   COSIGN_VERSION: v3.0.5
@@ -76,6 +77,10 @@ jobs:
           mkdir -p "$shellcheck_root"
           curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" | tar -xJ -C "$shellcheck_root"
           echo "$shellcheck_root/shellcheck-${SHELLCHECK_VERSION}" >> "$GITHUB_PATH"
+          lychee_root="${RUNNER_TEMP}/lychee"
+          mkdir -p "$lychee_root"
+          curl -fsSL "https://github.com/lycheeverse/lychee/releases/download/${LYCHEE_VERSION}/lychee-x86_64-unknown-linux-gnu.tar.gz" | tar -xzf - -C "$lychee_root"
+          echo "$lychee_root" >> "$GITHUB_PATH"
 
       - name: Run gitleaks
         run: gitleaks git --no-banner --redact .
@@ -103,6 +108,12 @@ jobs:
       - name: Run shellcheck
         shell: bash
         run: bash scripts/check-shell-scripts.sh
+
+      - name: Run lychee
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: bash scripts/check-links.sh
 
       - name: Verify generated CLI assets
         shell: bash
