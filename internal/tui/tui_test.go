@@ -260,6 +260,210 @@ func TestFooterCanStartInExpandedHelpMode(t *testing.T) {
 	}
 }
 
+func TestHealthHelpersCoverKeyStates(t *testing.T) {
+	runningReachable := Service{Status: "running", ExternalPort: 5432, Host: "127.0.0.1", PortListening: true}
+	if got := classifyServiceHealth(runningReachable); got != output.StatusOK {
+		t.Fatalf("expected healthy status, got %q", got)
+	}
+	if got := healthStatusLabel(runningReachable); got != "healthy" {
+		t.Fatalf("expected healthy label, got %q", got)
+	}
+	if got := healthReachabilityLabel(runningReachable); got != "accepting on 127.0.0.1:5432" {
+		t.Fatalf("unexpected reachability label %q", got)
+	}
+	if note := healthNote(runningReachable); note != "" {
+		t.Fatalf("expected no health note, got %q", note)
+	}
+	if !serviceHasReachablePort(runningReachable) {
+		t.Fatal("expected reachable port for listening service")
+	}
+
+	starting := Service{Status: " starting ", ExternalPort: 5432, Host: "127.0.0.1"}
+	if got := classifyServiceHealth(starting); got != output.StatusWarn {
+		t.Fatalf("expected warn status for transitional service, got %q", got)
+	}
+	if got := healthStatusLabel(starting); got != "changing" {
+		t.Fatalf("expected changing label, got %q", got)
+	}
+	if got := healthNote(starting); got != "Service is changing state. Refresh when the action finishes." {
+		t.Fatalf("unexpected transitional note %q", got)
+	}
+
+	runningUnreachable := Service{Status: "running", ExternalPort: 5432, Host: "127.0.0.1"}
+	if got := healthStatusLabel(runningUnreachable); got != "needs attention" {
+		t.Fatalf("expected needs-attention label, got %q", got)
+	}
+	if got := healthReachabilityLabel(runningUnreachable); got != "no response on 127.0.0.1:5432" {
+		t.Fatalf("unexpected unreachable label %q", got)
+	}
+	if got := healthNote(runningUnreachable); got != "Container is running, but the host port is not reachable yet." {
+		t.Fatalf("unexpected unreachable note %q", got)
+	}
+	if serviceHasReachablePort(runningUnreachable) {
+		t.Fatal("expected unreachable service to report false")
+	}
+
+	conflict := Service{Status: "stopped", ExternalPort: 6379, Host: "127.0.0.1", PortConflict: true}
+	if got := healthReachabilityLabel(conflict); got != "busy on 127.0.0.1:6379" {
+		t.Fatalf("unexpected conflict label %q", got)
+	}
+	if got := healthNote(conflict); got != "Host port is busy outside this stack." {
+		t.Fatalf("unexpected conflict note %q", got)
+	}
+
+	missingExternal := Service{Status: "missing"}
+	if got := healthStatusLabel(missingExternal); got != "not installed" {
+		t.Fatalf("expected not-installed label, got %q", got)
+	}
+	if got := healthNote(missingExternal); got != "Service is not installed." {
+		t.Fatalf("unexpected missing-service note %q", got)
+	}
+}
+
+func TestTUIStatusAndDurationHelpers(t *testing.T) {
+	if got := healthStatusIcon(output.StatusOK); got != "✅" {
+		t.Fatalf("expected ok icon, got %q", got)
+	}
+	if got := healthStatusIcon(output.StatusWarn); got != "⚠️" {
+		t.Fatalf("expected warn icon, got %q", got)
+	}
+	if got := healthStatusIcon(output.StatusFail); got != "❌" {
+		t.Fatalf("expected fail icon, got %q", got)
+	}
+	if got := healthStatusIcon("unknown"); got != "•" {
+		t.Fatalf("expected default icon, got %q", got)
+	}
+
+	if got := enabledDisabled(true); got != "enabled" {
+		t.Fatalf("expected enabled label, got %q", got)
+	}
+	if got := enabledDisabled(false); got != "disabled" {
+		t.Fatalf("expected disabled label, got %q", got)
+	}
+
+	if !transitionalServiceStatus(" restarting ") {
+		t.Fatal("expected restarting state to be transitional")
+	}
+	if transitionalServiceStatus("running") {
+		t.Fatal("did not expect running state to be transitional")
+	}
+
+	cases := []struct {
+		value time.Duration
+		want  string
+	}{
+		{value: 0, want: "0s"},
+		{value: 5 * time.Second, want: "5s"},
+		{value: 2 * time.Minute, want: "2m"},
+		{value: 2*time.Minute + 5*time.Second, want: "2m05s"},
+	}
+	for _, tc := range cases {
+		if got := formatDurationCompact(tc.value); got != tc.want {
+			t.Fatalf("unexpected compact duration for %s: got %q want %q", tc.value, got, tc.want)
+		}
+	}
+
+	if got := remainingDuration(-1 * time.Second); got != 0 {
+		t.Fatalf("expected negative remaining duration to clamp to zero, got %s", got)
+	}
+	if got := remainingDuration(9 * time.Second); got != 9*time.Second {
+		t.Fatalf("expected positive remaining duration to remain unchanged, got %s", got)
+	}
+}
+
+func TestServiceBadgeAndReachabilityHelpers(t *testing.T) {
+	noPortRunning := Service{Status: "running"}
+	if got := healthReachabilityLabel(noPortRunning); got != "" {
+		t.Fatalf("expected empty reachability label without a host port, got %q", got)
+	}
+	if !serviceHasReachablePort(noPortRunning) {
+		t.Fatal("expected running service without a host port to count as reachable")
+	}
+
+	noPortStopped := Service{Status: "stopped"}
+	if serviceHasReachablePort(noPortStopped) {
+		t.Fatal("expected stopped service without a host port to be unreachable")
+	}
+
+	for _, tc := range []struct {
+		status string
+		want   string
+	}{
+		{status: "running", want: "●"},
+		{status: "starting", want: "◐"},
+		{status: "warn", want: "○"},
+		{status: "mystery", want: "◌"},
+	} {
+		if got := serviceStatusBadge(tc.status); got != tc.want {
+			t.Fatalf("unexpected service badge for %q: got %q want %q", tc.status, got, tc.want)
+		}
+	}
+}
+
+func TestCurrentBusyBudgetUsesActionAndConfigContext(t *testing.T) {
+	base := Model{
+		snapshot: Snapshot{
+			WaitForServices:   true,
+			StartupTimeoutSec: 42,
+		},
+	}
+
+	startModel := base
+	startModel.runningAction = &runningAction{Action: ActionSpec{ID: ActionStart}}
+	if got := startModel.currentBusyBudget(); got != 42*time.Second {
+		t.Fatalf("expected startup budget, got %s", got)
+	}
+
+	stopModel := base
+	stopModel.runningAction = &runningAction{Action: ActionSpec{ID: ActionStop}}
+	if got := stopModel.currentBusyBudget(); got != 15*time.Second {
+		t.Fatalf("expected stop budget, got %s", got)
+	}
+
+	configModel := base
+	configModel.runningConfigOp = &configOperation{Message: "Applying config changes"}
+	if got := configModel.currentBusyBudget(); got != 42*time.Second {
+		t.Fatalf("expected config apply budget, got %s", got)
+	}
+
+	idleModel := Model{}
+	if got := idleModel.currentBusyBudget(); got != 0 {
+		t.Fatalf("expected zero busy budget, got %s", got)
+	}
+}
+
+func TestQuitBlockedReasonCoversBusyConfirmationAndConfigStates(t *testing.T) {
+	busyModel := Model{runningAction: &runningAction{}}
+	if got := busyModel.QuitBlockedReason(); got != "finish or wait for the current action before quitting" {
+		t.Fatalf("unexpected busy quit block reason %q", got)
+	}
+
+	confirmModel := Model{confirmation: &confirmationState{}}
+	if got := confirmModel.QuitBlockedReason(); got != "confirm or cancel the current action before quitting" {
+		t.Fatalf("unexpected confirmation quit block reason %q", got)
+	}
+
+	editModel := Model{
+		active:       configSection,
+		configEditor: configEditor{editing: true},
+	}
+	if got := editModel.QuitBlockedReason(); got != "finish or cancel the current config edit before quitting" {
+		t.Fatalf("unexpected editing quit block reason %q", got)
+	}
+
+	dirtyConfigModel := Model{
+		configManager: &ConfigManager{},
+		configEditor:  configEditor{source: ConfigSourceMissing},
+	}
+	if got := dirtyConfigModel.QuitBlockedReason(); got != "save or reset the current config draft before quitting" {
+		t.Fatalf("unexpected config-draft quit block reason %q", got)
+	}
+
+	if got := (Model{}).QuitBlockedReason(); got != "" {
+		t.Fatalf("expected empty quit block reason, got %q", got)
+	}
+}
+
 func TestViewMasksSecretsUntilToggled(t *testing.T) {
 	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil }).WithVersion("0.20.1")
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
