@@ -14,6 +14,7 @@ reference.
 - [compatibility.md](./compatibility.md)
 - [platform-support.md](./platform-support.md)
 - [homebrew.md](./homebrew.md)
+- [demos.md](./demos.md)
 - [supply-chain.md](./supply-chain.md)
 - [output-contract.md](./output-contract.md)
 - [release-checklist.md](./release-checklist.md)
