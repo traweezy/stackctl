@@ -4,12 +4,17 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/spf13/cobra"
+
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	doctorpkg "github.com/traweezy/stackctl/internal/doctor"
+	"github.com/traweezy/stackctl/internal/logging"
 	"github.com/traweezy/stackctl/internal/output"
 	"github.com/traweezy/stackctl/internal/system"
 	stacktui "github.com/traweezy/stackctl/internal/tui"
@@ -146,6 +151,137 @@ func TestResolveTUIHelpViewModeAutoHonorsAccessible(t *testing.T) {
 	}
 	if !expanded {
 		t.Fatal("expected accessible auto mode to expand help")
+	}
+}
+
+func TestResolveTUIModeHelpersCoverExplicitAndInvalidValues(t *testing.T) {
+	original := rootOutput
+	rootOutput.Accessible = false
+	t.Cleanup(func() { rootOutput = original })
+
+	t.Setenv("STACKCTL_TUI_MOUSE", "1")
+	mouseEnabled, err := resolveTUIMouseMode("auto")
+	if err != nil {
+		t.Fatalf("resolveTUIMouseMode returned error: %v", err)
+	}
+	if !mouseEnabled {
+		t.Fatal("expected auto mouse mode to honor env enablement")
+	}
+
+	for _, tc := range []struct {
+		name string
+		fn   func(string) (bool, error)
+		mode string
+		want bool
+	}{
+		{name: "mouse on", fn: resolveTUIMouseMode, mode: "on", want: true},
+		{name: "mouse off", fn: resolveTUIMouseMode, mode: "off", want: false},
+		{name: "alt-screen on", fn: resolveTUIAltScreenMode, mode: "on", want: true},
+		{name: "alt-screen off", fn: resolveTUIAltScreenMode, mode: "off", want: false},
+		{name: "help full", fn: resolveTUIHelpViewMode, mode: "full", want: true},
+		{name: "help short", fn: resolveTUIHelpViewMode, mode: "short", want: false},
+	} {
+		got, err := tc.fn(tc.mode)
+		if err != nil {
+			t.Fatalf("%s returned error: %v", tc.name, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s: expected %v, got %v", tc.name, tc.want, got)
+		}
+	}
+
+	if _, err := resolveTUIMouseMode("invalid"); err == nil || !strings.Contains(err.Error(), "invalid --mouse") {
+		t.Fatalf("expected invalid mouse mode error, got %v", err)
+	}
+	if _, err := resolveTUIAltScreenMode("invalid"); err == nil || !strings.Contains(err.Error(), "invalid --alt-screen") {
+		t.Fatalf("expected invalid alt-screen mode error, got %v", err)
+	}
+	if _, err := resolveTUIHelpViewMode("invalid"); err == nil || !strings.Contains(err.Error(), "invalid --help-view") {
+		t.Fatalf("expected invalid help-view mode error, got %v", err)
+	}
+}
+
+func TestResolveTUIDebugLogPathHonorsFlagChanges(t *testing.T) {
+	t.Setenv(logging.EnvTUIDebugLogFile, "/tmp/from-env.log")
+
+	cmd := &cobra.Command{Use: "tui"}
+	cmd.Flags().String("debug-log-file", "", "")
+
+	if got := resolveTUIDebugLogPath(cmd, " /tmp/explicit.log "); got != "/tmp/from-env.log" {
+		t.Fatalf("expected env debug log path when flag is unchanged, got %q", got)
+	}
+
+	if err := cmd.Flags().Set("debug-log-file", " /tmp/explicit.log "); err != nil {
+		t.Fatalf("set debug-log-file flag: %v", err)
+	}
+	if got := resolveTUIDebugLogPath(cmd, " /tmp/explicit.log "); got != "/tmp/explicit.log" {
+		t.Fatalf("expected explicit debug log path when flag is changed, got %q", got)
+	}
+}
+
+func TestOpenTUIDebugLogHandlesEmptyAndWritableTargets(t *testing.T) {
+	file, err := openTUIDebugLog("   ")
+	if err != nil {
+		t.Fatalf("openTUIDebugLog returned error for empty path: %v", err)
+	}
+	if file != nil {
+		t.Fatal("expected empty debug log path to skip file creation")
+	}
+
+	target := t.TempDir() + "/bubbletea.log"
+	file, err = openTUIDebugLog(target)
+	if err != nil {
+		t.Fatalf("openTUIDebugLog returned error: %v", err)
+	}
+	if file == nil {
+		t.Fatal("expected debug log file handle")
+	}
+	if _, err := file.WriteString("debug line\n"); err != nil {
+		t.Fatalf("write debug log file: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close debug log file: %v", err)
+	}
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read debug log file: %v", err)
+	}
+	if !strings.Contains(string(data), "debug line") {
+		t.Fatalf("expected debug log file contents, got %q", string(data))
+	}
+}
+
+func TestTUIProgramFilterRespectsQuitBlockingRules(t *testing.T) {
+	quit := tea.QuitMsg{}
+	nonQuit := tea.KeyPressMsg{Text: "q"}
+
+	if got := tuiProgramFilter(stacktui.Model{}, nonQuit); got != nonQuit {
+		t.Fatalf("expected non-quit message to pass through, got %T", got)
+	}
+
+	if got := tuiProgramFilter(testTeaModel{}, quit); got != quit {
+		t.Fatalf("expected non-model quit to pass through, got %T", got)
+	}
+
+	blocked := stacktui.NewFullModel(
+		func() (stacktui.Snapshot, error) { return stacktui.Snapshot{}, nil },
+		nil,
+		nil,
+		&stacktui.ConfigManager{},
+	)
+
+	got := tuiProgramFilter(blocked, quit)
+	blockedMsg, ok := got.(stacktui.QuitBlockedMsg)
+	if !ok {
+		t.Fatalf("expected quit to be converted to QuitBlockedMsg, got %T", got)
+	}
+	if !strings.Contains(blockedMsg.Reason, "save or reset") {
+		t.Fatalf("unexpected quit blocked reason %q", blockedMsg.Reason)
+	}
+
+	if got := tuiProgramFilter(stacktui.Model{}, quit); got != quit {
+		t.Fatalf("expected unblocked quit to pass through, got %T", got)
 	}
 }
 
@@ -570,3 +706,9 @@ func TestValidationIssuesErrorFormatsIssues(t *testing.T) {
 		}
 	}
 }
+
+type testTeaModel struct{}
+
+func (testTeaModel) Init() tea.Cmd                           { return nil }
+func (testTeaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return testTeaModel{}, nil }
+func (testTeaModel) View() tea.View                          { return tea.View{} }
