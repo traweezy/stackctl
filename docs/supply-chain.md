@@ -12,11 +12,16 @@ The main `ci` workflow continuously enforces:
 - `gitleaks` for secret scanning
 - `gosec` for Go static security findings
 - `govulncheck` for reachable Go vulnerability checks
+- `codeql` for hosted semantic code scanning on the Go codebase
 - `actionlint` for GitHub workflow linting
 - `shellcheck` for shell script linting
 - `lychee` for README and docs link validation
 - `golangci-lint`, `go vet`, unit tests, race tests, coverage, integration, and
   installer/runtime smoke paths
+
+The dedicated `codeql` workflow runs on pushes to `master`, pull requests, and
+the weekly hosted security schedule so OpenSSF Scorecard can see a first-class
+SAST signal instead of inferring from general linting alone.
 
 ## Pull request dependency review
 
@@ -38,6 +43,11 @@ false-positive risk.
 The dependency-review policy lives in
 [../.github/dependency-review-config.yml](../.github/dependency-review-config.yml).
 
+Separately, [../.github/dependabot.yml](../.github/dependabot.yml) opens
+scheduled update pull requests for both `gomod` dependencies and GitHub
+Actions pins. That keeps runtime dependencies and the workflow action surface
+moving forward without relying on manual upgrade sweeps.
+
 ## Repository scorecards
 
 The `scorecards` workflow runs on pushes to `master` and on the weekly
@@ -56,6 +66,12 @@ permissions, release posture, and other supply-chain signals.
 
 The Scorecards workflow also runs StepSecurity Harden-Runner in `audit` mode so
 the repo can observe outbound runner behavior without blocking the job.
+
+Workflow token scopes are intentionally explicit. The general hosted checks and
+Scorecards paths only request read access plus the write scopes required for
+SARIF uploads, while the tagged-release path elevates to `contents: write`,
+`attestations: write`, and `id-token: write` only in the publish job that
+actually needs them.
 
 ## Tagged release artifacts
 
