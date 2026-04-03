@@ -45,6 +45,7 @@ Saturday schedule.
 
 It publishes:
 
+- StepSecurity Harden-Runner audit data for runner egress visibility
 - SARIF results to GitHub code scanning
 - a short-lived workflow artifact for debugging
 - the latest repository score so the README badge stays current
@@ -52,6 +53,9 @@ It publishes:
 This does not replace the repo's other security checks. It adds a separate
 OpenSSF-oriented view of branch protection, dependency pinning, token
 permissions, release posture, and other supply-chain signals.
+
+The Scorecards workflow also runs StepSecurity Harden-Runner in `audit` mode so
+the repo can observe outbound runner behavior without blocking the job.
 
 ## Tagged release artifacts
 
