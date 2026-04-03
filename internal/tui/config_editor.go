@@ -1424,7 +1424,7 @@ func classifyConfigImpact(impact *configImpact, key string, previous configpkg.C
 }
 
 func selectedFieldEffect(spec configFieldSpec, cfg configpkg.Config) string {
-	base := specificFieldEffect(spec)
+	base := specificFieldEffect(spec, cfg)
 	followUp := effectFollowUp(spec, cfg)
 	switch {
 	case base == "":
@@ -1436,7 +1436,7 @@ func selectedFieldEffect(spec configFieldSpec, cfg configpkg.Config) string {
 	}
 }
 
-func specificFieldEffect(spec configFieldSpec) string {
+func specificFieldEffect(spec configFieldSpec, cfg configpkg.Config) string {
 	switch spec.Key {
 	case "stack.name":
 		return "Renames the stack target and, in managed mode, changes the derived stack directory name."
@@ -1551,6 +1551,9 @@ func specificFieldEffect(spec configFieldSpec) string {
 	case "tui.auto_refresh_interval_seconds":
 		return "Changes the default auto-refresh cadence for future TUI sessions."
 	case "setup.install_cockpit":
+		if reason := configpkg.CockpitInstallEnableReasonForConfig(cfg); reason != "" {
+			return reason
+		}
 		return "Controls whether setup and doctor fix install and enable Cockpit automatically."
 	case "system.package_manager":
 		recommendation := system.CurrentPackageManagerRecommendation()
@@ -2848,6 +2851,7 @@ var configFieldSpecs = []configFieldSpec{
 		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.IncludeCockpit },
 		SetBool: func(cfg *configpkg.Config, value bool) error {
 			cfg.Setup.IncludeCockpit = value
+			configpkg.NormalizeCockpitSettings(cfg)
 			return nil
 		},
 	},
@@ -2859,8 +2863,20 @@ var configFieldSpecs = []configFieldSpec{
 		Kind:        configFieldBool,
 		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.InstallCockpit },
 		SetBool: func(cfg *configpkg.Config, value bool) error {
+			if value {
+				if reason := configpkg.CockpitInstallEnableReasonForConfig(*cfg); reason != "" {
+					return fmt.Errorf("%s", reason)
+				}
+			}
 			cfg.Setup.InstallCockpit = value
+			configpkg.NormalizeCockpitSettings(cfg)
 			return nil
+		},
+		EditableReason: func(cfg configpkg.Config) string {
+			if !cfg.Setup.IncludeCockpit {
+				return "Turn on Cockpit helpers first to change install behavior."
+			}
+			return ""
 		},
 	},
 	{
@@ -2889,8 +2905,12 @@ var configFieldSpecs = []configFieldSpec{
 		SuggestionTitle: "Common values",
 		Kind:            configFieldString,
 		GetString:       func(cfg configpkg.Config) string { return cfg.System.PackageManager },
-		SetString:       stringSetter(func(cfg *configpkg.Config) *string { return &cfg.System.PackageManager }),
-		InputValidate:   requiredText,
+		SetString: func(cfg *configpkg.Config, value string) error {
+			cfg.System.PackageManager = strings.TrimSpace(value)
+			configpkg.NormalizeCockpitSettings(cfg)
+			return nil
+		},
+		InputValidate: requiredText,
 		Suggestions: func(cfg configpkg.Config) []string {
 			return packageManagerConfigSuggestions(cfg.System.PackageManager)
 		},

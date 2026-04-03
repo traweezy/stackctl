@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/traweezy/stackctl/internal/system"
 	"golang.org/x/term"
 )
 
@@ -16,16 +17,20 @@ const maxIntValue = int(^uint(0) >> 1)
 
 func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	if shouldUsePlainWizard(in, out) {
-		return runPlainWizard(in, out, base)
+		return runPlainWizardWithPlatform(in, out, base, platformForInteractiveConfig(base, system.CurrentPlatform()))
 	}
 	if err := clearWizardScreen(out); err != nil {
 		return Config{}, err
 	}
 
-	return runHuhWizard(in, out, base)
+	return runHuhWizardWithPlatform(in, out, base, platformForInteractiveConfig(base, system.CurrentPlatform()))
 }
 
 func runPlainWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
+	return runPlainWizardWithPlatform(in, out, base, platformForInteractiveConfig(base, system.CurrentPlatform()))
+}
+
+func runPlainWizardWithPlatform(in io.Reader, out io.Writer, base Config, platform system.Platform) (Config, error) {
 	session := promptSession{
 		reader: bufio.NewReader(in),
 		out:    out,
@@ -96,7 +101,7 @@ func runPlainWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 		return Config{}, fmt.Errorf("at least one stack service must be enabled")
 	}
 
-	if err := session.configureCockpit(&cfg); err != nil {
+	if err := session.configureCockpit(&cfg, platformForInteractiveConfig(cfg, platform)); err != nil {
 		return Config{}, err
 	}
 
@@ -551,12 +556,13 @@ func (p promptSession) configureMeilisearch(cfg *Config) error {
 	return nil
 }
 
-func (p promptSession) configureCockpit(cfg *Config) error {
+func (p promptSession) configureCockpit(cfg *Config, platform system.Platform) error {
 	includeCockpit, err := p.askBool("Include Cockpit helpers", cfg.Setup.IncludeCockpit)
 	if err != nil {
 		return err
 	}
 	cfg.Setup.IncludeCockpit = includeCockpit
+	NormalizeCockpitSettingsForPlatform(cfg, platform)
 	if !cfg.Setup.IncludeCockpit {
 		return nil
 	}
@@ -564,7 +570,7 @@ func (p promptSession) configureCockpit(cfg *Config) error {
 	if err := p.printSection("Cockpit"); err != nil {
 		return err
 	}
-	if err := p.printNote(CurrentCockpitHelperDescription()); err != nil {
+	if err := p.printNote(CockpitHelperDescriptionForPlatform(platform)); err != nil {
 		return err
 	}
 
@@ -574,8 +580,12 @@ func (p promptSession) configureCockpit(cfg *Config) error {
 	}
 	cfg.Ports.Cockpit = cockpitPort
 
-	if err := p.printNote(CurrentCockpitInstallDescription()); err != nil {
+	if err := p.printNote(CockpitInstallDescriptionForPlatform(platform)); err != nil {
 		return err
+	}
+	if CockpitInstallEnableReasonForPlatform(platform) != "" {
+		cfg.Setup.InstallCockpit = false
+		return nil
 	}
 	installCockpit, err := p.askBool("Install Cockpit during setup", cfg.Setup.InstallCockpit)
 	if err != nil {

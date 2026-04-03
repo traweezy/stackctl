@@ -124,3 +124,50 @@ func TestPlatformCopyHelpers(t *testing.T) {
 		t.Fatalf("unexpected apt cockpit install copy: %q", got)
 	}
 }
+
+func TestNormalizeCockpitSettingsForPlatform(t *testing.T) {
+	unsupported := Default()
+	unsupported.Setup.IncludeCockpit = true
+	unsupported.Setup.InstallCockpit = true
+	NormalizeCockpitSettingsForPlatform(&unsupported, system.Platform{
+		GOOS:           "darwin",
+		PackageManager: "brew",
+		ServiceManager: system.ServiceManagerNone,
+	})
+	if !unsupported.Setup.IncludeCockpit {
+		t.Fatalf("expected unsupported platform normalization to keep helpers enabled: %+v", unsupported.Setup)
+	}
+	if unsupported.Setup.InstallCockpit {
+		t.Fatalf("expected unsupported platform normalization to clear install_cockpit: %+v", unsupported.Setup)
+	}
+
+	helpersOff := Default()
+	helpersOff.Setup.IncludeCockpit = false
+	helpersOff.Setup.InstallCockpit = true
+	NormalizeCockpitSettingsForPlatform(&helpersOff, system.Platform{
+		GOOS:           "linux",
+		PackageManager: "dnf",
+		ServiceManager: system.ServiceManagerSystemd,
+	})
+	if helpersOff.Setup.InstallCockpit {
+		t.Fatalf("expected cockpit install to clear when helpers are disabled: %+v", helpersOff.Setup)
+	}
+}
+
+func TestCockpitInstallEnableReasonForPlatform(t *testing.T) {
+	if reason := CockpitInstallEnableReasonForPlatform(system.Platform{
+		GOOS:           "linux",
+		PackageManager: "dnf",
+		ServiceManager: system.ServiceManagerSystemd,
+	}); reason != "" {
+		t.Fatalf("expected supported platform to allow cockpit install, got %q", reason)
+	}
+
+	if reason := CockpitInstallEnableReasonForPlatform(system.Platform{
+		GOOS:           "darwin",
+		PackageManager: "brew",
+		ServiceManager: system.ServiceManagerNone,
+	}); !strings.Contains(reason, "cannot install Cockpit") {
+		t.Fatalf("expected unsupported platform reason, got %q", reason)
+	}
+}

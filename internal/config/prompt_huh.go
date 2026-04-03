@@ -14,6 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/traweezy/stackctl/internal/logging"
+	"github.com/traweezy/stackctl/internal/system"
 )
 
 const (
@@ -264,11 +265,18 @@ func newWizardState(cfg Config) wizardState {
 }
 
 func runHuhWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
-	state := newWizardState(base)
+	return runHuhWizardWithPlatform(in, out, base, platformForInteractiveConfig(base, system.CurrentPlatform()))
+}
+
+func runHuhWizardWithPlatform(in io.Reader, out io.Writer, base Config, platform system.Platform) (Config, error) {
+	normalizedBase := base
+	NormalizeCockpitSettingsForPlatform(&normalizedBase, platformForInteractiveConfig(normalizedBase, platform))
+	platform = platformForInteractiveConfig(normalizedBase, platform)
+	state := newWizardState(normalizedBase)
 	log := logging.With("component", "wizard", "stack", state.StackName)
 	log.Debug("starting huh wizard")
 
-	form := buildWizardForm(&state).
+	form := buildWizardForm(&state, platform).
 		WithInput(in).
 		WithOutput(out).
 		WithTheme(wizardTheme(out)).
@@ -288,7 +296,7 @@ func runHuhWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 		return Config{}, errors.New("wizard cancelled")
 	}
 
-	cfg, err := state.toConfig(base)
+	cfg, err := state.toConfigForPlatform(normalizedBase, platform)
 	if err != nil {
 		log.Error("wizard config conversion failed", "error", err)
 		return Config{}, err
@@ -299,7 +307,32 @@ func runHuhWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	return cfg, nil
 }
 
-func buildWizardForm(state *wizardState) *huh.Form {
+func buildWizardForm(state *wizardState, platform system.Platform) *huh.Form {
+	cockpitHelperDescription := CockpitHelperDescriptionForPlatform(platform)
+	cockpitInstallDescription := CockpitInstallDescriptionForPlatform(platform)
+	supportsCockpitInstallSetting := platform.SupportsCockpit()
+	cockpitSettingsFields := []huh.Field{
+		wizardStepNote(state, wizardStepCockpitSettings),
+		huh.NewInput().
+			Title("Cockpit port").
+			Description("Used for Cockpit URLs and health hints when Cockpit helpers are enabled.").
+			Value(&state.CockpitPort).
+			Validate(validPortText),
+	}
+	if supportsCockpitInstallSetting {
+		cockpitSettingsFields = append(cockpitSettingsFields,
+			huh.NewConfirm().
+				Title("Install Cockpit during setup").
+				Description(cockpitInstallDescription).
+				Value(&state.InstallCockpit),
+		)
+	} else {
+		cockpitSettingsFields = append(cockpitSettingsFields,
+			huh.NewNote().
+				Title("Cockpit install").
+				Description(cockpitInstallDescription),
+		)
+	}
 	return huh.NewForm(
 		huh.NewGroup(
 			wizardStepNote(state, wizardStepStack),
@@ -657,23 +690,12 @@ func buildWizardForm(state *wizardState) *huh.Form {
 			wizardStepNote(state, wizardStepCockpit),
 			huh.NewConfirm().
 				Title("Include Cockpit helpers").
-				Description(CurrentCockpitHelperDescription()).
+				Description(cockpitHelperDescription).
 				Value(&state.IncludeCockpit),
 		).
 			Title("Cockpit").
 			Description("Configure optional host-level integration separately from stack-managed services."),
-		huh.NewGroup(
-			wizardStepNote(state, wizardStepCockpitSettings),
-			huh.NewInput().
-				Title("Cockpit port").
-				Description("Used for Cockpit URLs and health hints when Cockpit helpers are enabled.").
-				Value(&state.CockpitPort).
-				Validate(validPortText),
-			huh.NewConfirm().
-				Title("Install Cockpit during setup").
-				Description(CurrentCockpitInstallDescription()).
-				Value(&state.InstallCockpit),
-		).
+		huh.NewGroup(cockpitSettingsFields...).
 			Title("Cockpit Settings").
 			Description("These settings only matter when Cockpit helpers are enabled.").
 			WithHideFunc(func() bool { return !state.IncludeCockpit }),
@@ -853,6 +875,10 @@ func wizardFilePickerStartDir(path string) string {
 }
 
 func (s wizardState) toConfig(base Config) (Config, error) {
+	return s.toConfigForPlatform(base, platformForInteractiveConfig(base, system.CurrentPlatform()))
+}
+
+func (s wizardState) toConfigForPlatform(base Config, platform system.Platform) (Config, error) {
 	cfg := base
 
 	cfg.Stack.Name = strings.TrimSpace(s.StackName)
@@ -981,6 +1007,7 @@ func (s wizardState) toConfig(base Config) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("cockpit port: %w", err)
 	}
+	NormalizeCockpitSettingsForPlatform(&cfg, platformForInteractiveConfig(cfg, platform))
 
 	return cfg, nil
 }

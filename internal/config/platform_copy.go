@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/traweezy/stackctl/internal/system"
 )
@@ -50,4 +51,39 @@ func PackageManagerFieldDescriptionForPlatform(platform system.Platform) string 
 		"The package manager stackctl should use for setup and doctor fix flows on this host. %s",
 		system.FormatPackageManagerRecommendation(recommendation),
 	)
+}
+
+func platformForInteractiveConfig(cfg Config, fallback system.Platform) system.Platform {
+	platform := fallback
+	if packageManager := strings.ToLower(strings.TrimSpace(cfg.System.PackageManager)); packageManager != "" {
+		platform.PackageManager = packageManager
+	}
+	return platform
+}
+
+func NormalizeCockpitSettings(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	NormalizeCockpitSettingsForPlatform(cfg, platformForInteractiveConfig(*cfg, system.CurrentPlatform()))
+}
+
+func NormalizeCockpitSettingsForPlatform(cfg *Config, platform system.Platform) {
+	if cfg == nil {
+		return
+	}
+	if !cfg.Setup.IncludeCockpit || !platform.SupportsCockpit() {
+		cfg.Setup.InstallCockpit = false
+	}
+}
+
+func CockpitInstallEnableReasonForConfig(cfg Config) string {
+	return CockpitInstallEnableReasonForPlatform(platformForInteractiveConfig(cfg, system.CurrentPlatform()))
+}
+
+func CockpitInstallEnableReasonForPlatform(platform system.Platform) string {
+	if platform.SupportsCockpit() {
+		return ""
+	}
+	return "This host cannot install Cockpit through stackctl. Keep helpers only, or manage Cockpit separately."
 }

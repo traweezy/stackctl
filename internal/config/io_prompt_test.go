@@ -626,6 +626,77 @@ func TestRunWizardCanCustomizeServiceCredentials(t *testing.T) {
 	}
 }
 
+func TestRunPlainWizardSkipsUnsupportedCockpitInstallPrompt(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	platform := system.Platform{
+		GOOS:           "darwin",
+		PackageManager: "brew",
+		ServiceManager: system.ServiceManagerNone,
+	}
+	cfg := DefaultForStackOnPlatform("dev-stack", platform)
+	var out strings.Builder
+	input := strings.Join([]string{
+		"",  // stack name
+		"",  // managed stack
+		"",  // include postgres
+		"",  // postgres container
+		"",  // postgres image
+		"",  // postgres volume
+		"",  // postgres maintenance db
+		"",  // postgres port
+		"",  // postgres database
+		"",  // postgres username
+		"",  // postgres password
+		"",  // include redis
+		"",  // redis container
+		"",  // redis image
+		"",  // redis volume
+		"",  // redis appendonly
+		"",  // redis save policy
+		"",  // redis maxmemory policy
+		"",  // redis port
+		"",  // redis password
+		"",  // include nats
+		"",  // nats container
+		"",  // nats image
+		"",  // nats port
+		"",  // nats token
+		"",  // include seaweedfs
+		"",  // include meilisearch
+		"",  // include pgadmin
+		"",  // pgadmin container
+		"",  // pgadmin image
+		"",  // pgadmin volume
+		"",  // pgadmin server mode
+		"",  // pgadmin port
+		"",  // pgadmin email
+		"",  // pgadmin password
+		"y", // include cockpit
+		"",  // cockpit port
+		"",  // wait for services
+		"",  // startup timeout
+		"",  // package manager
+	}, "\n") + "\n"
+
+	got, err := runPlainWizardWithPlatform(strings.NewReader(input), &out, cfg, platform)
+	if err != nil {
+		t.Fatalf("runPlainWizardWithPlatform returned error: %v", err)
+	}
+	if !got.Setup.IncludeCockpit {
+		t.Fatalf("expected cockpit helpers to stay enabled, got %+v", got.Setup)
+	}
+	if got.Setup.InstallCockpit {
+		t.Fatalf("expected unsupported platform to skip cockpit install enablement, got %+v", got.Setup)
+	}
+	if strings.Contains(out.String(), "Install Cockpit during setup") {
+		t.Fatalf("did not expect an install prompt on unsupported hosts:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "does not support Cockpit installation") {
+		t.Fatalf("expected unsupported-host cockpit note in wizard output:\n%s", out.String())
+	}
+}
+
 func TestRunWizardCanCustomizeServiceRuntimeSettings(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
@@ -1115,6 +1186,29 @@ func TestWizardStateToConfigAppliesExternalSettings(t *testing.T) {
 	}
 	if cfg.Stack.Dir != externalDir || cfg.Stack.ComposeFile != "compose.custom.yaml" {
 		t.Fatalf("unexpected external stack config: %+v", cfg.Stack)
+	}
+}
+
+func TestWizardStateToConfigForPlatformDisablesUnsupportedCockpitInstall(t *testing.T) {
+	base := Default()
+	state := newWizardState(base)
+	state.IncludeCockpit = true
+	state.InstallCockpit = true
+	state.PackageManager = "brew"
+
+	cfg, err := state.toConfigForPlatform(base, system.Platform{
+		GOOS:           "darwin",
+		PackageManager: "brew",
+		ServiceManager: system.ServiceManagerNone,
+	})
+	if err != nil {
+		t.Fatalf("toConfigForPlatform returned error: %v", err)
+	}
+	if !cfg.Setup.IncludeCockpit {
+		t.Fatalf("expected unsupported platform conversion to keep cockpit helpers enabled: %+v", cfg.Setup)
+	}
+	if cfg.Setup.InstallCockpit {
+		t.Fatalf("expected unsupported platform conversion to clear install_cockpit: %+v", cfg.Setup)
 	}
 }
 

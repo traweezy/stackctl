@@ -2814,6 +2814,51 @@ func TestSelectedFieldEffectDifferentiatesRepresentativeFields(t *testing.T) {
 	}
 }
 
+func TestCockpitConfigFieldSettersRespectUnsupportedHosts(t *testing.T) {
+	cfg := configpkg.Default()
+
+	var includeSpec configFieldSpec
+	var installSpec configFieldSpec
+	var packageSpec configFieldSpec
+	for _, spec := range configFieldSpecs {
+		switch spec.Key {
+		case "setup.include_cockpit":
+			includeSpec = spec
+		case "setup.install_cockpit":
+			installSpec = spec
+		case "system.package_manager":
+			packageSpec = spec
+		}
+	}
+	if includeSpec.Key == "" || installSpec.Key == "" || packageSpec.Key == "" {
+		t.Fatalf("expected cockpit and package manager field specs, got include=%q install=%q package=%q", includeSpec.Key, installSpec.Key, packageSpec.Key)
+	}
+
+	cfg.Setup.IncludeCockpit = true
+	cfg.Setup.InstallCockpit = true
+	if err := packageSpec.SetString(&cfg, "brew"); err != nil {
+		t.Fatalf("expected package manager setter to accept brew, got %v", err)
+	}
+	if cfg.Setup.InstallCockpit {
+		t.Fatalf("expected unsupported package manager to clear install_cockpit: %+v", cfg.Setup)
+	}
+	if got := selectedFieldEffect(installSpec, cfg); !strings.Contains(got, "cannot install Cockpit") {
+		t.Fatalf("expected unsupported install effect copy, got %q", got)
+	}
+	if err := installSpec.SetBool(&cfg, true); err == nil || !strings.Contains(err.Error(), "cannot install Cockpit") {
+		t.Fatalf("expected enabling install on brew to fail, got %v", err)
+	}
+
+	cfg.Setup.IncludeCockpit = true
+	cfg.Setup.InstallCockpit = true
+	if err := includeSpec.SetBool(&cfg, false); err != nil {
+		t.Fatalf("expected include_cockpit setter to succeed, got %v", err)
+	}
+	if cfg.Setup.InstallCockpit {
+		t.Fatalf("expected disabling cockpit helpers to clear install_cockpit: %+v", cfg.Setup)
+	}
+}
+
 func TestRedisMaxmemoryPolicySuggestionsIncludeLRMForRedis86(t *testing.T) {
 	cfg := configpkg.Default()
 	cfg.Services.Redis.Image = "docker.io/library/redis:8.6"
