@@ -43,6 +43,12 @@ git diff --exit-code docs/cli docs/man docs/completions
 
 Before a tag is treated as releasable, verify:
 
+- the branch watcher reports a green `ci` run for the release commit:
+
+```bash
+bash scripts/watch-ci.sh
+```
+
 - the normal `ci` workflow is green on the release commit
 - the tagged `release` workflow is green
 - `platform-lab` passes for the release tag
@@ -50,6 +56,12 @@ Before a tag is treated as releasable, verify:
 
 The tag gate is intentionally stronger than the normal push gate. Hosted CI and
 `platform-lab` together are the release qualification path.
+
+When you expect multiple pushes on the same branch, use:
+
+```bash
+bash scripts/watch-ci.sh --latest-branch
+```
 
 ## Artifact expectations
 
