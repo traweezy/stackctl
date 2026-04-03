@@ -52,6 +52,65 @@ func TestClipboardCommandUsesWaylandClipboardWhenSessionIsWayland(t *testing.T) 
 	}
 }
 
+func TestClipboardCommandFallsBackAcrossPlatformsAndAvailability(t *testing.T) {
+	t.Run("xsel fallback", func(t *testing.T) {
+		binDir := t.TempDir()
+		writeExecutable(t, filepath.Join(binDir, "xsel"))
+
+		t.Setenv("PATH", binDir)
+		t.Setenv("WAYLAND_DISPLAY", "")
+		t.Setenv("XDG_SESSION_TYPE", "x11")
+
+		command, args, ok := clipboardCommand()
+		if !ok {
+			t.Fatal("expected xsel clipboard command to be detected")
+		}
+		if command != "xsel" {
+			t.Fatalf("expected xsel fallback, got %q", command)
+		}
+		if len(args) != 2 || args[0] != "--clipboard" || args[1] != "--input" {
+			t.Fatalf("unexpected xsel args: %+v", args)
+		}
+	})
+
+	t.Run("pbcopy fallback", func(t *testing.T) {
+		binDir := t.TempDir()
+		writeExecutable(t, filepath.Join(binDir, "pbcopy"))
+
+		t.Setenv("PATH", binDir)
+		t.Setenv("WAYLAND_DISPLAY", "")
+		t.Setenv("XDG_SESSION_TYPE", "")
+
+		command, args, ok := clipboardCommand()
+		if !ok {
+			t.Fatal("expected pbcopy clipboard command to be detected")
+		}
+		if command != "pbcopy" {
+			t.Fatalf("expected pbcopy fallback, got %q", command)
+		}
+		if len(args) != 0 {
+			t.Fatalf("expected pbcopy args to be empty, got %+v", args)
+		}
+	})
+
+	t.Run("no command available", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		t.Setenv("WAYLAND_DISPLAY", "")
+		t.Setenv("XDG_SESSION_TYPE", "")
+
+		command, args, ok := clipboardCommand()
+		if ok {
+			t.Fatalf("expected clipboard detection to fail, got %q %+v", command, args)
+		}
+		if command != "" || args != nil {
+			t.Fatalf("expected empty clipboard fallback, got %q %+v", command, args)
+		}
+		if ClipboardAvailable() {
+			t.Fatal("expected ClipboardAvailable to report false")
+		}
+	})
+}
+
 func writeExecutable(t *testing.T, path string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
@@ -82,4 +141,33 @@ func TestCopyToClipboardWritesValueToDetectedCommand(t *testing.T) {
 	if !strings.Contains(output, "postgres://stackctl") || !strings.Contains(output, "-selection clipboard") {
 		t.Fatalf("unexpected clipboard command output: %q", output)
 	}
+}
+
+func TestCopyToClipboardHandlesUnavailableAndCommandFailures(t *testing.T) {
+	t.Run("unavailable", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		t.Setenv("WAYLAND_DISPLAY", "")
+		t.Setenv("XDG_SESSION_TYPE", "")
+
+		err := CopyToClipboard(context.Background(), Runner{}, "postgres://stackctl")
+		if err == nil || !strings.Contains(err.Error(), "no supported clipboard command found") {
+			t.Fatalf("expected clipboard unavailable error, got %v", err)
+		}
+	})
+
+	t.Run("command failure", func(t *testing.T) {
+		binDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(binDir, "xclip"), []byte("#!/bin/sh\nexit 12\n"), 0o755); err != nil {
+			t.Fatalf("write xclip stub: %v", err)
+		}
+
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Setenv("WAYLAND_DISPLAY", "")
+		t.Setenv("XDG_SESSION_TYPE", "x11")
+
+		err := CopyToClipboard(context.Background(), Runner{}, "postgres://stackctl")
+		if err == nil || !strings.Contains(err.Error(), "exit status 12") {
+			t.Fatalf("expected clipboard command failure, got %v", err)
+		}
+	})
 }
