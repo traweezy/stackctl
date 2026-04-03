@@ -12,10 +12,12 @@ Today:
 
 - tagged releases publish through GitHub Releases only
 - macOS runtime setup is documented through Homebrew plus `podman machine`
-- no release job attempts to push to a Homebrew tap yet
+- GoReleaser now generates a tap-ready `stackctl` cask into `dist/` during
+  snapshot and tagged release runs
+- no release job attempts to push that cask to a Homebrew tap yet
 
-That is intentional until a tap repository and cross-repository token are in
-place.
+That is intentional until a tap repository, publish token, and macOS
+distribution posture are finalized.
 
 ## Why the planned path is tap plus cask
 
@@ -46,17 +48,19 @@ When the cask is wired, it should install:
 The repo keeps the full generated docs, man pages, and completions in the
 release archive regardless of whether the cask is published yet.
 
-## Recommended first implementation step
+## What the repo now does
 
-The safest first repo change is:
+The repo now takes the first safe step from the original plan:
 
-- add a `homebrew_casks` block to `.goreleaser.yaml`
-- set `skip_upload: true`
-- generate the cask into `dist/` during snapshot dry-runs
-- review the cask locally before enabling cross-repository publishing
+- `.goreleaser.yaml` includes a `homebrew_casks` block
+- `skip_upload: true` keeps publish disabled
+- `goreleaser release --snapshot --clean` generates a reviewable cask in
+  `dist/`
+- the generated cask installs the `stackctl` binary, the root man page, and
+  shell completions generated from `stackctl completion`
 
-That lets the repo qualify the cask content before any release workflow tries
-to write to a tap repository.
+This lets the release pipeline qualify the cask content before any workflow is
+allowed to write to a tap repository.
 
 ## What is still required before publish is enabled
 
@@ -66,7 +70,9 @@ Before Homebrew publishing can be turned on for real, create and wire:
 2. A token with content-write access to that tap repository.
 3. Release secrets in GitHub Actions for that token.
 4. The `repository` block in `.goreleaser.yaml`.
-5. macOS validation against the real tap output.
+5. A final decision on macOS signing and notarization posture for the cask
+   payload.
+6. macOS validation against the real tap output.
 
 Until those exist, leave `skip_upload: true` in place.
 
@@ -83,17 +89,36 @@ enabled.
 When the tap exists, the cutover should be:
 
 1. Add the tap repository owner/name/token under `homebrew_casks.repository`.
-2. Add `homebrew_casks` with `skip_upload: true` and inspect the generated
-   cask in `dist/`.
+2. Inspect the generated cask in `dist/` and confirm the archive paths, man
+   page install, shell completions, and caveats still match the release
+   archive content.
 3. Change `skip_upload` from `true` to `false`.
 4. Validate on macOS:
    - `brew install --cask ./dist/stackctl.rb`
    - `stackctl version --json`
+   - `stackctl setup`
    - `brew uninstall stackctl`
    - `brew audit --new --cask ./dist/stackctl.rb`
    - `brew style --fix ./dist/stackctl.rb`
 5. Only after the tap workflow is solid, decide whether to pursue
    `homebrew/cask` or `homebrew/core`.
+
+## macOS signing note
+
+GoReleaser's current Homebrew cask guidance explicitly warns that unsigned,
+non-notarized binaries may trip Gatekeeper after install. `stackctl` already
+uses Sigstore for release verification, but that is not the same thing as
+Apple code signing and notarization.
+
+That means the Homebrew publish cutover should stay disabled until one of these
+is chosen intentionally:
+
+- add Apple signing and notarization for the macOS release artifacts
+- or accept the operator friction of a manual quarantine-clearing workaround
+
+The first option is the cleaner `1.0.x` path. The second should not become the
+default without an explicit product decision because it weakens the normal
+macOS trust flow.
 
 ## Official docs used for this plan
 

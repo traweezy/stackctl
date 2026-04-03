@@ -72,3 +72,35 @@ signs:
 
 changelog:
   use: github-native
+
+homebrew_casks:
+  - name: stackctl
+    ids:
+      - release-archive
+    binaries:
+      - stackctl
+    manpages:
+      - docs/man/man1/stackctl.1
+    generate_completions_from_executable:
+      executable: bin/stackctl
+      args:
+        - completion
+      shell_parameter_format: cobra
+      shells:
+        - bash
+        - zsh
+        - fish
+    homepage: https://github.com/traweezy/stackctl
+    description: Terminal-first Podman stack operator for local development
+    caveats: |
+      stackctl installs only the CLI.
+
+      On macOS, install and start Podman before first use:
+        brew install podman
+        podman machine init
+        podman machine start
+
+      Then run:
+        stackctl setup
+    commit_msg_template: Brew cask update for {{ .ProjectName }} version {{ .Tag }}
+    skip_upload: true

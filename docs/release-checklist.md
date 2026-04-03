@@ -39,6 +39,11 @@ bash scripts/generate-cli-assets.sh
 git diff --exit-code docs/cli docs/man docs/completions
 ```
 
+If `homebrew_casks` is enabled with `skip_upload: true`, also inspect the
+generated cask in `dist/` after the snapshot dry-run and confirm that its
+binary, man page, completion, and caveat paths still match the release
+archive.
+
 ## CI and release gates
 
 Before a tag is treated as releasable, verify:
@@ -80,5 +85,6 @@ After the release workflow completes:
 Homebrew distribution is still a planned path, not the authoritative binary
 channel.
 
-Until a tap repository and publish token exist, GitHub Releases remain the
-official install source. See [homebrew.md](./homebrew.md).
+Until a tap repository, publish token, and macOS signing decision exist,
+GitHub Releases remain the official install source. See
+[homebrew.md](./homebrew.md).
