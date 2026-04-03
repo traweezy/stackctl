@@ -8,6 +8,7 @@ Use the supported bootstrap flow:
 
 ```bash
 stackctl setup --install
+stackctl doctor --fix --yes
 ```
 
 That is the preferred entry point because it keeps the CLI and the runtime
@@ -46,6 +47,8 @@ See [../homebrew.md](../homebrew.md) for the packaging plan.
 - Homebrew is installed, but `podman machine` has never been initialized
 - `podman machine` exists, but the VM is stopped
 - an older `podman` or compose provider is installed
+- Cockpit helpers were left enabled even though stackctl cannot manage Cockpit
+  on macOS
 - terminal permissions or browser launch behavior differ from Linux defaults
 
 When in doubt:

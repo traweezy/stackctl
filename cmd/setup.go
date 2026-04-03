@@ -145,8 +145,9 @@ func newSetupCmd() *cobra.Command {
 			missing := requiredRequirements(report, cfg, platform)
 			needsMachine := shouldPreparePodmanMachine(report, platform)
 			needsManualCockpit := requiresManualCockpitInstall(report, cfg, platform)
+			needsUnsupportedCockpit := requiresUnsupportedCockpitGuidance(cfg, platform)
 			if len(missing) == 0 {
-				if !needsMachine && !needsManualCockpit {
+				if !needsMachine && !needsManualCockpit && !needsUnsupportedCockpit {
 					if err := statusLine(cmd, output.StatusOK, "all required dependencies look available"); err != nil {
 						return err
 					}
@@ -166,7 +167,7 @@ func newSetupCmd() *cobra.Command {
 			}
 
 			if install {
-				if len(missing) == 0 && !needsMachine && !shouldEnableCockpit(report, missing, platform) {
+				if len(missing) == 0 && !needsMachine && !shouldEnableCockpit(report, missing, platform) && !needsManualCockpit && !needsUnsupportedCockpit {
 					return statusLine(cmd, output.StatusOK, "nothing to install")
 				}
 
@@ -227,7 +228,7 @@ func newSetupCmd() *cobra.Command {
 				needsMachine = false
 			}
 
-			if err := printSetupNextSteps(cmd, cfg, requirementLabels(missing), needsMachine, needsManualCockpit); err != nil {
+			if err := printSetupNextSteps(cmd, cfg, requirementLabels(missing), needsMachine, needsManualCockpit, needsUnsupportedCockpit); err != nil {
 				return err
 			}
 
@@ -267,15 +268,15 @@ func requiredRequirements(report doctorpkg.Report, cfg configpkg.Config, platfor
 	return required
 }
 
-func printSetupNextSteps(cmd *cobra.Command, cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool) error {
+func printSetupNextSteps(cmd *cobra.Command, cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool, needsUnsupportedCockpit bool) error {
 	if deps.isTerminal() {
-		return renderMarkdownBlock(cmd, setupNextStepsMarkdown(cfg, missing, needsPodmanMachine, needsManualCockpit))
+		return renderMarkdownBlock(cmd, setupNextStepsMarkdown(cfg, missing, needsPodmanMachine, needsManualCockpit, needsUnsupportedCockpit))
 	}
 
 	if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Next steps:"); err != nil {
 		return err
 	}
-	for _, step := range setupNextSteps(cfg, missing, needsPodmanMachine, needsManualCockpit) {
+	for _, step := range setupNextSteps(cfg, missing, needsPodmanMachine, needsManualCockpit, needsUnsupportedCockpit) {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", step); err != nil {
 			return err
 		}
@@ -283,8 +284,8 @@ func printSetupNextSteps(cmd *cobra.Command, cfg configpkg.Config, missing []str
 	return nil
 }
 
-func setupNextStepsMarkdown(cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool) string {
-	steps := setupNextSteps(cfg, missing, needsPodmanMachine, needsManualCockpit)
+func setupNextStepsMarkdown(cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool, needsUnsupportedCockpit bool) string {
+	steps := setupNextSteps(cfg, missing, needsPodmanMachine, needsManualCockpit, needsUnsupportedCockpit)
 	lines := []string{
 		"## Next steps",
 		"",
@@ -295,7 +296,7 @@ func setupNextStepsMarkdown(cfg configpkg.Config, missing []string, needsPodmanM
 	return strings.Join(lines, "\n")
 }
 
-func setupNextSteps(cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool) []string {
+func setupNextSteps(cfg configpkg.Config, missing []string, needsPodmanMachine bool, needsManualCockpit bool, needsUnsupportedCockpit bool) []string {
 	steps := make([]string, 0, 9)
 	if len(missing) > 0 {
 		steps = append(steps, fmt.Sprintf(
@@ -308,6 +309,9 @@ func setupNextSteps(cfg configpkg.Config, missing []string, needsPodmanMachine b
 	}
 	if needsManualCockpit {
 		steps = append(steps, "install cockpit manually on this platform if you want the Cockpit web UI")
+	}
+	if needsUnsupportedCockpit {
+		steps = append(steps, "disable `setup.include_cockpit` and `setup.install_cockpit` on this host, or manage Cockpit separately outside stackctl")
 	}
 
 	startHint := "run `stackctl start` after the stack config and dependencies are ready"
@@ -369,4 +373,8 @@ func requiresManualCockpitInstall(report doctorpkg.Report, cfg configpkg.Config,
 	}
 
 	return !doctorpkg.CheckPassed(report, "cockpit.socket installed")
+}
+
+func requiresUnsupportedCockpitGuidance(cfg configpkg.Config, platform system.Platform) bool {
+	return cfg.CockpitEnabled() && !platform.SupportsCockpit()
 }

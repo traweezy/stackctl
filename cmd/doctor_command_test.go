@@ -152,3 +152,36 @@ func TestDoctorRemediationMarkdownIncludesVersionUpgradeGuidance(t *testing.T) {
 		t.Fatalf("expected version upgrade guidance, got:\n%s", markdown)
 	}
 }
+
+func TestDoctorRemediationMarkdownIncludesPodmanMachineGuidance(t *testing.T) {
+	report := newReport(
+		doctorpkg.Check{Status: output.StatusMiss, Message: "podman machine not initialized"},
+	)
+
+	markdown := doctorRemediationMarkdown(report)
+	if !strings.Contains(markdown, "podman machine init") || !strings.Contains(markdown, "podman machine start") {
+		t.Fatalf("expected podman machine guidance, got:\n%s", markdown)
+	}
+}
+
+func TestDoctorRemediationMarkdownIncludesManualCockpitGuidance(t *testing.T) {
+	report := newReport(
+		doctorpkg.Check{Status: output.StatusWarn, Message: "cockpit helpers enabled but cockpit.socket must be installed manually on this platform"},
+	)
+
+	markdown := doctorRemediationMarkdown(report)
+	if !strings.Contains(markdown, "Install Cockpit manually on this host") {
+		t.Fatalf("expected manual cockpit guidance, got:\n%s", markdown)
+	}
+}
+
+func TestDoctorRemediationMarkdownIncludesUnsupportedCockpitGuidance(t *testing.T) {
+	report := newReport(
+		doctorpkg.Check{Status: output.StatusWarn, Message: "cockpit helpers are not supported on brew"},
+	)
+
+	markdown := doctorRemediationMarkdown(report)
+	if !strings.Contains(markdown, "Disable `setup.include_cockpit` and `setup.install_cockpit`") {
+		t.Fatalf("expected unsupported cockpit guidance, got:\n%s", markdown)
+	}
+}

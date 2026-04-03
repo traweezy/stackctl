@@ -860,6 +860,79 @@ func TestSetupIncludesManualCockpitGuidanceWhenAutoInstallIsUnsupported(t *testi
 	}
 }
 
+func TestSetupInstallDoesNotClaimNothingToInstallWhenCockpitNeedsManualInstall(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.System.PackageManager = "apt"
+		d.platform = func() system.Platform {
+			return system.Platform{
+				GOOS:           "linux",
+				PackageManager: "apt",
+				ServiceManager: system.ServiceManagerSystemd,
+			}
+		}
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			return newReport(
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman compose available"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "buildah installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
+				doctorpkg.Check{Status: output.StatusWarn, Message: "cockpit helpers enabled but cockpit.socket must be installed manually on this platform"},
+			), nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "setup", "--install", "--yes")
+	if err != nil {
+		t.Fatalf("setup --install returned error: %v", err)
+	}
+	if strings.Contains(stdout, "nothing to install") {
+		t.Fatalf("setup should not claim nothing to install when cockpit still needs manual work: %s", stdout)
+	}
+	if !strings.Contains(stdout, "install cockpit manually on this platform if you want the Cockpit web UI") {
+		t.Fatalf("expected manual cockpit next steps, got: %s", stdout)
+	}
+}
+
+func TestSetupInstallIncludesUnsupportedCockpitGuidanceOnDarwin(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Setup.IncludeCockpit = true
+		cfg.Setup.InstallCockpit = true
+		cfg.System.PackageManager = "brew"
+		d.platform = func() system.Platform {
+			return system.Platform{
+				GOOS:           "darwin",
+				PackageManager: "brew",
+				ServiceManager: system.ServiceManagerNone,
+			}
+		}
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			return newReport(
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman compose available"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman machine initialized"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman machine running"},
+				doctorpkg.Check{Status: output.StatusWarn, Message: "cockpit helpers are not supported on brew"},
+			), nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "setup", "--install", "--yes")
+	if err != nil {
+		t.Fatalf("setup --install returned error: %v", err)
+	}
+	if strings.Contains(stdout, "nothing to install") {
+		t.Fatalf("setup should not claim nothing to install when cockpit is unsupported: %s", stdout)
+	}
+	if !strings.Contains(stdout, "disable `setup.include_cockpit` and `setup.install_cockpit` on this host, or manage Cockpit separately outside stackctl") {
+		t.Fatalf("expected unsupported cockpit guidance, got: %s", stdout)
+	}
+}
+
 func TestRestartRunsDownUpWaitAndPrintsEndpoints(t *testing.T) {
 	calls := make([]string, 0, 2)
 

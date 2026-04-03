@@ -238,6 +238,15 @@ func doctorRemediationMarkdown(report doctorpkg.Report) string {
 	if reportContainsMessageFragment(report, "below supported minimum") {
 		lines = append(lines, "- Upgrade Podman and the selected compose provider to the documented supported minimums in `README.md` and `docs/compatibility.md`.")
 	}
+	if reportContainsMessageFragment(report, "podman machine not initialized") || reportContainsMessageFragment(report, "podman machine not running") {
+		lines = append(lines, "- On macOS, run `stackctl doctor --fix --yes` or `podman machine init` and `podman machine start` before managed runtime commands.")
+	}
+	if reportContainsMessageFragment(report, "cockpit helpers enabled but cockpit.socket must be installed manually on this platform") {
+		lines = append(lines, "- Install Cockpit manually on this host if you want the Cockpit web UI, then rerun `stackctl doctor`.")
+	}
+	if reportContainsMessageFragment(report, "cockpit helpers are not supported on") {
+		lines = append(lines, "- Disable `setup.include_cockpit` and `setup.install_cockpit` in your config on this host, or manage Cockpit separately outside stackctl.")
+	}
 	lines = append(lines,
 		"- Re-check the stack with `stackctl services`, `stackctl health`, and `stackctl tui` after fixes complete.",
 	)
