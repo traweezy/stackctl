@@ -134,6 +134,9 @@ managed-runtime floor unless the compatibility policy is updated intentionally.
 The release-qualified workflows live in
 `.github/workflows/platform-lab.yml`.
 
+The package-manager, `podman machine`, and Cockpit capability matrix lives in
+[platform-support.md](./platform-support.md).
+
 ## Install and rollback guidance
 
 Operational install, upgrade, rollback, and config-backup guidance lives in

@@ -41,6 +41,8 @@ Releases remain the authoritative install path until the project publishes an
 upstream tap or another Homebrew distribution path intentionally.
 
 See [../homebrew.md](../homebrew.md) for the packaging plan.
+See [../platform-support.md](../platform-support.md) for the current host
+capability matrix.
 
 ## Common macOS failure points
 

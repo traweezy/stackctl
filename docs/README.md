@@ -12,6 +12,7 @@ reference.
 - [../README.md](../README.md)
 - [install-and-upgrade.md](./install-and-upgrade.md)
 - [compatibility.md](./compatibility.md)
+- [platform-support.md](./platform-support.md)
 - [homebrew.md](./homebrew.md)
 - [output-contract.md](./output-contract.md)
 - [release-checklist.md](./release-checklist.md)

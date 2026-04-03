@@ -170,6 +170,7 @@ High-value entry points:
 
 - [docs/compatibility.md](./docs/compatibility.md)
 - [docs/install-and-upgrade.md](./docs/install-and-upgrade.md)
+- [docs/platform-support.md](./docs/platform-support.md)
 - [docs/output-contract.md](./docs/output-contract.md)
 - [docs/cli/stackctl.md](./docs/cli/stackctl.md)
 - [docs/man/man1/stackctl.1](./docs/man/man1/stackctl.1)
