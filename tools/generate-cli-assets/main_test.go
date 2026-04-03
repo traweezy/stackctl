@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 )
+
+const testGenerateMainModeEnv = "STACKCTL_TEST_GENERATE_MAIN_MODE"
 
 func TestDisableAutoGenTagsRecurses(t *testing.T) {
 	root := &cobra.Command{Use: "root"}
@@ -150,6 +154,49 @@ func TestGenerateCLIAssetsCreatesDocsManAndCompletions(t *testing.T) {
 			t.Fatalf("expected generated asset %s: %v", path, err)
 		}
 	}
+}
+
+func TestMainGeneratesCLIAssetsFromCurrentDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=TestGenerateCLIAssetsMainHelper")
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(), testGenerateMainModeEnv+"=success")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run generator main helper: %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout output, got %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+
+	expectedFiles := []string{
+		filepath.Join(tempDir, markdownDir, "stackctl.md"),
+		filepath.Join(tempDir, manDir, "stackctl.1"),
+		filepath.Join(tempDir, completionsDir, "stackctl.bash"),
+	}
+
+	for _, path := range expectedFiles {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected generated asset %s: %v", path, err)
+		}
+	}
+}
+
+func TestGenerateCLIAssetsMainHelper(t *testing.T) {
+	if os.Getenv(testGenerateMainModeEnv) == "" {
+		return
+	}
+
+	main()
+	os.Exit(0)
 }
 
 func openTempRoot(t *testing.T) *os.Root {

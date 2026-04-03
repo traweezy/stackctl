@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -72,6 +73,50 @@ func TestLogOutputUsesStderrForDashTarget(t *testing.T) {
 	}
 }
 
+func TestLoggerWritesConfiguredStructuredOutput(t *testing.T) {
+	ResetForTests()
+	t.Cleanup(ResetForTests)
+
+	target := filepath.Join(t.TempDir(), "logs", "stackctl.log")
+	t.Setenv(EnvLogFile, target)
+	t.Setenv(EnvLogFormat, "json")
+	t.Setenv(EnvLogLevel, "debug")
+
+	if !Enabled() {
+		t.Fatal("expected configured logger to be enabled")
+	}
+	if Logger() == nil {
+		t.Fatal("expected logger instance")
+	}
+
+	With("scope", "tests").Debug("scoped debug", "step", 1)
+	Debug("debug message", "kind", "debug")
+	Info("info message", "kind", "info")
+	Warn("warn message", "kind", "warn")
+	Error("error message", "kind", "error")
+
+	ResetForTests()
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+
+	content := string(data)
+	for _, want := range []string{
+		`"msg":"scoped debug"`,
+		`"msg":"debug message"`,
+		`"msg":"info message"`,
+		`"msg":"warn message"`,
+		`"msg":"error message"`,
+		`"scope":"tests"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected log output to contain %q:\n%s", want, content)
+		}
+	}
+}
+
 func TestTUIDebugLogPathTrimsWhitespace(t *testing.T) {
 	t.Setenv(EnvTUIDebugLogFile, "  /tmp/stackctl-debug.log  ")
 
@@ -86,6 +131,12 @@ func TestParseLevelFallsBackToInfo(t *testing.T) {
 	}
 }
 
+func TestParseLevelAcceptsKnownLevel(t *testing.T) {
+	if got := parseLevel("debug"); got != charmlog.DebugLevel {
+		t.Fatalf("expected debug level, got %v", got)
+	}
+}
+
 func TestValidateLevelAcceptsKnownLevels(t *testing.T) {
 	for _, value := range []string{"", "debug", "info", "warn", "error"} {
 		if err := ValidateLevel(value); err != nil {
@@ -97,6 +148,14 @@ func TestValidateLevelAcceptsKnownLevels(t *testing.T) {
 func TestValidateLevelRejectsUnknownLevel(t *testing.T) {
 	if err := ValidateLevel("loud"); err == nil {
 		t.Fatal("expected invalid level error")
+	}
+}
+
+func TestParseFormatterNeverReturnsNil(t *testing.T) {
+	for _, value := range []string{"", "text", "json", "logfmt", "yaml"} {
+		if reflect.TypeOf(parseFormatter(value)) == nil {
+			t.Fatalf("expected formatter for %q", value)
+		}
 	}
 }
 

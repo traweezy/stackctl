@@ -1,40 +1,86 @@
 package main
 
 import (
-	"io"
+	"bytes"
+	"encoding/json"
 	"os"
-	"strings"
+	"os/exec"
 	"testing"
 )
 
-func TestMainRunsVersionCommand(t *testing.T) {
-	originalArgs := os.Args
-	originalStdout := os.Stdout
+const testMainModeEnv = "STACKCTL_TEST_MAIN_MODE"
 
-	readPipe, writePipe, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create stdout pipe: %v", err)
+func TestMainPrintsVersionJSON(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestMainHelperProcess")
+	cmd.Env = append(os.Environ(), testMainModeEnv+"=version-json")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run main helper: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
 	}
 
-	os.Args = []string{"stackctl", "version"}
-	os.Stdout = writePipe
+	var payload struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("parse version json: %v", err)
+	}
+	if payload.Version != version {
+		t.Fatalf("expected version %q, got %q", version, payload.Version)
+	}
+}
 
-	t.Cleanup(func() {
-		os.Args = originalArgs
-		os.Stdout = originalStdout
-	})
+func TestMainExitsNonZeroOnCommandError(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestMainHelperProcess")
+	cmd.Env = append(os.Environ(), testMainModeEnv+"=invalid-flag")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected main helper to fail")
+	}
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected exit error, got %T", err)
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout output, got %q", stdout.String())
+	}
+	if stderr.Len() == 0 {
+		t.Fatal("expected command error on stderr")
+	}
+}
+
+func TestMainHelperProcess(t *testing.T) {
+	mode := os.Getenv(testMainModeEnv)
+	if mode == "" {
+		return
+	}
+
+	switch mode {
+	case "version-json":
+		os.Args = []string{"stackctl", "version", "--json"}
+	case "invalid-flag":
+		os.Args = []string{"stackctl", "--definitely-invalid"}
+	default:
+		t.Fatalf("unexpected helper mode %q", mode)
+	}
 
 	main()
-
-	if err := writePipe.Close(); err != nil {
-		t.Fatalf("close stdout pipe: %v", err)
-	}
-
-	output, err := io.ReadAll(readPipe)
-	if err != nil {
-		t.Fatalf("read stdout pipe: %v", err)
-	}
-	if !strings.Contains(string(output), version) {
-		t.Fatalf("unexpected main output: %q", string(output))
-	}
+	os.Exit(0)
 }

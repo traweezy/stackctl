@@ -40,3 +40,29 @@ func TestStatusLineUsesCommandSpecificEmojis(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusLineCoversRemainingStatusesAndDefault(t *testing.T) {
+	cases := []struct {
+		status  string
+		message string
+		want    string
+	}{
+		{status: StatusInfo, message: "info", want: "ℹ️ info\n"},
+		{status: StatusLogs, message: "logs", want: "📜 logs\n"},
+		{status: StatusHealth, message: "health", want: "🩺 health\n"},
+		{status: StatusWarn, message: "warn", want: "⚠️ warn\n"},
+		{status: StatusMiss, message: "miss", want: "❌ miss\n"},
+		{status: StatusFail, message: "fail", want: "❌ fail\n"},
+		{status: "UNKNOWN", message: "default", want: "• default\n"},
+	}
+
+	for _, tc := range cases {
+		var buf bytes.Buffer
+		if err := StatusLine(&buf, tc.status, tc.message); err != nil {
+			t.Fatalf("StatusLine returned error: %v", err)
+		}
+		if buf.String() != tc.want {
+			t.Fatalf("unexpected output for %s: %q", tc.status, buf.String())
+		}
+	}
+}
