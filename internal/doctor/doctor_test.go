@@ -39,6 +39,136 @@ func TestRunWithDepsReportsMissingEnvironment(t *testing.T) {
 	}
 }
 
+func TestDefaultDependenciesPopulatesRequiredCallbacks(t *testing.T) {
+	deps := defaultDependencies()
+
+	callbacks := map[string]any{
+		"configFilePath":       deps.configFilePath,
+		"loadConfig":           deps.loadConfig,
+		"validateConfig":       deps.validateConfig,
+		"composePath":          deps.composePath,
+		"stat":                 deps.stat,
+		"platform":             deps.platform,
+		"commandExists":        deps.commandExists,
+		"podmanVersion":        deps.podmanVersion,
+		"podmanComposeVersion": deps.podmanComposeVersion,
+		"podmanComposeAvail":   deps.podmanComposeAvail,
+		"podmanMachineStatus":  deps.podmanMachineStatus,
+		"openCommandName":      deps.openCommandName,
+		"cockpitStatus":        deps.cockpitStatus,
+		"portInUse":            deps.portInUse,
+		"listContainers":       deps.listContainers,
+		"redisOvercommit":      deps.redisOvercommit,
+	}
+	for name, callback := range callbacks {
+		if callback == nil {
+			t.Fatalf("expected %s callback to be populated", name)
+		}
+	}
+}
+
+func TestAddRuntimeVersionCheckHandlesNilErrorsAndVersionComparisons(t *testing.T) {
+	t.Run("nil detector", func(t *testing.T) {
+		var report Report
+		addRuntimeVersionCheck(&report, "podman", "4.9.3", nil, context.Background())
+		if len(report.Checks) != 0 {
+			t.Fatalf("expected nil detector to add no checks, got %+v", report.Checks)
+		}
+	})
+
+	t.Run("detector error", func(t *testing.T) {
+		var report Report
+		addRuntimeVersionCheck(&report, "podman", "4.9.3", func(context.Context) (string, error) {
+			return "", errors.New("boom")
+		}, context.Background())
+
+		if report.WarnCount != 1 {
+			t.Fatalf("expected warning for version detection failure, got %+v", report)
+		}
+		if got := report.Checks[0].Message; got != "podman version could not be determined; supported minimum is 4.9.3" {
+			t.Fatalf("unexpected warning message %q", got)
+		}
+	})
+
+	t.Run("below supported minimum", func(t *testing.T) {
+		var report Report
+		addRuntimeVersionCheck(&report, "podman", "4.9.3", func(context.Context) (string, error) {
+			return "4.3.1", nil
+		}, context.Background())
+
+		if report.WarnCount != 1 {
+			t.Fatalf("expected warning count 1, got %+v", report)
+		}
+		if got := report.Checks[0].Message; got != "podman 4.3.1 is below supported minimum 4.9.3" {
+			t.Fatalf("unexpected warning message %q", got)
+		}
+	})
+
+	t.Run("meets supported minimum", func(t *testing.T) {
+		var report Report
+		addRuntimeVersionCheck(&report, "podman", "4.9.3", func(context.Context) (string, error) {
+			return "5.0.0", nil
+		}, context.Background())
+
+		if report.OKCount != 1 {
+			t.Fatalf("expected ok count 1, got %+v", report)
+		}
+		if got := report.Checks[0].Message; got != "podman 5.0.0 meets supported minimum 4.9.3" {
+			t.Fatalf("unexpected ok message %q", got)
+		}
+	})
+}
+
+func TestConfigResultHandlesNotFoundBlankAndErrors(t *testing.T) {
+	path := "/tmp/stackctl/config.yaml"
+
+	cfg := configpkg.Default()
+	loaded, ok, err := configResult(dependencies{
+		loadConfig: func(string) (configpkg.Config, error) { return cfg, nil },
+	}, path)
+	if err != nil || !ok || loaded.Stack.Dir != cfg.Stack.Dir {
+		t.Fatalf("expected loaded config, got cfg=%+v ok=%t err=%v", loaded, ok, err)
+	}
+
+	loaded, ok, err = configResult(dependencies{
+		loadConfig: func(string) (configpkg.Config, error) { return configpkg.Config{}, configpkg.ErrNotFound },
+	}, path)
+	if err != nil || ok || loaded != (configpkg.Config{}) {
+		t.Fatalf("expected missing config result, got cfg=%+v ok=%t err=%v", loaded, ok, err)
+	}
+
+	loaded, ok, err = configResult(dependencies{
+		loadConfig: func(string) (configpkg.Config, error) { return configpkg.Config{}, errors.New("   ") },
+	}, path)
+	if err != nil || ok || loaded != (configpkg.Config{}) {
+		t.Fatalf("expected blank error to be ignored, got cfg=%+v ok=%t err=%v", loaded, ok, err)
+	}
+
+	expectedErr := errors.New("parse failed")
+	loaded, ok, err = configResult(dependencies{
+		loadConfig: func(string) (configpkg.Config, error) { return configpkg.Config{}, expectedErr },
+	}, path)
+	if !errors.Is(err, expectedErr) || ok || loaded != (configpkg.Config{}) {
+		t.Fatalf("expected parse failure to surface, got cfg=%+v ok=%t err=%v", loaded, ok, err)
+	}
+}
+
+func TestContainerBindsHostPortMatchesMappedPorts(t *testing.T) {
+	container := system.Container{
+		Ports: []system.ContainerPort{
+			{HostPort: 5432, ContainerPort: 5432, Protocol: "tcp"},
+			{HostPort: 6379, ContainerPort: 6379, Protocol: "tcp"},
+		},
+	}
+
+	if !containerBindsHostPort(container, 5432) {
+		t.Fatal("expected host port 5432 to be detected")
+	}
+	if containerBindsHostPort(container, 9090) {
+		t.Fatal("expected unmapped host port 9090 to be rejected")
+	}
+}
+
 func TestRunWithDepsReportsHealthyConfig(t *testing.T) {
 	cfg := configpkg.Default()
 
