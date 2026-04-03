@@ -24,7 +24,7 @@ import (
 
 const tuiLogWatchTail = 100
 
-func newTUICmd() *cobra.Command {
+func newTUICmd(app *App) *cobra.Command {
 	var mouseMode string
 	var altScreenMode string
 	var helpViewMode string
@@ -91,6 +91,7 @@ func newTUICmd() *cobra.Command {
 				ManagedStackNeedsScaffold: deps.managedStackNeedsScaffold,
 				ScaffoldManagedStack:      deps.scaffoldManagedStack,
 			}).
+				WithVersion(app.Version).
 				WithMouse(mouseEnabled).
 				WithAltScreen(altScreenEnabled).
 				WithHelpExpanded(helpExpanded).

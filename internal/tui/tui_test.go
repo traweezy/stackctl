@@ -189,7 +189,7 @@ func TestModelRefreshIntervalUsesSnapshotConfig(t *testing.T) {
 func TestRenderHeaderPadsAndColorizesStatus(t *testing.T) {
 	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
 		return ActionReport{}, nil
-	})
+	}).WithVersion("0.20.1")
 	model.snapshot = Snapshot{StackName: "dev-stack"}
 
 	raw := renderHeader(model)
@@ -203,6 +203,9 @@ func TestRenderHeaderPadsAndColorizesStatus(t *testing.T) {
 	}
 	if !strings.Contains(lines[1], "Refreshing  •") {
 		t.Fatalf("expected status row to be padded and aligned:\n%s", plain)
+	}
+	if !strings.Contains(plain, "version: 0.20.1") {
+		t.Fatalf("expected header to show the app version:\n%s", plain)
 	}
 	if raw == plain {
 		t.Fatalf("expected header status to include ANSI styling")
@@ -258,7 +261,7 @@ func TestFooterCanStartInExpandedHelpMode(t *testing.T) {
 }
 
 func TestViewMasksSecretsUntilToggled(t *testing.T) {
-	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil })
+	model := NewModel(func() (Snapshot, error) { return Snapshot{}, nil }).WithVersion("0.20.1")
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	current := updatedModel.(Model)
 
@@ -2139,7 +2142,7 @@ func TestModelIgnoresStaleBannerClearMessages(t *testing.T) {
 func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 	model := NewActionModel(func() (Snapshot, error) { return Snapshot{}, nil }, func(ActionID) (ActionReport, error) {
 		return ActionReport{}, nil
-	})
+	}).WithVersion("0.20.1")
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	current := updatedModel.(Model)
 
@@ -2196,6 +2199,7 @@ func TestSidebarKeepsGlobalActionsOutOfPanelContent(t *testing.T) {
 	for _, fragment := range []string{
 		"Session",
 		"Stack: dev-stack",
+		"Version: 0.20.1",
 		"Refresh: 30s",
 		"Mouse: off",
 		"Help: short",

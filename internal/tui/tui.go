@@ -368,6 +368,7 @@ type Model struct {
 	autoRefresh      bool
 	autoRefreshID    int
 	showSecrets      bool
+	appVersion       string
 	mouseEnabled     bool
 	altScreen        bool
 	errMessage       string
@@ -476,6 +477,11 @@ func (m Model) WithAltScreen(enabled bool) Model {
 
 func (m Model) WithHelpExpanded(expanded bool) Model {
 	m.help.ShowAll = expanded
+	return m
+}
+
+func (m Model) WithVersion(version string) Model {
+	m.appVersion = strings.TrimSpace(version)
 	return m
 }
 
@@ -1533,10 +1539,18 @@ func renderHeader(m Model) string {
 		m.layout.String(),
 		autoRefreshLabel,
 	)
-	metaSecondary := fmt.Sprintf("secrets: %s  •  updated: %s", onOffLabel(m.showSecrets), loadedAt)
-	if m.isBusy() {
-		metaSecondary += "  •  elapsed: " + formatDurationCompact(m.busyElapsed())
+	metaSecondaryParts := []string{}
+	if version := strings.TrimSpace(m.appVersion); version != "" {
+		metaSecondaryParts = append(metaSecondaryParts, "version: "+version)
 	}
+	metaSecondaryParts = append(metaSecondaryParts,
+		"secrets: "+onOffLabel(m.showSecrets),
+		"updated: "+loadedAt,
+	)
+	if m.isBusy() {
+		metaSecondaryParts = append(metaSecondaryParts, "elapsed: "+formatDurationCompact(m.busyElapsed()))
+	}
+	metaSecondary := strings.Join(metaSecondaryParts, "  •  ")
 
 	header := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -1615,6 +1629,7 @@ func renderSessionRail(m Model) string {
 	lines := []string{
 		sectionTitleStyle().Render("Session"),
 		fmt.Sprintf("  Stack: %s", emptyLabel(m.snapshot.StackName)),
+		fmt.Sprintf("  Version: %s", emptyLabel(m.appVersion)),
 		fmt.Sprintf("  Refresh: %s", sidebarAutoRefreshLabel(m)),
 		fmt.Sprintf("  Mouse: %s", onOffLabel(m.mouseEnabled)),
 	}

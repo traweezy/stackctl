@@ -94,7 +94,7 @@ func NewRootCmd(app *App) *cobra.Command {
 	resetCmd := newResetCmd()
 	resetCmd.GroupID = commandGroupLifecycle
 
-	tuiCmd := newTUICmd()
+	tuiCmd := newTUICmd(app)
 	tuiCmd.GroupID = commandGroupInspect
 	statusCmd := newStatusCmd()
 	statusCmd.GroupID = commandGroupInspect
