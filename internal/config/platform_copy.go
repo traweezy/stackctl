@@ -11,6 +11,10 @@ func CurrentCockpitHelperDescription() string {
 	return CockpitHelperDescriptionForPlatform(system.CurrentPlatform())
 }
 
+func CockpitHelperDescriptionForConfig(cfg Config) string {
+	return CockpitHelperDescriptionForPlatform(platformForInteractiveConfig(cfg, system.CurrentPlatform()))
+}
+
 func CockpitHelperDescriptionForPlatform(platform system.Platform) string {
 	if platform.SupportsCockpit() {
 		return "Enable Cockpit in stackctl helper output, dashboard actions, and open commands. Cockpit is managed outside the compose stack on this host."
@@ -23,6 +27,10 @@ func CockpitHelperDescriptionForPlatform(platform system.Platform) string {
 
 func CurrentCockpitInstallDescription() string {
 	return CockpitInstallDescriptionForPlatform(system.CurrentPlatform())
+}
+
+func CockpitInstallDescriptionForConfig(cfg Config) string {
+	return CockpitInstallDescriptionForPlatform(platformForInteractiveConfig(cfg, system.CurrentPlatform()))
 }
 
 func CockpitInstallDescriptionForPlatform(platform system.Platform) string {
@@ -40,6 +48,10 @@ func CockpitInstallDescriptionForPlatform(platform system.Platform) string {
 
 func CurrentPackageManagerFieldDescription() string {
 	return PackageManagerFieldDescriptionForPlatform(system.CurrentPlatform())
+}
+
+func PackageManagerFieldDescriptionForConfig(cfg Config) string {
+	return PackageManagerFieldDescriptionForPlatform(platformForInteractiveConfig(cfg, system.CurrentPlatform()))
 }
 
 func PackageManagerFieldDescriptionForPlatform(platform system.Platform) string {

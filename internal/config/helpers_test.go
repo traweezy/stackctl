@@ -125,6 +125,23 @@ func TestPlatformCopyHelpers(t *testing.T) {
 	}
 }
 
+func TestConfigScopedPlatformCopyHelpers(t *testing.T) {
+	cfg := Default()
+	cfg.System.PackageManager = "brew"
+	cfg.Setup.IncludeCockpit = true
+	cfg.Setup.InstallCockpit = true
+
+	if got := CockpitHelperDescriptionForConfig(cfg); !strings.Contains(got, "cannot install or manage Cockpit automatically on this host") {
+		t.Fatalf("expected config-scoped helper copy to reflect unsupported-host semantics, got %q", got)
+	}
+	if got := CockpitInstallDescriptionForConfig(cfg); !strings.Contains(got, "does not support Cockpit installation") {
+		t.Fatalf("expected config-scoped install copy to reflect brew host semantics, got %q", got)
+	}
+	if got := PackageManagerFieldDescriptionForConfig(cfg); !strings.Contains(got, "brew") {
+		t.Fatalf("expected config-scoped package-manager copy to mention brew, got %q", got)
+	}
+}
+
 func TestNormalizeCockpitSettingsForPlatform(t *testing.T) {
 	unsupported := Default()
 	unsupported.Setup.IncludeCockpit = true

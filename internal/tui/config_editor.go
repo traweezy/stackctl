@@ -84,6 +84,7 @@ type configFieldSpec struct {
 	Group           string
 	Label           string
 	Description     string
+	DescriptionFor  func(configpkg.Config) string
 	SuggestionTitle string
 	Kind            configFieldKind
 	Secret          bool
@@ -804,7 +805,7 @@ func (e configEditor) renderDetail(showSecrets bool, availableHeight int) string
 
 	summaryRows := make([][2]string, 0, 4)
 	if !compact {
-		summaryRows = append(summaryRows, [2]string{"Purpose", spec.Description})
+		summaryRows = append(summaryRows, [2]string{"Purpose", fieldDescription(spec, e.draft)})
 	}
 	summaryRows = append(summaryRows, [2]string{"Effect", selectedFieldEffect(spec, e.draft)})
 
@@ -837,6 +838,15 @@ func (e configEditor) renderDetail(showSecrets bool, availableHeight int) string
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func fieldDescription(spec configFieldSpec, cfg configpkg.Config) string {
+	if spec.DescriptionFor != nil {
+		if description := strings.TrimSpace(spec.DescriptionFor(cfg)); description != "" {
+			return description
+		}
+	}
+	return spec.Description
 }
 
 func (e configEditor) renderFieldList(visibleRows int, width int) string {
@@ -2847,8 +2857,11 @@ var configFieldSpecs = []configFieldSpec{
 		Group:       "Setup",
 		Label:       "Include Cockpit",
 		Description: configpkg.CurrentCockpitHelperDescription(),
-		Kind:        configFieldBool,
-		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.IncludeCockpit },
+		DescriptionFor: func(cfg configpkg.Config) string {
+			return configpkg.CockpitHelperDescriptionForConfig(cfg)
+		},
+		Kind:    configFieldBool,
+		GetBool: func(cfg configpkg.Config) bool { return cfg.Setup.IncludeCockpit },
 		SetBool: func(cfg *configpkg.Config, value bool) error {
 			cfg.Setup.IncludeCockpit = value
 			configpkg.NormalizeCockpitSettings(cfg)
@@ -2860,8 +2873,11 @@ var configFieldSpecs = []configFieldSpec{
 		Group:       "Setup",
 		Label:       "Install Cockpit",
 		Description: configpkg.CurrentCockpitInstallDescription(),
-		Kind:        configFieldBool,
-		GetBool:     func(cfg configpkg.Config) bool { return cfg.Setup.InstallCockpit },
+		DescriptionFor: func(cfg configpkg.Config) string {
+			return configpkg.CockpitInstallDescriptionForConfig(cfg)
+		},
+		Kind:    configFieldBool,
+		GetBool: func(cfg configpkg.Config) bool { return cfg.Setup.InstallCockpit },
 		SetBool: func(cfg *configpkg.Config, value bool) error {
 			if value {
 				if reason := configpkg.CockpitInstallEnableReasonForConfig(*cfg); reason != "" {
@@ -2898,10 +2914,13 @@ var configFieldSpecs = []configFieldSpec{
 		},
 	},
 	{
-		Key:             "system.package_manager",
-		Group:           "System",
-		Label:           "Package manager",
-		Description:     configpkg.CurrentPackageManagerFieldDescription(),
+		Key:         "system.package_manager",
+		Group:       "System",
+		Label:       "Package manager",
+		Description: configpkg.CurrentPackageManagerFieldDescription(),
+		DescriptionFor: func(cfg configpkg.Config) string {
+			return configpkg.PackageManagerFieldDescriptionForConfig(cfg)
+		},
 		SuggestionTitle: "Common values",
 		Kind:            configFieldString,
 		GetString:       func(cfg configpkg.Config) string { return cfg.System.PackageManager },

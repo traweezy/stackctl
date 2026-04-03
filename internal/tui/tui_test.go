@@ -2859,6 +2859,45 @@ func TestCockpitConfigFieldSettersRespectUnsupportedHosts(t *testing.T) {
 	}
 }
 
+func TestFieldDescriptionTracksDraftPlatformState(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Setup.IncludeCockpit = true
+	cfg.Setup.InstallCockpit = true
+
+	var includeSpec configFieldSpec
+	var installSpec configFieldSpec
+	var packageSpec configFieldSpec
+	for _, spec := range configFieldSpecs {
+		switch spec.Key {
+		case "setup.include_cockpit":
+			includeSpec = spec
+		case "setup.install_cockpit":
+			installSpec = spec
+		case "system.package_manager":
+			packageSpec = spec
+		}
+	}
+	if includeSpec.Key == "" || installSpec.Key == "" || packageSpec.Key == "" {
+		t.Fatalf("expected cockpit and package manager field specs, got include=%q install=%q package=%q", includeSpec.Key, installSpec.Key, packageSpec.Key)
+	}
+
+	if got := fieldDescription(installSpec, cfg); !strings.Contains(got, "handled manually") {
+		t.Fatalf("expected linux install copy before package-manager change, got %q", got)
+	}
+	if err := packageSpec.SetString(&cfg, "brew"); err != nil {
+		t.Fatalf("expected package manager setter to accept brew, got %v", err)
+	}
+	if got := fieldDescription(includeSpec, cfg); !strings.Contains(got, "cannot install or manage Cockpit automatically on this host") {
+		t.Fatalf("expected cockpit helper copy to update for unsupported-host draft state, got %q", got)
+	}
+	if got := fieldDescription(installSpec, cfg); !strings.Contains(got, "does not support Cockpit installation") {
+		t.Fatalf("expected cockpit install copy to update for brew draft state, got %q", got)
+	}
+	if got := fieldDescription(packageSpec, cfg); !strings.Contains(got, "brew") {
+		t.Fatalf("expected package manager copy to update for brew draft state, got %q", got)
+	}
+}
+
 func TestRedisMaxmemoryPolicySuggestionsIncludeLRMForRedis86(t *testing.T) {
 	cfg := configpkg.Default()
 	cfg.Services.Redis.Image = "docker.io/library/redis:8.6"
