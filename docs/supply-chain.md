@@ -1,0 +1,67 @@
+# Supply-Chain and Security Checks
+
+This document describes the continuous supply-chain checks around `stackctl`.
+
+It complements [../SECURITY.md](../SECURITY.md), the main CI workflow, and the
+tagged-release verification path.
+
+## Continuous hosted checks
+
+The main `ci` workflow continuously enforces:
+
+- `gitleaks` for secret scanning
+- `gosec` for Go static security findings
+- `govulncheck` for reachable Go vulnerability checks
+- `actionlint` for GitHub workflow linting
+- `shellcheck` for shell script linting
+- `lychee` for README and docs link validation
+- `golangci-lint`, `go vet`, unit tests, race tests, coverage, integration, and
+  installer/runtime smoke paths
+
+## Pull request dependency review
+
+The `dependency-review` workflow runs on pull requests and inspects dependency
+changes before merge.
+
+Current policy:
+
+- fail on newly introduced `moderate`, `high`, or `critical` runtime
+  vulnerabilities
+- show OpenSSF Scorecard data for changed dependencies in the job summary
+- retry briefly while GitHub dependency snapshots are still being prepared
+
+License enforcement is intentionally not enabled in this first pass. The repo
+already ships SBOMs for tagged releases, but transitive dependency license
+allow-listing is deferred until the dependency graph is baselined with low
+false-positive risk.
+
+The dependency-review policy lives in
+[../.github/dependency-review-config.yml](../.github/dependency-review-config.yml).
+
+## Repository scorecards
+
+The `scorecards` workflow runs on pushes to `master` and on the weekly
+Saturday schedule.
+
+It publishes:
+
+- SARIF results to GitHub code scanning
+- a short-lived workflow artifact for debugging
+- the latest repository score so the README badge stays current
+
+This does not replace the repo's other security checks. It adds a separate
+OpenSSF-oriented view of branch protection, dependency pinning, token
+permissions, release posture, and other supply-chain signals.
+
+## Tagged release artifacts
+
+Tagged releases are expected to ship with:
+
+- `checksums.txt`
+- `checksums.txt.sigstore.json`
+- per-archive SPDX SBOMs (`*.spdx.json`)
+- GitHub artifact attestations
+
+Operators should verify artifacts before use. See
+[install-and-upgrade.md](./install-and-upgrade.md) and
+[../SECURITY.md](../SECURITY.md).

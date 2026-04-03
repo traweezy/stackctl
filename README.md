@@ -1,5 +1,7 @@
 # stackctl
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/traweezy/stackctl/badge)](https://scorecard.dev/viewer/?uri=github.com/traweezy/stackctl)
+
 `stackctl` is a local-backend operator for developers who want one command to
 bring up PostgreSQL, Redis, NATS, pgAdmin, and the connection details around
 them without hand-maintaining compose files, ports, or helper scripts.
@@ -171,6 +173,7 @@ High-value entry points:
 - [docs/compatibility.md](./docs/compatibility.md)
 - [docs/install-and-upgrade.md](./docs/install-and-upgrade.md)
 - [docs/platform-support.md](./docs/platform-support.md)
+- [docs/supply-chain.md](./docs/supply-chain.md)
 - [docs/output-contract.md](./docs/output-contract.md)
 - [docs/cli/stackctl.md](./docs/cli/stackctl.md)
 - [docs/man/man1/stackctl.1](./docs/man/man1/stackctl.1)
@@ -188,8 +191,8 @@ Tagged releases are intended to ship with:
 - generated CLI docs, man pages, and shell completions
 
 Manual verification and rollback guidance lives in
-[docs/install-and-upgrade.md](./docs/install-and-upgrade.md) and
-[SECURITY.md](./SECURITY.md).
+[docs/install-and-upgrade.md](./docs/install-and-upgrade.md),
+[docs/supply-chain.md](./docs/supply-chain.md), and [SECURITY.md](./SECURITY.md).
 
 ## Help, security, and contributing
 

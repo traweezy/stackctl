@@ -14,6 +14,7 @@ reference.
 - [compatibility.md](./compatibility.md)
 - [platform-support.md](./platform-support.md)
 - [homebrew.md](./homebrew.md)
+- [supply-chain.md](./supply-chain.md)
 - [output-contract.md](./output-contract.md)
 - [release-checklist.md](./release-checklist.md)
 
@@ -50,6 +51,7 @@ expectations.
 Release verification expectations live in:
 
 - [../SECURITY.md](../SECURITY.md)
+- [supply-chain.md](./supply-chain.md)
 - [install-and-upgrade.md](./install-and-upgrade.md)
 
 Tagged release archives include this docs tree alongside the binary, license,

@@ -24,6 +24,14 @@ When reporting a vulnerability, include:
 - the security impact you observed or expect
 - any mitigation or workaround already identified
 
+## Continuous Security Posture
+
+The repository continuously checks its source, workflows, dependency graph, and
+release packaging with hosted automation.
+
+For the current supply-chain monitoring and release-artifact posture, see
+[docs/supply-chain.md](./docs/supply-chain.md).
+
 ## Release Artifact Verification
 
 Tagged releases are intended to ship with:

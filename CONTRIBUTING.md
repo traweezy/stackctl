@@ -66,6 +66,9 @@ bash scripts/check-links.sh
 If GitHub link checks get rate-limited locally, export `GITHUB_TOKEN` first or
 make sure `gh auth` is available so the script can reuse that token.
 
+Pull requests also run GitHub-hosted dependency review, and the default branch
+has a separate Scorecard workflow for ongoing supply-chain posture tracking.
+
 ## Generated assets
 
 The generated CLI docs, man pages, and shell completions are part of the repo.
