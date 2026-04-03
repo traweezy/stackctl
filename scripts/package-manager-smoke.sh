@@ -51,7 +51,7 @@ run_zypper_install() {
 }
 
 core_packages="podman podman-compose skopeo"
-if [ "$manager" != "brew" ] && [ "$manager" != "apk" ]; then
+if [ "$manager" != "brew" ]; then
   core_packages="$core_packages buildah"
 fi
 

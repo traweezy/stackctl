@@ -99,6 +99,67 @@ grep -q -- " $pkg" "${FAKE_STATE_DIR}/install.log"
 	}
 }
 
+func TestPackageManagerSmokeInstallsBuildahForAPK(t *testing.T) {
+	workspace := t.TempDir()
+	fakeBin := filepath.Join(workspace, "fake-bin")
+	stateDir := filepath.Join(workspace, "state")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatalf("create fake bin: %v", err)
+	}
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("create state dir: %v", err)
+	}
+
+	writePackageManagerTestScript(t, filepath.Join(fakeBin, "apk"), `#!/usr/bin/env bash
+set -euo pipefail
+state_dir="${FAKE_STATE_DIR:?missing state dir}"
+install_log="$state_dir/install.log"
+if [[ "$1" == "add" ]]; then
+  printf '%s\n' "$*" >"$install_log"
+  exit 0
+fi
+if [[ "$1" == "info" && "$2" == "-e" ]]; then
+  pkg="$3"
+  grep -q -- " $pkg" "$install_log"
+  exit 0
+fi
+echo "unexpected apk args: $*" >&2
+exit 1
+`)
+
+	for _, bin := range []string{"podman", "podman-compose", "skopeo", "buildah"} {
+		writePackageManagerTestScript(t, filepath.Join(fakeBin, bin), "#!/usr/bin/env bash\nset -euo pipefail\nexit 0\n")
+	}
+
+	cmd := exec.Command("sh", "scripts/package-manager-smoke.sh")
+	cmd.Env = append(os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"FAKE_STATE_DIR="+stateDir,
+		"STACKCTL_PACKAGE_MANAGER=apk",
+		"STACKCTL_EXPECT_COCKPIT=0",
+	)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("package-manager smoke failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+
+	installLog, err := os.ReadFile(filepath.Join(stateDir, "install.log"))
+	if err != nil {
+		t.Fatalf("read install log: %v", err)
+	}
+	if !strings.Contains(string(installLog), "buildah") {
+		t.Fatalf("expected apk smoke to install buildah, got %q", strings.TrimSpace(string(installLog)))
+	}
+	if !strings.Contains(stdout.String(), "package-manager smoke passed for apk") {
+		t.Fatalf("expected success message in stdout:\n%s", stdout.String())
+	}
+}
+
 func TestPackageManagerSmokeFailsAfterExhaustingZypperRetries(t *testing.T) {
 	workspace := t.TempDir()
 	fakeBin := filepath.Join(workspace, "fake-bin")
