@@ -933,6 +933,74 @@ func TestSetupInstallIncludesUnsupportedCockpitGuidanceOnDarwin(t *testing.T) {
 	}
 }
 
+func TestSetupDisplaysResolvedPackageNamesForMissingRequirements(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.System.PackageManager = "brew"
+		d.platform = func() system.Platform {
+			return system.Platform{
+				GOOS:           "darwin",
+				PackageManager: "brew",
+				ServiceManager: system.ServiceManagerNone,
+			}
+		}
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			return newReport(
+				doctorpkg.Check{Status: output.StatusMiss, Message: "podman installed"},
+				doctorpkg.Check{Status: output.StatusMiss, Message: "podman compose available"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
+				doctorpkg.Check{Status: output.StatusMiss, Message: "podman machine not initialized"},
+			), nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "setup")
+	if err != nil {
+		t.Fatalf("setup returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "Missing requirements: podman, podman-compose") {
+		t.Fatalf("expected resolved package names, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "run `stackctl setup --install` or install podman, podman-compose manually first") {
+		t.Fatalf("expected package-specific next steps, got: %s", stdout)
+	}
+}
+
+func TestSetupDisplaysFallbackPackageNamesWhenConfiguredManagerIsUnavailable(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.System.PackageManager = "brew"
+		d.platform = func() system.Platform {
+			return system.Platform{
+				GOOS:           "linux",
+				DistroID:       "ubuntu",
+				DistroLike:     []string{"debian"},
+				PackageManager: "apt",
+				ServiceManager: system.ServiceManagerSystemd,
+			}
+		}
+		d.commandExists = func(name string) bool { return name == "apt-get" }
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			return newReport(
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman installed"},
+				doctorpkg.Check{Status: output.StatusMiss, Message: "podman compose available"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "buildah installed"},
+				doctorpkg.Check{Status: output.StatusOK, Message: "skopeo installed"},
+			), nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "setup")
+	if err != nil {
+		t.Fatalf("setup returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "Missing requirements: podman-compose") {
+		t.Fatalf("expected detected package fallback, got: %s", stdout)
+	}
+}
+
 func TestRestartRunsDownUpWaitAndPrintsEndpoints(t *testing.T) {
 	calls := make([]string, 0, 2)
 

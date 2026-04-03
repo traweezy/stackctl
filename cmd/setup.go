@@ -146,13 +146,14 @@ func newSetupCmd() *cobra.Command {
 			needsMachine := shouldPreparePodmanMachine(report, platform)
 			needsManualCockpit := requiresManualCockpitInstall(report, cfg, platform)
 			needsUnsupportedCockpit := requiresUnsupportedCockpitGuidance(cfg, platform)
+			missingLabels := displayRequirementLabels(missing, cfg.System.PackageManager, platform)
 			if len(missing) == 0 {
 				if !needsMachine && !needsManualCockpit && !needsUnsupportedCockpit {
 					if err := statusLine(cmd, output.StatusOK, "all required dependencies look available"); err != nil {
 						return err
 					}
 				}
-			} else if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Missing requirements: %s\n", strings.Join(requirementLabels(missing), ", ")); err != nil {
+			} else if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Missing requirements: %s\n", strings.Join(missingLabels, ", ")); err != nil {
 				return err
 			}
 			if needsMachine {
@@ -225,10 +226,11 @@ func newSetupCmd() *cobra.Command {
 				}
 
 				missing = nil
+				missingLabels = nil
 				needsMachine = false
 			}
 
-			if err := printSetupNextSteps(cmd, cfg, requirementLabels(missing), needsMachine, needsManualCockpit, needsUnsupportedCockpit); err != nil {
+			if err := printSetupNextSteps(cmd, cfg, missingLabels, needsMachine, needsManualCockpit, needsUnsupportedCockpit); err != nil {
 				return err
 			}
 
@@ -336,6 +338,45 @@ func requirementLabels(requirements []system.Requirement) []string {
 	for _, requirement := range requirements {
 		labels = append(labels, string(requirement))
 	}
+	return labels
+}
+
+func displayRequirementLabels(requirements []system.Requirement, configuredPackageManager string, platform system.Platform) []string {
+	if len(requirements) == 0 {
+		return nil
+	}
+
+	labels := requirementLabels(requirements)
+	choice, err := system.ResolvePackageManagerChoice(configuredPackageManager, platform, deps.commandExists)
+	if err != nil {
+		fallbackPlan, fallbackErr := system.ResolveInstallPlan(platform.PackageManager, requirements)
+		if fallbackErr != nil {
+			return labels
+		}
+		return planDisplayLabels(fallbackPlan, labels)
+	}
+
+	plan, err := system.ResolveInstallPlan(choice.Name, requirements)
+	if err != nil {
+		return labels
+	}
+
+	return planDisplayLabels(plan, labels)
+}
+
+func planDisplayLabels(plan system.InstallPlan, fallback []string) []string {
+	if len(plan.Packages) == 0 && len(plan.Unsupported) == 0 {
+		return fallback
+	}
+
+	labels := append([]string(nil), plan.Packages...)
+	for _, requirement := range plan.Unsupported {
+		labels = append(labels, string(requirement))
+	}
+	if len(labels) == 0 {
+		return fallback
+	}
+
 	return labels
 }
 
