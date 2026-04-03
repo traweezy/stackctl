@@ -214,6 +214,10 @@ func TestPlatformPackageManagerReasonCoversKnownFamilies(t *testing.T) {
 }
 
 func TestInstallPackagesRunsBackendCommands(t *testing.T) {
+	originalEUID := currentEUID
+	currentEUID = func() int { return 1000 }
+	t.Cleanup(func() { currentEUID = originalEUID })
+
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "commands.log")
 
@@ -276,6 +280,10 @@ func TestInstallPackagesErrorsForUnsupportedRequirement(t *testing.T) {
 }
 
 func TestInstallPackagesRetriesZypperInstalls(t *testing.T) {
+	originalEUID := currentEUID
+	currentEUID = func() int { return 1000 }
+	t.Cleanup(func() { currentEUID = originalEUID })
+
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "commands.log")
 	refreshCountPath := filepath.Join(dir, "refresh-count")
@@ -320,5 +328,67 @@ func TestInstallPackagesRetriesZypperInstalls(t *testing.T) {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("command log missing %q:\n%s", fragment, output)
 		}
+	}
+}
+
+func TestInstallPackagesRunsDirectlyWhenAlreadyRoot(t *testing.T) {
+	originalEUID := currentEUID
+	currentEUID = func() int { return 0 }
+	t.Cleanup(func() { currentEUID = originalEUID })
+
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "commands.log")
+
+	writeScript := func(name, body string) {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatalf("write script %s: %v", name, err)
+		}
+	}
+
+	writeScript("apt-get", "#!/bin/sh\nprintf 'apt-get %s\\n' \"$*\" >> \""+logPath+"\"\n")
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+
+	runner := Runner{Stdout: io.Discard, Stderr: io.Discard}
+	if _, err := InstallPackages(context.Background(), runner, "apt", []Requirement{RequirementPodman}); err != nil {
+		t.Fatalf("apt install returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	output := string(data)
+	for _, fragment := range []string{
+		"apt-get update",
+		"apt-get install -y podman",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("command log missing %q:\n%s", fragment, output)
+		}
+	}
+	if strings.Contains(output, "sudo") {
+		t.Fatalf("expected root install path to skip sudo:\n%s", output)
+	}
+}
+
+func TestInstallPackagesErrorsWhenSudoIsRequiredButUnavailable(t *testing.T) {
+	originalEUID := currentEUID
+	currentEUID = func() int { return 1000 }
+	t.Cleanup(func() { currentEUID = originalEUID })
+
+	dir := t.TempDir()
+	writePath := filepath.Join(dir, "apt-get")
+	if err := os.WriteFile(writePath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write apt-get stub: %v", err)
+	}
+	t.Setenv("PATH", dir)
+
+	runner := Runner{Stdout: io.Discard, Stderr: io.Discard}
+
+	_, err := InstallPackages(context.Background(), runner, "apt", []Requirement{RequirementPodman})
+	if err == nil || !strings.Contains(err.Error(), "require root or passwordless sudo") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

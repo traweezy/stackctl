@@ -119,5 +119,5 @@ func AnyContainerExists(ctx context.Context, containerNames []string) (bool, err
 }
 
 func EnableCockpit(ctx context.Context, runner Runner) error {
-	return runner.Run(ctx, "", "sudo", "systemctl", "enable", "--now", "cockpit.socket")
+	return runPrivileged(ctx, runner, "systemctl", "enable", "--now", "cockpit.socket")
 }

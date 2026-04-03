@@ -112,6 +112,10 @@ exit 1
 }
 
 func TestEnableCockpitRunsEnableNowCommand(t *testing.T) {
+	originalEUID := currentEUID
+	currentEUID = func() int { return 1000 }
+	t.Cleanup(func() { currentEUID = originalEUID })
+
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "sudo.log")
 	writeServicesTestScript(t, filepath.Join(dir, "sudo"), "#!/bin/sh\nprintf '%s\\n' \"$*\" > \""+logPath+"\"\n")

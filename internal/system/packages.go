@@ -44,11 +44,10 @@ var packageBackends = map[string]packageBackend{
 			RequirementSkopeo:          {"skopeo"},
 		},
 		install: func(ctx context.Context, runner Runner, packages []string) error {
-			if err := runner.Run(ctx, "", "sudo", "apt-get", "update"); err != nil {
+			if err := runPrivileged(ctx, runner, "apt-get", "update"); err != nil {
 				return err
 			}
-			args := append([]string{"apt-get", "install", "-y"}, packages...)
-			return runner.Run(ctx, "", "sudo", args...)
+			return runPrivileged(ctx, runner, "apt-get", append([]string{"install", "-y"}, packages...)...)
 		},
 	},
 	"dnf": {
@@ -61,8 +60,7 @@ var packageBackends = map[string]packageBackend{
 			RequirementCockpit:         {"cockpit", "cockpit-podman"},
 		},
 		install: func(ctx context.Context, runner Runner, packages []string) error {
-			args := append([]string{"dnf", "install", "-y"}, packages...)
-			return runner.Run(ctx, "", "sudo", args...)
+			return runPrivileged(ctx, runner, "dnf", append([]string{"install", "-y"}, packages...)...)
 		},
 	},
 	"yum": {
@@ -75,8 +73,7 @@ var packageBackends = map[string]packageBackend{
 			RequirementCockpit:         {"cockpit", "cockpit-podman"},
 		},
 		install: func(ctx context.Context, runner Runner, packages []string) error {
-			args := append([]string{"yum", "install", "-y"}, packages...)
-			return runner.Run(ctx, "", "sudo", args...)
+			return runPrivileged(ctx, runner, "yum", append([]string{"install", "-y"}, packages...)...)
 		},
 	},
 	"pacman": {
@@ -89,8 +86,7 @@ var packageBackends = map[string]packageBackend{
 			RequirementCockpit:         {"cockpit", "cockpit-podman"},
 		},
 		install: func(ctx context.Context, runner Runner, packages []string) error {
-			args := append([]string{"pacman", "-Syu", "--noconfirm", "--needed"}, packages...)
-			return runner.Run(ctx, "", "sudo", args...)
+			return runPrivileged(ctx, runner, "pacman", append([]string{"-Syu", "--noconfirm", "--needed"}, packages...)...)
 		},
 	},
 	"zypper": {
@@ -115,8 +111,7 @@ var packageBackends = map[string]packageBackend{
 			RequirementSkopeo:          {"skopeo"},
 		},
 		install: func(ctx context.Context, runner Runner, packages []string) error {
-			args := append([]string{"apk", "add"}, packages...)
-			return runner.Run(ctx, "", "sudo", args...)
+			return runPrivileged(ctx, runner, "apk", append([]string{"add"}, packages...)...)
 		},
 	},
 	"brew": {
@@ -177,11 +172,11 @@ func runZypperInstallWithRetry(ctx context.Context, runner Runner, packages []st
 	var lastErr error
 	for attempt := 1; attempt <= zypperInstallAttempts; attempt++ {
 		writeRunnerNotice(runner.Stdout, "zypper install attempt %d/%d\n", attempt, zypperInstallAttempts)
-		if err := runner.Run(ctx, "", "sudo", cleanArgs...); err != nil {
+		if err := runPrivileged(ctx, runner, "zypper", cleanArgs[1:]...); err != nil {
 			lastErr = err
-		} else if err := runner.Run(ctx, "", "sudo", refreshArgs...); err != nil {
+		} else if err := runPrivileged(ctx, runner, "zypper", refreshArgs[1:]...); err != nil {
 			lastErr = err
-		} else if err := runner.Run(ctx, "", "sudo", installArgs...); err != nil {
+		} else if err := runPrivileged(ctx, runner, "zypper", installArgs[1:]...); err != nil {
 			lastErr = err
 		} else {
 			return nil
