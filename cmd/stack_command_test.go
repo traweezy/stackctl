@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +78,20 @@ func TestStackUseQuietSuppressesSelectionMessages(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("expected quiet stack use output to be empty, got: %s", stdout)
+	}
+}
+
+func TestStackUseReportsConfiguredPath(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.DefaultForStack("staging"), nil }
+	})
+
+	stdout, _, err := executeRoot(t, "stack", "use", "staging")
+	if err != nil {
+		t.Fatalf("stack use returned error: %v", err)
+	}
+	if !strings.Contains(stdout, "selected stack staging") || !strings.Contains(stdout, "using config /tmp/stackctl/stacks/staging.yaml") {
+		t.Fatalf("unexpected configured stack use output: %s", stdout)
 	}
 }
 
@@ -233,6 +248,119 @@ func TestStackDeletePurgeManagedStackRemovesDataAndResetsSelection(t *testing.T)
 	if !strings.Contains(stdout, "selected stack reset to dev-stack") {
 		t.Fatalf("stdout missing selection reset: %s", stdout)
 	}
+}
+
+func TestStackDeleteReportsMissingTarget(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.configFilePathForStack = func(string) (string, error) { return "/tmp/stackctl/stacks/missing.yaml", nil }
+		d.stat = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+	})
+
+	_, _, err := executeRoot(t, "stack", "delete", "missing", "--force")
+	if err == nil || !strings.Contains(err.Error(), "stack missing does not exist") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStackDeleteHandlesPromptAndPurgeGuards(t *testing.T) {
+	t.Run("invalid config blocks purge-data", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(string) (string, error) { return "/tmp/stackctl/stacks/staging.yaml", nil }
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: "staging.yaml"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Config{}, errors.New("bad config") }
+		})
+
+		_, _, err := executeRoot(t, "stack", "delete", "staging", "--purge-data", "--force")
+		if err == nil || !strings.Contains(err.Error(), "invalid config") {
+			t.Fatalf("expected invalid-config purge error, got %v", err)
+		}
+	})
+
+	t.Run("external stacks reject purge-data", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(string) (string, error) { return "/tmp/stackctl/stacks/external.yaml", nil }
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/external.yaml" {
+					return fakeFileInfo{name: "external.yaml"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("external")
+				cfg.Stack.Managed = false
+				return cfg, nil
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "delete", "external", "--purge-data", "--force")
+		if err == nil || !strings.Contains(err.Error(), "external stack") {
+			t.Fatalf("expected external-stack purge error, got %v", err)
+		}
+	})
+
+	t.Run("prompt cancellation is surfaced", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.isTerminal = func() bool { return true }
+			d.configFilePathForStack = func(string) (string, error) { return "/tmp/stackctl/stacks/staging.yaml", nil }
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: "staging.yaml"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+				return cfg, nil
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+			d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return false, nil }
+		})
+
+		stdout, _, err := executeRoot(t, "stack", "delete", "staging")
+		if err != nil {
+			t.Fatalf("expected prompt cancellation to return nil, got %v", err)
+		}
+		if !strings.Contains(stdout, "stack delete cancelled") {
+			t.Fatalf("expected prompt cancellation message, got %q", stdout)
+		}
+	})
+
+	t.Run("prompt errors require force", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.isTerminal = func() bool { return true }
+			d.configFilePathForStack = func(string) (string, error) { return "/tmp/stackctl/stacks/staging.yaml", nil }
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: "staging.yaml"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+				return cfg, nil
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+			d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) {
+				return false, errors.New("tty unavailable")
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "delete", "staging")
+		if err == nil || !strings.Contains(err.Error(), "delete confirmation required") {
+			t.Fatalf("expected prompt failure guidance, got %v", err)
+		}
+	})
 }
 
 func TestStackRenameManagedStackUpdatesSelection(t *testing.T) {
