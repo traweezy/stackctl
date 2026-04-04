@@ -175,6 +175,142 @@ func TestSnapshotRestoreRejectsMissingPayloadBeforeChangingVolumes(t *testing.T)
 	}
 }
 
+func TestSnapshotRestoreConfirmationPaths(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+
+	t.Run("requires force without a terminal", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		})
+
+		_, _, err := executeRoot(t, "snapshot", "restore", "missing.tar")
+		if err == nil || !strings.Contains(err.Error(), "snapshot restore confirmation required; rerun with --force") {
+			t.Fatalf("unexpected restore confirmation error: %v", err)
+		}
+	})
+
+	t.Run("cancellation returns status output", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+			d.isTerminal = func() bool { return true }
+			d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return false, nil }
+		})
+
+		stdout, _, err := executeRoot(t, "snapshot", "restore", "missing.tar")
+		if err != nil {
+			t.Fatalf("unexpected snapshot restore error: %v", err)
+		}
+		if !strings.Contains(stdout, "snapshot restore cancelled") {
+			t.Fatalf("unexpected snapshot restore stdout: %s", stdout)
+		}
+	})
+}
+
+func TestLoadManagedSnapshotConfigGuards(t *testing.T) {
+	t.Run("rejects unmanaged stacks", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			cfg := configpkg.Default()
+			cfg.Stack.Managed = false
+			d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		})
+
+		_, err := loadManagedSnapshotConfig(NewRootCmd(NewApp()))
+		if err == nil || !strings.Contains(err.Error(), "snapshot commands require a managed stack") {
+			t.Fatalf("unexpected unmanaged stack error: %v", err)
+		}
+	})
+
+	t.Run("surfaces scaffold sync failures", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			cfg := configpkg.Default()
+			cfg.ApplyDerivedFields()
+			d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+			d.managedStackNeedsScaffold = func(configpkg.Config) (bool, error) {
+				return false, errors.New("scaffold check failed")
+			}
+		})
+
+		_, err := loadManagedSnapshotConfig(NewRootCmd(NewApp()))
+		if err == nil || !strings.Contains(err.Error(), "scaffold check failed") {
+			t.Fatalf("unexpected scaffold sync error: %v", err)
+		}
+	})
+
+	t.Run("surfaces runtime readiness failures", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			cfg := configpkg.Default()
+			cfg.ApplyDerivedFields()
+			d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+			d.commandExists = func(string) bool { return false }
+		})
+
+		_, err := loadManagedSnapshotConfig(NewRootCmd(NewApp()))
+		if err == nil || !strings.Contains(err.Error(), "podman is not installed") {
+			t.Fatalf("unexpected runtime readiness error: %v", err)
+		}
+	})
+}
+
+func TestRestoreSnapshotArchiveCreatesMissingVolumesWithoutRemovingThem(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "podman.log")
+	writeFakePodman(t, dir, logPath)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+
+	payloadPath := filepath.Join(dir, "postgres.tar")
+	if err := os.WriteFile(payloadPath, []byte("postgres-volume"), 0o644); err != nil {
+		t.Fatalf("write snapshot payload: %v", err)
+	}
+
+	specs := []persistentVolumeSpec{{
+		ServiceKey:   "postgres",
+		DisplayName:  "Postgres",
+		VolumeName:   "postgres_data",
+		ArchiveEntry: "volumes/postgres.tar",
+	}}
+	manifest := snapshotManifest{
+		Version:   1,
+		StackName: "dev-stack",
+		Volumes: []snapshotVolumeRecord{{
+			Service:    "postgres",
+			SourceName: "postgres_data",
+			Archive:    "volumes/postgres.tar",
+		}},
+	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.captureResult = func(_ context.Context, _ string, name string, args ...string) (system.CommandResult, error) {
+			if name == "podman" && len(args) >= 3 && args[0] == "volume" && args[1] == "exists" {
+				return system.CommandResult{ExitCode: 1}, nil
+			}
+			return system.CommandResult{Stdout: "[]"}, nil
+		}
+	})
+
+	cmd := &cobra.Command{Use: "snapshot"}
+	if err := restoreSnapshotArchive(cmd, specs, manifest, map[string]string{"volumes/postgres.tar": payloadPath}); err != nil {
+		t.Fatalf("restoreSnapshotArchive returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read podman log: %v", err)
+	}
+	logText := string(data)
+	if strings.Contains(logText, "volume rm postgres_data") {
+		t.Fatalf("restore should not remove missing volumes:\n%s", logText)
+	}
+	for _, fragment := range []string{
+		"volume create postgres_data",
+		"volume import postgres_data",
+	} {
+		if !strings.Contains(logText, fragment) {
+			t.Fatalf("expected podman log to contain %q:\n%s", fragment, logText)
+		}
+	}
+}
+
 func TestStopStackForSnapshotIfNeeded(t *testing.T) {
 	cfg := configpkg.Default()
 	cfg.ApplyDerivedFields()
