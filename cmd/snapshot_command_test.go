@@ -501,6 +501,134 @@ func TestReadSnapshotArchiveRejectsUnsafeEntryPaths(t *testing.T) {
 	}
 }
 
+func TestReadSnapshotArchiveRejectsInvalidManifestAndMissingMetadata(t *testing.T) {
+	t.Run("invalid manifest json", func(t *testing.T) {
+		dir := t.TempDir()
+		archivePath := filepath.Join(dir, "invalid-manifest.tar")
+
+		file, err := os.Create(archivePath)
+		if err != nil {
+			t.Fatalf("create archive: %v", err)
+		}
+
+		writer := tar.NewWriter(file)
+		if err := writeTarEntry(writer, "manifest.json", []byte("{")); err != nil {
+			t.Fatalf("write invalid manifest: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close tar writer: %v", err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatalf("close archive: %v", err)
+		}
+
+		_, _, cleanup, err := readSnapshotArchive(archivePath)
+		if cleanup != nil {
+			defer cleanup()
+		}
+		if err == nil || !strings.Contains(err.Error(), "parse snapshot manifest") {
+			t.Fatalf("unexpected invalid-manifest error: %v", err)
+		}
+	})
+
+	t.Run("missing manifest metadata", func(t *testing.T) {
+		dir := t.TempDir()
+		payloadPath := filepath.Join(dir, "redis.tar")
+		if err := os.WriteFile(payloadPath, []byte("redis-volume"), 0o644); err != nil {
+			t.Fatalf("write payload: %v", err)
+		}
+
+		archivePath := filepath.Join(dir, "missing-manifest.tar")
+		if err := writePartialSnapshotArchive(archivePath, snapshotManifest{}, map[string]string{
+			"volumes/redis.tar": payloadPath,
+		}); err != nil {
+			t.Fatalf("write archive: %v", err)
+		}
+
+		_, _, cleanup, err := readSnapshotArchive(archivePath)
+		if cleanup != nil {
+			defer cleanup()
+		}
+		if err == nil || !strings.Contains(err.Error(), "missing manifest metadata") {
+			t.Fatalf("unexpected missing-manifest error: %v", err)
+		}
+	})
+}
+
+func TestRestoreSnapshotArchiveSurfacesPodmanFailures(t *testing.T) {
+	dir := t.TempDir()
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+
+	specs := []persistentVolumeSpec{{
+		ServiceKey:   "postgres",
+		DisplayName:  "Postgres",
+		VolumeName:   "postgres_data",
+		ArchiveEntry: "volumes/postgres.tar",
+	}}
+	manifest := snapshotManifest{
+		Version:   1,
+		StackName: "dev-stack",
+		Volumes: []snapshotVolumeRecord{{
+			Service:    "postgres",
+			SourceName: "postgres_data",
+			Archive:    "volumes/postgres.tar",
+		}},
+	}
+	payloadPath := filepath.Join(dir, "postgres.tar")
+	if err := os.WriteFile(payloadPath, []byte("postgres-volume"), 0o644); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+
+	t.Run("volume existence check failure", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.captureResult = func(_ context.Context, _ string, name string, args ...string) (system.CommandResult, error) {
+				if name == "podman" && len(args) >= 3 && args[0] == "volume" && args[1] == "exists" {
+					return system.CommandResult{}, errors.New("exists failed")
+				}
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+		})
+
+		cmd := &cobra.Command{Use: "snapshot"}
+		err := restoreSnapshotArchive(cmd, specs, manifest, map[string]string{"volumes/postgres.tar": payloadPath})
+		if err == nil || !strings.Contains(err.Error(), "exists failed") {
+			t.Fatalf("unexpected exists error: %v", err)
+		}
+	})
+
+	t.Run("import failure", func(t *testing.T) {
+		logPath := filepath.Join(dir, "failing-podman.log")
+		scriptPath := filepath.Join(dir, "podman")
+		script := "#!/bin/sh\n" +
+			"echo \"$@\" >> \"" + logPath + "\"\n" +
+			"if [ \"$1\" = \"volume\" ] && [ \"$2\" = \"import\" ]; then\n" +
+			"  echo \"import failed\" >&2\n" +
+			"  exit 1\n" +
+			"fi\n" +
+			"exit 0\n"
+		if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+			t.Fatalf("write failing podman: %v", err)
+		}
+		t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.captureResult = func(_ context.Context, _ string, name string, args ...string) (system.CommandResult, error) {
+				if name == "podman" && len(args) >= 3 && args[0] == "volume" && args[1] == "exists" {
+					return system.CommandResult{ExitCode: 1}, nil
+				}
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+		})
+
+		cmd := &cobra.Command{Use: "snapshot"}
+		err := restoreSnapshotArchive(cmd, specs, manifest, map[string]string{"volumes/postgres.tar": payloadPath})
+		if err == nil || !strings.Contains(err.Error(), "podman volume import postgres_data") {
+			t.Fatalf("unexpected import error: %v", err)
+		}
+	})
+}
+
 func writeFakePodman(t *testing.T, dir, logPath string) {
 	t.Helper()
 
