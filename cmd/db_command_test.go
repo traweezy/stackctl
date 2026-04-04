@@ -253,6 +253,67 @@ func TestDBResetRejectsMaintenanceDatabase(t *testing.T) {
 	}
 }
 
+func TestDBResetWithoutForceRequiresInteractiveConfirmation(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.PostgresDatabase = "stackdb"
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.isTerminal = func() bool { return false }
+		d.composeExec = func(context.Context, system.Runner, configpkg.Config, string, []string, []string, bool) error {
+			t.Fatal("composeExec should not run when confirmation is unavailable")
+			return nil
+		}
+	})
+
+	_, _, err := executeRoot(t, "db", "reset")
+	if err == nil || !strings.Contains(err.Error(), "database reset confirmation required; rerun with --force") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDBResetCancellationReturnsStatusLine(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Connection.PostgresDatabase = "stackdb"
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.isTerminal = func() bool { return true }
+		d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return false, nil }
+		d.composeExec = func(context.Context, system.Runner, configpkg.Config, string, []string, []string, bool) error {
+			t.Fatal("composeExec should not run when reset is cancelled")
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "db", "reset")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout, "database reset cancelled") {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestDBHelpersFormatEnvArgsAndSQL(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Connection.PostgresUsername = "stackuser"
+	cfg.Connection.PostgresPassword = "pa'ss"
+
+	if got := postgresPasswordEnv(cfg); !reflect.DeepEqual(got, []string{"PGPASSWORD=pa'ss"}) {
+		t.Fatalf("unexpected postgres password env: %q", got)
+	}
+	if got := postgresConnArgs(cfg, "stackdb"); !reflect.DeepEqual(got, []string{
+		"-h", "127.0.0.1",
+		"-p", "5432",
+		"-U", "stackuser",
+		"-d", "stackdb",
+	}) {
+		t.Fatalf("unexpected postgres connection args: %q", got)
+	}
+	if got := sqlStringLiteral("o'reilly"); got != "'o''reilly'" {
+		t.Fatalf("unexpected SQL string literal: %q", got)
+	}
+}
+
 func containsSequence(haystack, needle []string) bool {
 	if len(needle) == 0 {
 		return true
