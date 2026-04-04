@@ -83,20 +83,36 @@ func podmanMachineStatusWithDeps(
 }
 
 func PreparePodmanMachine(ctx context.Context, runner Runner) error {
-	state := PodmanMachineStatus(ctx)
+	return preparePodmanMachineWithDeps(
+		ctx,
+		CommandExists,
+		PodmanMachineStatus,
+		func(ctx context.Context, dir, name string, args ...string) error {
+			return runner.Run(ctx, dir, name, args...)
+		},
+	)
+}
+
+func preparePodmanMachineWithDeps(
+	ctx context.Context,
+	commandExists func(string) bool,
+	status func(context.Context) PodmanMachineState,
+	run func(context.Context, string, string, ...string) error,
+) error {
+	state := status(ctx)
 	if !state.Supported {
 		return nil
 	}
-	if !CommandExists("podman") {
+	if !commandExists("podman") {
 		return fmt.Errorf("podman is not installed")
 	}
 	if !state.Initialized {
-		if err := runner.Run(ctx, "", "podman", "machine", "init"); err != nil {
+		if err := run(ctx, "", "podman", "machine", "init"); err != nil {
 			return err
 		}
 	}
 
-	updated := PodmanMachineStatus(ctx)
+	updated := status(ctx)
 	if !updated.Initialized {
 		return fmt.Errorf("podman machine is still not initialized")
 	}
@@ -104,5 +120,5 @@ func PreparePodmanMachine(ctx context.Context, runner Runner) error {
 		return nil
 	}
 
-	return runner.Run(ctx, "", "podman", "machine", "start")
+	return run(ctx, "", "podman", "machine", "start")
 }

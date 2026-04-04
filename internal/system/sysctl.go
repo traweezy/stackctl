@@ -14,11 +14,21 @@ type OvercommitStatus struct {
 }
 
 func RedisOvercommitStatus(ctx context.Context) (OvercommitStatus, error) {
-	if runtime.GOOS != "linux" {
+	return redisOvercommitStatusWithDeps(ctx, runtime.GOOS, os.ReadFile, CommandExists, CaptureResult)
+}
+
+func redisOvercommitStatusWithDeps(
+	ctx context.Context,
+	goos string,
+	readFile func(string) ([]byte, error),
+	commandExists func(string) bool,
+	capture func(context.Context, string, string, ...string) (CommandResult, error),
+) (OvercommitStatus, error) {
+	if goos != "linux" {
 		return OvercommitStatus{}, nil
 	}
 
-	if data, err := os.ReadFile("/proc/sys/vm/overcommit_memory"); err == nil {
+	if data, err := readFile("/proc/sys/vm/overcommit_memory"); err == nil {
 		value, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
 		if parseErr != nil {
 			return OvercommitStatus{}, parseErr
@@ -26,11 +36,11 @@ func RedisOvercommitStatus(ctx context.Context) (OvercommitStatus, error) {
 		return OvercommitStatus{Supported: true, Value: value}, nil
 	}
 
-	if !CommandExists("sysctl") {
+	if !commandExists("sysctl") {
 		return OvercommitStatus{}, nil
 	}
 
-	result, err := CaptureResult(ctx, "", "sysctl", "-n", "vm.overcommit_memory")
+	result, err := capture(ctx, "", "sysctl", "-n", "vm.overcommit_memory")
 	if err != nil {
 		return OvercommitStatus{}, err
 	}
