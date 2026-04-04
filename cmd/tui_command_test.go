@@ -727,6 +727,74 @@ func TestBuildTUIDBShellCommandSuppressesInteractiveExitStatus(t *testing.T) {
 	}
 }
 
+func TestBuildTUIShellCommandsRejectInvalidRequests(t *testing.T) {
+	t.Run("service shell requires a selected service", func(t *testing.T) {
+		withTestDeps(t, func(value *commandDeps) {
+			cfg := configpkg.Default()
+			cfg.ApplyDerivedFields()
+			value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		})
+
+		_, err := buildTUIServiceShellCommand(stacktui.ServiceShellRequest{})
+		if err == nil {
+			t.Fatal("expected missing service error")
+		}
+		if !strings.Contains(err.Error(), "service shell requires a selected service") {
+			t.Fatalf("unexpected missing service error: %v", err)
+		}
+	})
+
+	t.Run("service shell rejects unknown services", func(t *testing.T) {
+		withTestDeps(t, func(value *commandDeps) {
+			cfg := configpkg.Default()
+			cfg.ApplyDerivedFields()
+			value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		})
+
+		_, err := buildTUIServiceShellCommand(stacktui.ServiceShellRequest{Service: "unknown"})
+		if err == nil {
+			t.Fatal("expected invalid service error")
+		}
+		if !strings.Contains(err.Error(), "invalid service") {
+			t.Fatalf("unexpected invalid service error: %v", err)
+		}
+	})
+
+	t.Run("db shell only supports postgres", func(t *testing.T) {
+		withTestDeps(t, func(value *commandDeps) {
+			cfg := configpkg.Default()
+			cfg.ApplyDerivedFields()
+			value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		})
+
+		_, err := buildTUIDBShellCommand(stacktui.DBShellRequest{Service: "redis"})
+		if err == nil {
+			t.Fatal("expected non-postgres db shell error")
+		}
+		if !strings.Contains(err.Error(), "db shell is only available for Postgres") {
+			t.Fatalf("unexpected non-postgres error: %v", err)
+		}
+	})
+
+	t.Run("db shell requires postgres to be enabled", func(t *testing.T) {
+		withTestDeps(t, func(value *commandDeps) {
+			cfg := configpkg.Default()
+			cfg.Setup.IncludePostgres = false
+			cfg.Setup.IncludePgAdmin = false
+			cfg.ApplyDerivedFields()
+			value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		})
+
+		_, err := buildTUIDBShellCommand(stacktui.DBShellRequest{Service: "postgres"})
+		if err == nil {
+			t.Fatal("expected postgres-disabled error")
+		}
+		if !strings.Contains(err.Error(), "postgres is not enabled") {
+			t.Fatalf("unexpected postgres-disabled error: %v", err)
+		}
+	})
+}
+
 func interactiveExitError(t *testing.T) error {
 	t.Helper()
 

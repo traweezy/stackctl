@@ -194,6 +194,85 @@ func TestDBRestoreStreamsInputFileToComposeExec(t *testing.T) {
 	}
 }
 
+func TestDBRestoreRequiresForceWithoutTerminalConfirmation(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+	})
+
+	_, _, err := executeRoot(t, "db", "restore", "/tmp/dump.sql")
+	if err == nil {
+		t.Fatal("expected restore confirmation error without --force")
+	}
+	if !strings.Contains(err.Error(), "database restore confirmation required; rerun with --force") {
+		t.Fatalf("unexpected restore confirmation error: %v", err)
+	}
+}
+
+func TestDBRestoreCancelledWhenPromptDeclined(t *testing.T) {
+	composeExecCalled := false
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.isTerminal = func() bool { return true }
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return false, nil }
+		d.composeExec = func(context.Context, system.Runner, configpkg.Config, string, []string, []string, bool) error {
+			composeExecCalled = true
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "db", "restore", "/tmp/dump.sql")
+	if err != nil {
+		t.Fatalf("db restore returned error: %v", err)
+	}
+	if composeExecCalled {
+		t.Fatal("expected cancelled restore to stop before compose exec")
+	}
+	if !strings.Contains(stdout, "database restore cancelled") {
+		t.Fatalf("expected cancel output, got: %s", stdout)
+	}
+}
+
+func TestDBRestoreStreamsStdinToComposeExec(t *testing.T) {
+	var capturedInput string
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.composeExec = func(_ context.Context, runner system.Runner, _ configpkg.Config, service string, env []string, commandArgs []string, tty bool) error {
+			if service != "postgres" {
+				t.Fatalf("unexpected service: %s", service)
+			}
+			if tty {
+				t.Fatal("expected db restore stdin path to run without a tty")
+			}
+			data, err := io.ReadAll(runner.Stdin)
+			if err != nil {
+				return err
+			}
+			capturedInput = string(data)
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRootWithInput(
+		t,
+		strings.NewReader("select 42;\n"),
+		"db",
+		"restore",
+		"-",
+		"--force",
+	)
+	if err != nil {
+		t.Fatalf("db restore returned error: %v", err)
+	}
+	if capturedInput != "select 42;\n" {
+		t.Fatalf("unexpected stdin restore input: %q", capturedInput)
+	}
+	if !strings.Contains(stdout, "restoring database from stdin...") || !strings.Contains(stdout, "database restore completed") {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
 func TestDBResetRunsTerminateDropAndCreateCommands(t *testing.T) {
 	var commands [][]string
 

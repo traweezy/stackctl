@@ -110,10 +110,20 @@ func withTestDeps(t *testing.T, mutate func(*commandDeps)) {
 
 func executeRoot(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
-	return executeAppRoot(t, NewApp(), args...)
+	return executeAppRootWithInput(t, NewApp(), nil, args...)
+}
+
+func executeRootWithInput(t *testing.T, input io.Reader, args ...string) (string, string, error) {
+	t.Helper()
+	return executeAppRootWithInput(t, NewApp(), input, args...)
 }
 
 func executeAppRoot(t *testing.T, app *App, args ...string) (string, string, error) {
+	t.Helper()
+	return executeAppRootWithInput(t, app, nil, args...)
+}
+
+func executeAppRootWithInput(t *testing.T, app *App, input io.Reader, args ...string) (string, string, error) {
 	t.Helper()
 
 	root := NewRootCmd(app)
@@ -121,6 +131,9 @@ func executeAppRoot(t *testing.T, app *App, args ...string) (string, string, err
 	var stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
+	if input != nil {
+		root.SetIn(input)
+	}
 	root.SetArgs(args)
 
 	envSnapshot := snapshotEnv(

@@ -645,3 +645,241 @@ func TestRunTUIActionDoctorSummarizesIssues(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadTUIStackTargetConfigGuards(t *testing.T) {
+	t.Run("missing stack", func(t *testing.T) {
+		withTestDeps(t, func(value *commandDeps) {
+			value.stat = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+		})
+
+		_, err := loadTUIStackTargetConfig("staging")
+		if err == nil {
+			t.Fatal("expected missing stack error")
+		}
+		if !strings.Contains(err.Error(), "stack staging does not exist") {
+			t.Fatalf("unexpected missing stack error: %v", err)
+		}
+	})
+
+	t.Run("invalid config", func(t *testing.T) {
+		withTestDeps(t, func(value *commandDeps) {
+			value.stat = func(string) (os.FileInfo, error) { return fakeFileInfo{name: "staging.yaml"}, nil }
+			value.loadConfig = func(string) (configpkg.Config, error) {
+				return configpkg.Config{}, errors.New("parse failed")
+			}
+		})
+
+		_, err := loadTUIStackTargetConfig("staging")
+		if err == nil {
+			t.Fatal("expected invalid config error")
+		}
+		for _, fragment := range []string{"stack staging has an invalid config", "parse failed"} {
+			if !strings.Contains(err.Error(), fragment) {
+				t.Fatalf("expected invalid config error to contain %q: %v", fragment, err)
+			}
+		}
+	})
+
+	t.Run("validation issues", func(t *testing.T) {
+		withTestDeps(t, func(value *commandDeps) {
+			cfg := configpkg.DefaultForStack("staging")
+			cfg.ApplyDerivedFields()
+			value.stat = func(string) (os.FileInfo, error) { return fakeFileInfo{name: "staging.yaml"}, nil }
+			value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+			value.validateConfig = func(configpkg.Config) []configpkg.ValidationIssue {
+				return []configpkg.ValidationIssue{{Field: "stack.dir", Message: "must exist"}}
+			}
+		})
+
+		_, err := loadTUIStackTargetConfig("staging")
+		if err == nil {
+			t.Fatal("expected validation error")
+		}
+		if !strings.Contains(err.Error(), "stack staging config validation failed with 1 issue(s)") {
+			t.Fatalf("unexpected validation error: %v", err)
+		}
+	})
+}
+
+func TestRunTUIStartUsesVerificationWhenWaitDisabled(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+	cfg.Behavior.WaitForServicesStart = false
+
+	var composeUpCalls int
+	var waitForPortCalls int
+
+	withTestDeps(t, func(value *commandDeps) {
+		value.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+			composeUpCalls++
+			return nil
+		}
+		value.waitForPort = func(context.Context, int, time.Duration) error {
+			waitForPortCalls++
+			return nil
+		}
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: exitedContainerJSON(cfg.Services.PostgresContainer)}, nil
+		}
+	})
+
+	_, err := runTUIStart(cfg, nil)
+	if err == nil {
+		t.Fatal("expected verification failure when a service exits immediately")
+	}
+	if composeUpCalls != 1 {
+		t.Fatalf("expected composeUp once, got %d", composeUpCalls)
+	}
+	if waitForPortCalls != 0 {
+		t.Fatalf("expected waitForPort to remain unused in verification mode, got %d calls", waitForPortCalls)
+	}
+	if !strings.Contains(err.Error(), "postgres container failed to start") {
+		t.Fatalf("unexpected verification error: %v", err)
+	}
+}
+
+func TestRunTUIRestartUsesVerificationWhenWaitDisabled(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+	cfg.Behavior.WaitForServicesStart = false
+
+	var calledServices []string
+	var forceRecreate bool
+	var waitForPortCalls int
+
+	withTestDeps(t, func(value *commandDeps) {
+		value.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, force bool, services []string) error {
+			forceRecreate = force
+			calledServices = append([]string(nil), services...)
+			return nil
+		}
+		value.waitForPort = func(context.Context, int, time.Duration) error {
+			waitForPortCalls++
+			return nil
+		}
+		value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: exitedContainerJSON(cfg.Services.PostgresContainer)}, nil
+		}
+	})
+
+	_, err := runTUIRestart(cfg, []string{"postgres"})
+	if err == nil {
+		t.Fatal("expected verification failure when a restarted service exits immediately")
+	}
+	if !forceRecreate {
+		t.Fatal("expected restart verification path to force recreate the selected service")
+	}
+	if len(calledServices) != 1 || calledServices[0] != "postgres" {
+		t.Fatalf("unexpected restarted services: %v", calledServices)
+	}
+	if waitForPortCalls != 0 {
+		t.Fatalf("expected waitForPort to remain unused in verification mode, got %d calls", waitForPortCalls)
+	}
+	if !strings.Contains(err.Error(), "postgres container failed to start") {
+		t.Fatalf("unexpected verification error: %v", err)
+	}
+}
+
+func TestRunTUIOpenTargetHandlesMissingAndSuccessfulURLs(t *testing.T) {
+	t.Run("missing url", func(t *testing.T) {
+		withTestDeps(t, nil)
+
+		report, err := runTUIOpenTarget("Cockpit", "   ")
+		if err != nil {
+			t.Fatalf("runTUIOpenTarget returned error: %v", err)
+		}
+		if report.Status != output.StatusWarn || report.Message != "no cockpit URL is configured" {
+			t.Fatalf("unexpected missing-url report: %+v", report)
+		}
+	})
+
+	t.Run("successful open", func(t *testing.T) {
+		var openedURL string
+
+		withTestDeps(t, func(value *commandDeps) {
+			value.openURL = func(context.Context, system.Runner, string) error {
+				openedURL = "http://localhost:8081"
+				return nil
+			}
+		})
+
+		report, err := runTUIOpenTarget("pgAdmin", "http://localhost:8081")
+		if err != nil {
+			t.Fatalf("runTUIOpenTarget returned error: %v", err)
+		}
+		if openedURL != "http://localhost:8081" {
+			t.Fatalf("opened URL = %q", openedURL)
+		}
+		if report.Status != output.StatusOK || report.Message != "opened pgAdmin" {
+			t.Fatalf("unexpected open report: %+v", report)
+		}
+		if len(report.Details) != 1 || report.Details[0] != "pgAdmin: http://localhost:8081" {
+			t.Fatalf("unexpected open details: %+v", report.Details)
+		}
+	})
+}
+
+func TestRunTUIDeleteStackRejectsMissingAndRunningExternalStacks(t *testing.T) {
+	t.Run("missing stack", func(t *testing.T) {
+		withTestDeps(t, func(value *commandDeps) {
+			value.stat = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+		})
+
+		_, err := runTUIDeleteStack("staging")
+		if err == nil {
+			t.Fatal("expected missing stack error")
+		}
+		if !strings.Contains(err.Error(), "stack staging does not exist") {
+			t.Fatalf("unexpected missing stack error: %v", err)
+		}
+	})
+
+	t.Run("running external stack", func(t *testing.T) {
+		cfg := configpkg.DefaultForStack("staging")
+		cfg.Stack.Managed = false
+		cfg.ApplyDerivedFields()
+		removeFileCalled := false
+
+		withTestDeps(t, func(value *commandDeps) {
+			value.stat = func(string) (os.FileInfo, error) { return fakeFileInfo{name: "staging.yaml"}, nil }
+			value.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+			value.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
+			}
+			value.removeFile = func(string) error {
+				removeFileCalled = true
+				return nil
+			}
+		})
+
+		_, err := runTUIDeleteStack("staging")
+		if err == nil {
+			t.Fatal("expected running unmanaged stack error")
+		}
+		if removeFileCalled {
+			t.Fatal("did not expect delete to continue after the running-stack guard")
+		}
+		if !strings.Contains(err.Error(), "stack staging is running (Postgres); stop it before deleting the profile") {
+			t.Fatalf("unexpected running-stack error: %v", err)
+		}
+	})
+}
+
+func TestBoolLabelCoversBothStates(t *testing.T) {
+	if got := boolLabel(true); got != "on" {
+		t.Fatalf("boolLabel(true) = %q", got)
+	}
+	if got := boolLabel(false); got != "off" {
+		t.Fatalf("boolLabel(false) = %q", got)
+	}
+}
+
+func exitedContainerJSON(name string) string {
+	return marshalContainersJSON(system.Container{
+		ID:     name + "-123456",
+		Image:  "postgres:latest",
+		Names:  []string{name},
+		Status: "Exited (1) 2 seconds ago",
+		State:  "exited",
+	})
+}
