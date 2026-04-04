@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -9,6 +10,16 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/traweezy/stackctl/internal/output"
+)
+
+var (
+	healthNotifyContext = func(parent context.Context, signals ...os.Signal) (context.Context, context.CancelFunc) {
+		return signal.NotifyContext(parent, signals...)
+	}
+	newHealthTicker = func(interval time.Duration) (<-chan time.Time, func()) {
+		ticker := time.NewTicker(interval)
+		return ticker.C, ticker.Stop
+	}
 )
 
 func newHealthCmd() *cobra.Command {
@@ -45,11 +56,11 @@ func newHealthCmd() *cobra.Command {
 				return printOnce(context.Background())
 			}
 
-			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+			ctx, stop := healthNotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			ticker := time.NewTicker(time.Duration(interval) * time.Second)
-			defer ticker.Stop()
+			tickC, stopTicker := newHealthTicker(time.Duration(interval) * time.Second)
+			defer stopTicker()
 
 			for {
 				if err := printOnce(ctx); err != nil {
@@ -58,7 +69,7 @@ func newHealthCmd() *cobra.Command {
 				select {
 				case <-ctx.Done():
 					return nil
-				case <-ticker.C:
+				case <-tickC:
 					if _, err := cmd.OutOrStdout().Write([]byte("\n")); err != nil {
 						return err
 					}

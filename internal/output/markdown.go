@@ -11,22 +11,36 @@ import (
 	"golang.org/x/term"
 )
 
+type markdownRenderer interface {
+	Render(string) (string, error)
+}
+
+var (
+	terminalWriterCheck = isTerminalWriter
+	newMarkdownRenderer = func(w io.Writer) (markdownRenderer, error) {
+		return glamour.NewTermRenderer(
+			markdownStyleOption(w),
+			glamour.WithWordWrap(100),
+			glamour.WithEmoji(),
+		)
+	}
+	hasDarkBackground = func(file *os.File) bool {
+		return lipgloss.HasDarkBackground(os.Stdin, file)
+	}
+)
+
 func RenderMarkdown(w io.Writer, markdown string) error {
 	trimmed := strings.TrimSpace(markdown)
 	if trimmed == "" {
 		return nil
 	}
 
-	if !isTerminalWriter(w) {
+	if !terminalWriterCheck(w) {
 		_, err := fmt.Fprintln(w, trimmed)
 		return err
 	}
 
-	renderer, err := glamour.NewTermRenderer(
-		markdownStyleOption(w),
-		glamour.WithWordWrap(100),
-		glamour.WithEmoji(),
-	)
+	renderer, err := newMarkdownRenderer(w)
 	if err != nil {
 		_, writeErr := fmt.Fprintln(w, trimmed)
 		return writeErr
@@ -46,7 +60,7 @@ func markdownStyleOption(w io.Writer) glamour.TermRendererOption {
 	if strings.TrimSpace(os.Getenv("GLAMOUR_STYLE")) != "" {
 		return glamour.WithEnvironmentConfig()
 	}
-	if file, ok := w.(*os.File); ok && !lipgloss.HasDarkBackground(os.Stdin, file) {
+	if file, ok := w.(*os.File); ok && !hasDarkBackground(file) {
 		return glamour.WithStandardStyle("light")
 	}
 	return glamour.WithStandardStyle("dark")

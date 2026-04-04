@@ -2,6 +2,8 @@ package output
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"testing"
 
@@ -46,6 +48,72 @@ func TestRenderMarkdownWritesTrimmedPlainTextForNonTerminal(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownFallsBackWhenRendererCreationFails(t *testing.T) {
+	originalTerminalCheck := terminalWriterCheck
+	originalRendererFactory := newMarkdownRenderer
+	t.Cleanup(func() {
+		terminalWriterCheck = originalTerminalCheck
+		newMarkdownRenderer = originalRendererFactory
+	})
+
+	terminalWriterCheck = func(io.Writer) bool { return true }
+	newMarkdownRenderer = func(io.Writer) (markdownRenderer, error) {
+		return nil, errors.New("boom")
+	}
+
+	var buffer bytes.Buffer
+	if err := RenderMarkdown(&buffer, "  # Heading  "); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	if got := buffer.String(); got != "# Heading\n" {
+		t.Fatalf("expected fallback plain text, got %q", got)
+	}
+}
+
+func TestRenderMarkdownFallsBackWhenRendererRenderFails(t *testing.T) {
+	originalTerminalCheck := terminalWriterCheck
+	originalRendererFactory := newMarkdownRenderer
+	t.Cleanup(func() {
+		terminalWriterCheck = originalTerminalCheck
+		newMarkdownRenderer = originalRendererFactory
+	})
+
+	terminalWriterCheck = func(io.Writer) bool { return true }
+	newMarkdownRenderer = func(io.Writer) (markdownRenderer, error) {
+		return stubMarkdownRenderer{err: errors.New("render failed")}, nil
+	}
+
+	var buffer bytes.Buffer
+	if err := RenderMarkdown(&buffer, "  # Heading  "); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	if got := buffer.String(); got != "# Heading\n" {
+		t.Fatalf("expected fallback plain text, got %q", got)
+	}
+}
+
+func TestRenderMarkdownWritesRenderedTerminalOutput(t *testing.T) {
+	originalTerminalCheck := terminalWriterCheck
+	originalRendererFactory := newMarkdownRenderer
+	t.Cleanup(func() {
+		terminalWriterCheck = originalTerminalCheck
+		newMarkdownRenderer = originalRendererFactory
+	})
+
+	terminalWriterCheck = func(io.Writer) bool { return true }
+	newMarkdownRenderer = func(io.Writer) (markdownRenderer, error) {
+		return stubMarkdownRenderer{rendered: "rendered output"}, nil
+	}
+
+	var buffer bytes.Buffer
+	if err := RenderMarkdown(&buffer, "  # Heading  "); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	if got := buffer.String(); got != "rendered output" {
+		t.Fatalf("unexpected terminal output %q", got)
+	}
+}
+
 func TestMarkdownStyleOptionHonorsEnvironmentConfig(t *testing.T) {
 	t.Setenv("GLAMOUR_STYLE", "dark")
 
@@ -68,8 +136,42 @@ func TestMarkdownStyleOptionBuildsRendererForFileWriter(t *testing.T) {
 	}
 }
 
+func TestMarkdownStyleOptionUsesBackgroundHeuristicForFileWriters(t *testing.T) {
+	originalBackgroundCheck := hasDarkBackground
+	t.Cleanup(func() { hasDarkBackground = originalBackgroundCheck })
+
+	file, err := os.CreateTemp(t.TempDir(), "markdown-style-*.txt")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	calls := 0
+	hasDarkBackground = func(*os.File) bool {
+		calls++
+		return false
+	}
+
+	option := markdownStyleOption(file)
+	if _, err := glamour.NewTermRenderer(option); err != nil {
+		t.Fatalf("build renderer for light file writer: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected background heuristic to be used once, got %d", calls)
+	}
+}
+
 func TestWriterFileDescriptorRequiresFDMethod(t *testing.T) {
 	if _, ok := writerFileDescriptor(bytes.NewBuffer(nil)); ok {
 		t.Fatal("expected writer without Fd method to be rejected")
 	}
+}
+
+type stubMarkdownRenderer struct {
+	rendered string
+	err      error
+}
+
+func (s stubMarkdownRenderer) Render(string) (string, error) {
+	return s.rendered, s.err
 }
