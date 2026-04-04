@@ -816,6 +816,249 @@ func TestStackCloneRejectsInvalidScenarios(t *testing.T) {
 	})
 }
 
+func TestStackRenameHandlesRollbackAndSelectionErrors(t *testing.T) {
+	t.Run("scaffold failure rolls back managed dir move", func(t *testing.T) {
+		sourceDir := "/tmp/stackctl-data/stacks/staging"
+		sourceCfg := configpkg.DefaultForStack("staging")
+		sourceCfg.Stack.Dir = sourceDir
+		targetCfg := retargetStackConfig(sourceCfg, "qa")
+		var renameCalls []string
+		var removed []string
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				switch path {
+				case "/tmp/stackctl/stacks/staging.yaml":
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				case sourceDir:
+					return fakeFileInfo{name: "staging", dir: true}, nil
+				default:
+					return nil, os.ErrNotExist
+				}
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				return sourceCfg, nil
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+			d.rename = func(from, to string) error {
+				renameCalls = append(renameCalls, from+"->"+to)
+				return nil
+			}
+			d.scaffoldManagedStack = func(configpkg.Config, bool) (configpkg.ScaffoldResult, error) {
+				return configpkg.ScaffoldResult{}, errors.New("scaffold failed")
+			}
+			d.removeFile = func(path string) error {
+				removed = append(removed, path)
+				return nil
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "scaffold failed") {
+			t.Fatalf("expected scaffold failure, got %v", err)
+		}
+		if len(renameCalls) != 2 || renameCalls[0] != sourceDir+"->"+targetCfg.Stack.Dir || renameCalls[1] != targetCfg.Stack.Dir+"->"+sourceDir {
+			t.Fatalf("unexpected rename rollback calls: %+v", renameCalls)
+		}
+		if len(removed) == 0 || removed[len(removed)-1] != "/tmp/stackctl/stacks/qa.yaml" {
+			t.Fatalf("expected target config cleanup, got %+v", removed)
+		}
+	})
+
+	t.Run("target path stat errors are surfaced", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				switch path {
+				case "/tmp/stackctl/stacks/staging.yaml":
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				case "/tmp/stackctl/stacks/qa.yaml":
+					return nil, errors.New("stat failed")
+				default:
+					return nil, os.ErrNotExist
+				}
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+				return cfg, nil
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "check target stack qa") {
+			t.Fatalf("expected target stat error, got %v", err)
+		}
+	})
+
+	t.Run("selection lookup failures are surfaced", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Managed = false
+				return cfg, nil
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+			d.removeFile = func(string) error { return nil }
+			d.currentStackName = func() (string, error) { return "", errors.New("current stack failed") }
+		})
+
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "current stack failed") {
+			t.Fatalf("expected current selection error, got %v", err)
+		}
+	})
+
+	t.Run("selection update failures are surfaced", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Managed = false
+				return cfg, nil
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+			d.removeFile = func(string) error { return nil }
+			d.currentStackName = func() (string, error) { return "staging", nil }
+			d.setCurrentStackName = func(string) error { return errors.New("selection update failed") }
+		})
+
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "selection update failed") {
+			t.Fatalf("expected selection update error, got %v", err)
+		}
+	})
+}
+
+func TestStackCloneHandlesCleanupAndConflictErrors(t *testing.T) {
+	t.Run("target path stat errors are surfaced", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				switch path {
+				case "/tmp/stackctl/stacks/staging.yaml":
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				case "/tmp/stackctl/stacks/qa.yaml":
+					return nil, errors.New("stat failed")
+				default:
+					return nil, os.ErrNotExist
+				}
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+				return cfg, nil
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "clone", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "check target stack qa") {
+			t.Fatalf("expected target stat error, got %v", err)
+		}
+	})
+
+	t.Run("managed target dir stat errors are surfaced", func(t *testing.T) {
+		sourceCfg := configpkg.DefaultForStack("staging")
+		sourceCfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+		targetCfg := retargetStackConfig(sourceCfg, "qa")
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				switch path {
+				case "/tmp/stackctl/stacks/staging.yaml":
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				case targetCfg.Stack.Dir:
+					return nil, errors.New("dir stat failed")
+				default:
+					return nil, os.ErrNotExist
+				}
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) { return sourceCfg, nil }
+		})
+
+		_, _, err := executeRoot(t, "stack", "clone", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "check managed stack directory") {
+			t.Fatalf("expected managed-dir stat error, got %v", err)
+		}
+	})
+
+	t.Run("scaffold failure cleans up target config and directory", func(t *testing.T) {
+		sourceCfg := configpkg.DefaultForStack("staging")
+		sourceCfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+		targetCfg := retargetStackConfig(sourceCfg, "qa")
+		var removedFiles []string
+		var removedDirs []string
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) { return sourceCfg, nil }
+			d.scaffoldManagedStack = func(configpkg.Config, bool) (configpkg.ScaffoldResult, error) {
+				return configpkg.ScaffoldResult{}, errors.New("scaffold failed")
+			}
+			d.removeFile = func(path string) error {
+				removedFiles = append(removedFiles, path)
+				return nil
+			}
+			d.removeAll = func(path string) error {
+				removedDirs = append(removedDirs, path)
+				return nil
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "clone", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "scaffold failed") {
+			t.Fatalf("expected scaffold failure, got %v", err)
+		}
+		if len(removedFiles) == 0 || removedFiles[len(removedFiles)-1] != "/tmp/stackctl/stacks/qa.yaml" {
+			t.Fatalf("expected target config cleanup, got %+v", removedFiles)
+		}
+		if len(removedDirs) == 0 || removedDirs[len(removedDirs)-1] != targetCfg.Stack.Dir {
+			t.Fatalf("expected target dir cleanup, got %+v", removedDirs)
+		}
+	})
+}
+
 func TestStackCurrentPrintsSelectedStack(t *testing.T) {
 	t.Setenv(configpkg.StackNameEnvVar, "staging")
 
