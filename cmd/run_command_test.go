@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/system"
@@ -180,5 +182,156 @@ func TestRunNoStartDoesNotRequireComposeRuntimeWhenServiceReady(t *testing.T) {
 	}
 	if !ran {
 		t.Fatal("expected run --no-start to execute the host command")
+	}
+}
+
+func TestStartRunServicesChoosesComposeMode(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+
+	t.Run("empty selection starts the full stack", func(t *testing.T) {
+		var upCalled bool
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+				upCalled = true
+				return nil
+			}
+			d.composeUpServices = func(context.Context, system.Runner, configpkg.Config, bool, []string) error {
+				t.Fatal("composeUpServices should not run for the full stack")
+				return nil
+			}
+		})
+
+		if err := startRunServices(NewRootCmd(NewApp()), cfg, nil); err != nil {
+			t.Fatalf("startRunServices returned error: %v", err)
+		}
+		if !upCalled {
+			t.Fatal("expected composeUp to run for the full stack")
+		}
+	})
+
+	t.Run("full enabled selection starts the full stack", func(t *testing.T) {
+		var upCalled bool
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+				upCalled = true
+				return nil
+			}
+			d.composeUpServices = func(context.Context, system.Runner, configpkg.Config, bool, []string) error {
+				t.Fatal("composeUpServices should not run when all enabled services are requested")
+				return nil
+			}
+		})
+
+		if err := startRunServices(NewRootCmd(NewApp()), cfg, enabledStackServiceKeys(cfg)); err != nil {
+			t.Fatalf("startRunServices returned error: %v", err)
+		}
+		if !upCalled {
+			t.Fatal("expected composeUp to run when all enabled services are selected")
+		}
+	})
+
+	t.Run("subset starts only selected services", func(t *testing.T) {
+		var captured []string
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.composeUp = func(context.Context, system.Runner, configpkg.Config) error {
+				t.Fatal("composeUp should not run for a subset")
+				return nil
+			}
+			d.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, forceRecreate bool, services []string) error {
+				if forceRecreate {
+					t.Fatal("run helper should not force recreate services")
+				}
+				captured = append([]string(nil), services...)
+				return nil
+			}
+		})
+
+		if err := startRunServices(NewRootCmd(NewApp()), cfg, []string{"postgres"}); err != nil {
+			t.Fatalf("startRunServices returned error: %v", err)
+		}
+		if !slices.Equal(captured, []string{"postgres"}) {
+			t.Fatalf("unexpected composeUpServices targets: %+v", captured)
+		}
+	})
+}
+
+func TestWaitForRunServicesWaitsForSelectedPorts(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+
+	t.Run("waits for ready selected services", func(t *testing.T) {
+		waited := make([]int, 0, 2)
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres", "redis")}, nil
+			}
+			d.waitForPort = func(_ context.Context, port int, _ time.Duration) error {
+				waited = append(waited, port)
+				return nil
+			}
+		})
+
+		if err := waitForRunServices(context.Background(), cfg, []string{"postgres", "redis"}); err != nil {
+			t.Fatalf("waitForRunServices returned error: %v", err)
+		}
+		if !slices.Equal(waited, []int{5432, 6379}) {
+			t.Fatalf("unexpected waited ports: %+v", waited)
+		}
+	})
+
+	t.Run("surfaces wait failures", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
+			}
+			d.waitForPort = func(context.Context, int, time.Duration) error {
+				return errors.New("timed out")
+			}
+		})
+
+		err := waitForRunServices(context.Background(), cfg, []string{"postgres"})
+		if err == nil || !strings.Contains(err.Error(), "postgres port 5432 did not become ready") {
+			t.Fatalf("unexpected wait error: %v", err)
+		}
+	})
+}
+
+func TestPrintRunDryRunFormatsNoStartMode(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Stack.Name = "qa"
+
+	root := NewRootCmd(NewApp())
+	var stdout strings.Builder
+	root.SetOut(&stdout)
+
+	err := printRunDryRun(root, cfg, []string{"postgres"}, []string{"go", "test", "./..."}, []envGroup{
+		{
+			Title: "Postgres",
+			Entries: []envEntry{
+				{Name: "DATABASE_URL", Value: "postgres://qa"},
+			},
+		},
+	}, true)
+	if err != nil {
+		t.Fatalf("printRunDryRun returned error: %v", err)
+	}
+
+	output := stdout.String()
+	for _, fragment := range []string{
+		"Stack: qa",
+		"Services: Postgres",
+		"Service mode: require already running",
+		"Command: 'go' 'test' './...'",
+		"# Postgres",
+		"export DATABASE_URL='postgres://qa'",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("expected dry-run output to contain %q:\n%s", fragment, output)
+		}
 	}
 }
