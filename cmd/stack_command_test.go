@@ -480,6 +480,133 @@ func TestStackRenameManagedStackUpdatesSelection(t *testing.T) {
 	}
 }
 
+func TestStackRenameRejectsInvalidScenarios(t *testing.T) {
+	t.Run("same source and destination", func(t *testing.T) {
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "staging")
+		if err == nil || !strings.Contains(err.Error(), "must be different") {
+			t.Fatalf("expected same-name validation error, got %v", err)
+		}
+	})
+
+	t.Run("missing source stack", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				return nil, os.ErrNotExist
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "stack staging does not exist") {
+			t.Fatalf("expected missing-source error, got %v", err)
+		}
+	})
+
+	t.Run("invalid source config", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: "staging.yaml"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Config{}, errors.New("bad config") }
+		})
+
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "load source stack staging") {
+			t.Fatalf("expected invalid-source error, got %v", err)
+		}
+	})
+
+	t.Run("target already exists", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				switch path {
+				case "/tmp/stackctl/stacks/staging.yaml", "/tmp/stackctl/stacks/qa.yaml":
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				default:
+					return nil, os.ErrNotExist
+				}
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+				return cfg, nil
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "stack qa already exists") {
+			t.Fatalf("expected target-exists error, got %v", err)
+		}
+	})
+
+	t.Run("running services block rename", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+				return cfg, nil
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "stop it before renaming") {
+			t.Fatalf("expected running-services error, got %v", err)
+		}
+	})
+
+	t.Run("save failures are surfaced", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+				return cfg, nil
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+			d.saveConfig = func(string, configpkg.Config) error { return errors.New("save failed") }
+		})
+
+		_, _, err := executeRoot(t, "stack", "rename", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "save failed") {
+			t.Fatalf("expected save failure, got %v", err)
+		}
+	})
+}
+
 func TestStackCloneManagedStackCreatesNewConfig(t *testing.T) {
 	configRoot := t.TempDir()
 	dataRoot := t.TempDir()
@@ -565,6 +692,128 @@ func TestStackCloneManagedStackCreatesNewConfig(t *testing.T) {
 	if !strings.Contains(stdout, "cloned stack dev-stack to demo") {
 		t.Fatalf("unexpected stdout: %s", stdout)
 	}
+}
+
+func TestStackCloneRejectsInvalidScenarios(t *testing.T) {
+	t.Run("same source and destination", func(t *testing.T) {
+		_, _, err := executeRoot(t, "stack", "clone", "staging", "staging")
+		if err == nil || !strings.Contains(err.Error(), "must be different") {
+			t.Fatalf("expected same-name validation error, got %v", err)
+		}
+	})
+
+	t.Run("missing source stack", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+		})
+
+		_, _, err := executeRoot(t, "stack", "clone", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "stack staging does not exist") {
+			t.Fatalf("expected missing-source error, got %v", err)
+		}
+	})
+
+	t.Run("invalid source config", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Config{}, errors.New("bad config") }
+		})
+
+		_, _, err := executeRoot(t, "stack", "clone", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "load source stack staging") {
+			t.Fatalf("expected invalid-source error, got %v", err)
+		}
+	})
+
+	t.Run("target already exists", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				switch path {
+				case "/tmp/stackctl/stacks/staging.yaml", "/tmp/stackctl/stacks/qa.yaml":
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				default:
+					return nil, os.ErrNotExist
+				}
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+				return cfg, nil
+			}
+		})
+
+		_, _, err := executeRoot(t, "stack", "clone", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "stack qa already exists") {
+			t.Fatalf("expected target-exists error, got %v", err)
+		}
+	})
+
+	t.Run("managed target dir conflicts", func(t *testing.T) {
+		sourceCfg := configpkg.DefaultForStack("staging")
+		sourceCfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+		targetCfg := retargetStackConfig(sourceCfg, "qa")
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				switch path {
+				case "/tmp/stackctl/stacks/staging.yaml":
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				case targetCfg.Stack.Dir:
+					return fakeFileInfo{name: "qa", dir: true}, nil
+				default:
+					return nil, os.ErrNotExist
+				}
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) { return sourceCfg, nil }
+		})
+
+		_, _, err := executeRoot(t, "stack", "clone", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "managed stack directory "+targetCfg.Stack.Dir+" already exists") {
+			t.Fatalf("expected managed-dir conflict, got %v", err)
+		}
+	})
+
+	t.Run("save failures are surfaced", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.configFilePathForStack = func(name string) (string, error) {
+				return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+			}
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl/stacks/staging.yaml" {
+					return fakeFileInfo{name: filepath.Base(path)}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.loadConfig = func(string) (configpkg.Config, error) {
+				cfg := configpkg.DefaultForStack("staging")
+				cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+				return cfg, nil
+			}
+			d.saveConfig = func(string, configpkg.Config) error { return errors.New("save failed") }
+		})
+
+		_, _, err := executeRoot(t, "stack", "clone", "staging", "qa")
+		if err == nil || !strings.Contains(err.Error(), "save failed") {
+			t.Fatalf("expected save failure, got %v", err)
+		}
+	})
 }
 
 func TestStackCurrentPrintsSelectedStack(t *testing.T) {
