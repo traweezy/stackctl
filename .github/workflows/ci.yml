@@ -134,8 +134,13 @@ jobs:
         shell: bash
         run: |
           shellcheck_root="${RUNNER_TEMP}/shellcheck"
+          shellcheck_archive="${shellcheck_root}/shellcheck.tar.xz"
           mkdir -p "$shellcheck_root"
-          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" | tar -xJ -C "$shellcheck_root"
+          curl --fail --show-error --silent --location \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            --output "$shellcheck_archive" \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          tar -xJf "$shellcheck_archive" -C "$shellcheck_root"
           echo "$shellcheck_root/shellcheck-${SHELLCHECK_VERSION}" >> "$GITHUB_PATH"
 
       - name: Run actionlint
@@ -154,8 +159,13 @@ jobs:
         shell: bash
         run: |
           shellcheck_root="${RUNNER_TEMP}/shellcheck"
+          shellcheck_archive="${shellcheck_root}/shellcheck.tar.xz"
           mkdir -p "$shellcheck_root"
-          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" | tar -xJ -C "$shellcheck_root"
+          curl --fail --show-error --silent --location \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            --output "$shellcheck_archive" \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          tar -xJf "$shellcheck_archive" -C "$shellcheck_root"
           echo "$shellcheck_root/shellcheck-${SHELLCHECK_VERSION}" >> "$GITHUB_PATH"
 
       - name: Run shellcheck
