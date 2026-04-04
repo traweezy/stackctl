@@ -4,11 +4,14 @@ import (
 	"archive/tar"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/system"
@@ -170,6 +173,107 @@ func TestSnapshotRestoreRejectsMissingPayloadBeforeChangingVolumes(t *testing.T)
 	if strings.TrimSpace(string(data)) != "" {
 		t.Fatalf("snapshot restore should not change volumes when payload validation fails:\n%s", string(data))
 	}
+}
+
+func TestStopStackForSnapshotIfNeeded(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.ApplyDerivedFields()
+
+	t.Run("returns nil when nothing is running", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+		})
+
+		cmd := NewRootCmd(NewApp())
+		if err := stopStackForSnapshotIfNeeded(cmd, cfg, false, false); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("requires explicit stop for save", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
+			}
+		})
+
+		cmd := NewRootCmd(NewApp())
+		err := stopStackForSnapshotIfNeeded(cmd, cfg, false, false)
+		if err == nil || !strings.Contains(err.Error(), "rerun with --stop to save a snapshot") {
+			t.Fatalf("unexpected save-mode error: %v", err)
+		}
+	})
+
+	t.Run("requires explicit stop for restore", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
+			}
+		})
+
+		cmd := NewRootCmd(NewApp())
+		err := stopStackForSnapshotIfNeeded(cmd, cfg, false, true)
+		if err == nil || !strings.Contains(err.Error(), "rerun with --stop to restore a snapshot") {
+			t.Fatalf("unexpected restore-mode error: %v", err)
+		}
+	})
+
+	t.Run("stops running services when requested", func(t *testing.T) {
+		var composeDownCalls int
+		withTestDeps(t, func(d *commandDeps) {
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
+			}
+			d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
+				composeDownCalls++
+				return nil
+			}
+			d.anyContainerExists = func(context.Context, []string) (bool, error) { return false, nil }
+		})
+
+		original := rootOutput
+		rootOutput.Verbose = true
+		t.Cleanup(func() { rootOutput = original })
+
+		cmd := &cobra.Command{Use: "snapshot"}
+		var stdout strings.Builder
+		cmd.SetOut(&stdout)
+		if err := stopStackForSnapshotIfNeeded(cmd, cfg, true, false); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if composeDownCalls != 1 {
+			t.Fatalf("expected compose down to run once, got %d", composeDownCalls)
+		}
+		output := stdout.String()
+		if !strings.Contains(output, "Stopping running stack services: Postgres") {
+			t.Fatalf("expected stop message in output, got %q", output)
+		}
+		if !strings.Contains(output, "Using compose file") {
+			t.Fatalf("expected compose file message in output, got %q", output)
+		}
+	})
+
+	t.Run("surfaces compose runtime errors", func(t *testing.T) {
+		expectedErr := errors.New("compose runtime unavailable")
+		withTestDeps(t, func(d *commandDeps) {
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
+			}
+			d.podmanComposeAvail = func(context.Context) bool { return false }
+			d.podmanVersion = func(context.Context) (string, error) { return system.SupportedPodmanVersion, nil }
+			d.podmanComposeVersion = func(context.Context) (string, error) {
+				return "", expectedErr
+			}
+		})
+
+		cmd := NewRootCmd(NewApp())
+		err := stopStackForSnapshotIfNeeded(cmd, cfg, true, false)
+		if err == nil || !strings.Contains(err.Error(), "podman compose is not available") {
+			t.Fatalf("unexpected compose runtime error: %v", err)
+		}
+	})
 }
 
 func TestReadSnapshotArchivePreservesNestedEntryPaths(t *testing.T) {

@@ -219,6 +219,78 @@ func TestResolveTUIDebugLogPathHonorsFlagChanges(t *testing.T) {
 	}
 }
 
+func TestNewTUICmdRunUsesProgramFactory(t *testing.T) {
+	original := newTeaProgram
+	t.Cleanup(func() { newTeaProgram = original })
+
+	called := false
+	newTeaProgram = func(model tea.Model, options ...tea.ProgramOption) teaProgram {
+		called = true
+		if _, ok := model.(stacktui.Model); !ok {
+			t.Fatalf("expected stacktui.Model, got %T", model)
+		}
+		if len(options) == 0 {
+			t.Fatal("expected TUI program options")
+		}
+		return stubTeaProgram{run: func() (tea.Model, error) { return model, nil }}
+	}
+
+	cmd := newTUICmd(&App{Version: "1.0.0"})
+	if err := cmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("newTUICmd RunE returned error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected program factory to be called")
+	}
+}
+
+func TestNewTUICmdRunSurfacesProgramError(t *testing.T) {
+	original := newTeaProgram
+	t.Cleanup(func() { newTeaProgram = original })
+
+	expectedErr := errors.New("program failed")
+	newTeaProgram = func(model tea.Model, options ...tea.ProgramOption) teaProgram {
+		return stubTeaProgram{run: func() (tea.Model, error) { return model, expectedErr }}
+	}
+
+	cmd := newTUICmd(&App{Version: "1.0.0"})
+	if err := cmd.RunE(cmd, nil); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected program error %v, got %v", expectedErr, err)
+	}
+}
+
+func TestNewTUICmdRunRejectsInvalidModesBeforeProgramStart(t *testing.T) {
+	original := newTeaProgram
+	t.Cleanup(func() { newTeaProgram = original })
+
+	newTeaProgram = func(tea.Model, ...tea.ProgramOption) teaProgram {
+		t.Fatal("program factory should not run for invalid flag values")
+		return stubTeaProgram{}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		flag  string
+		value string
+		want  string
+	}{
+		{name: "mouse", flag: "mouse", value: "bad", want: "invalid --mouse"},
+		{name: "alt-screen", flag: "alt-screen", value: "bad", want: "invalid --alt-screen"},
+		{name: "help-view", flag: "help-view", value: "bad", want: "invalid --help-view"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := newTUICmd(&App{Version: "1.0.0"})
+			if err := cmd.Flags().Set(tc.flag, tc.value); err != nil {
+				t.Fatalf("set %s flag: %v", tc.flag, err)
+			}
+			err := cmd.RunE(cmd, nil)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %q error, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
 func TestOpenTUIDebugLogHandlesEmptyAndWritableTargets(t *testing.T) {
 	file, err := openTUIDebugLog("   ")
 	if err != nil {
@@ -712,3 +784,14 @@ type testTeaModel struct{}
 func (testTeaModel) Init() tea.Cmd                           { return nil }
 func (testTeaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return testTeaModel{}, nil }
 func (testTeaModel) View() tea.View                          { return tea.View{} }
+
+type stubTeaProgram struct {
+	run func() (tea.Model, error)
+}
+
+func (s stubTeaProgram) Run() (tea.Model, error) {
+	if s.run == nil {
+		return testTeaModel{}, nil
+	}
+	return s.run()
+}

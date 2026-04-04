@@ -24,6 +24,14 @@ import (
 
 const tuiLogWatchTail = 100
 
+type teaProgram interface {
+	Run() (tea.Model, error)
+}
+
+var newTeaProgram = func(model tea.Model, options ...tea.ProgramOption) teaProgram {
+	return tea.NewProgram(model, options...)
+}
+
 func newTUICmd(app *App) *cobra.Command {
 	var mouseMode string
 	var altScreenMode string
@@ -106,7 +114,7 @@ func newTUICmd(app *App) *cobra.Command {
 				log.Info("bubble tea debug logging enabled", "path", debugLogPath)
 			}
 
-			program := tea.NewProgram(model, tea.WithFilter(tuiProgramFilter))
+			program := newTeaProgram(model, tea.WithFilter(tuiProgramFilter))
 			_, err = program.Run()
 			if err != nil {
 				log.Error("tui exited with error", "error", err)

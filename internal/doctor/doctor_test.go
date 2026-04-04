@@ -39,6 +39,19 @@ func TestRunWithDepsReportsMissingEnvironment(t *testing.T) {
 	}
 }
 
+func TestRunUsesDefaultDependenciesWithoutConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(configpkg.StackNameEnvVar, "")
+
+	report, err := Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(report.Checks) == 0 {
+		t.Fatalf("expected doctor report checks, got %+v", report)
+	}
+}
+
 func TestDefaultDependenciesPopulatesRequiredCallbacks(t *testing.T) {
 	deps := defaultDependencies()
 
