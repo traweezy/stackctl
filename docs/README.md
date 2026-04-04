@@ -15,6 +15,7 @@ reference.
 - [platform-support.md](./platform-support.md)
 - [homebrew.md](./homebrew.md)
 - [demos.md](./demos.md)
+- [performance.md](./performance.md)
 - [supply-chain.md](./supply-chain.md)
 - [output-contract.md](./output-contract.md)
 - [release-checklist.md](./release-checklist.md)

@@ -42,6 +42,15 @@ bash scripts/generate-cli-assets.sh
 git diff --exit-code docs/cli docs/man docs/completions
 ```
 
+If the release includes performance-sensitive TUI or runtime changes, also run:
+
+```bash
+bash scripts/bench-cli.sh
+```
+
+For code-level regressions, compare benchmark runs with the workflow in
+[performance.md](./performance.md).
+
 If `homebrew_casks` is enabled with `skip_upload: true`, also inspect the
 generated cask in `dist/` after the snapshot dry-run and confirm that its
 binary, man page, completion, and caveat paths still match the release
