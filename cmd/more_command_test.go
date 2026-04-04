@@ -687,6 +687,49 @@ func TestRestartServiceRunsComposeUpServicesWithForceRecreate(t *testing.T) {
 	}
 }
 
+func TestRestartServiceQuietUsesVerificationModeWithoutConnectionInfo(t *testing.T) {
+	var calledServices []string
+	var forceRecreate bool
+	var waitForPortCalled bool
+
+	withTestDeps(t, func(d *commandDeps) {
+		cfg := configpkg.Default()
+		cfg.Behavior.WaitForServicesStart = false
+		cfg.ApplyDerivedFields()
+		d.loadConfig = func(string) (configpkg.Config, error) { return cfg, nil }
+		d.composeUpServices = func(_ context.Context, _ system.Runner, _ configpkg.Config, force bool, services []string) error {
+			forceRecreate = force
+			calledServices = append([]string(nil), services...)
+			return nil
+		}
+		d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+			return system.CommandResult{Stdout: runningContainerJSON(cfg, "nats")}, nil
+		}
+		d.portListening = func(port int) bool { return port == 4222 }
+		d.waitForPort = func(context.Context, int, time.Duration) error {
+			waitForPortCalled = true
+			return nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "restart", "nats", "--quiet")
+	if err != nil {
+		t.Fatalf("restart nats --quiet returned error: %v", err)
+	}
+	if !reflect.DeepEqual(calledServices, []string{"nats"}) {
+		t.Fatalf("unexpected services: %v", calledServices)
+	}
+	if !forceRecreate {
+		t.Fatal("service restart should force recreate")
+	}
+	if waitForPortCalled {
+		t.Fatal("verification mode should not call waitForPort")
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("quiet restart should suppress stdout, got:\n%s", stdout)
+	}
+}
+
 func TestStartRefusesWhenAnotherLocalStackIsRunning(t *testing.T) {
 	currentPath := "/tmp/stackctl/config.yaml"
 	otherPath := "/tmp/stackctl/stacks/staging.yaml"
