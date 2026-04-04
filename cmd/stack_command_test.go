@@ -522,3 +522,289 @@ func TestStackDeletePromptIncludesManagedPurgeDetails(t *testing.T) {
 		t.Fatalf("expected invalid-config note in prompt:\n%s", invalidPrompt)
 	}
 }
+
+func TestResolveStackArgHandlesDefaultAndInvalidNames(t *testing.T) {
+	name, err := resolveStackArg("   ")
+	if err != nil {
+		t.Fatalf("resolveStackArg returned error for blank input: %v", err)
+	}
+	if name != configpkg.DefaultStackName {
+		t.Fatalf("blank stack name should resolve to default, got %q", name)
+	}
+
+	if _, err := resolveStackArg("bad name"); err == nil {
+		t.Fatal("expected invalid stack name to fail")
+	}
+}
+
+func TestResolveStackTargetCoversMissingInvalidAndStatError(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.configFilePathForStack = func(name string) (string, error) {
+			return "/tmp/stackctl/stacks/" + name + ".yaml", nil
+		}
+		d.stat = func(path string) (os.FileInfo, error) {
+			switch path {
+			case "/tmp/stackctl/stacks/missing.yaml":
+				return nil, os.ErrNotExist
+			case "/tmp/stackctl/stacks/invalid.yaml":
+				return fakeFileInfo{name: "invalid.yaml"}, nil
+			default:
+				return nil, errors.New("boom")
+			}
+		}
+		d.loadConfig = func(path string) (configpkg.Config, error) {
+			if path == "/tmp/stackctl/stacks/invalid.yaml" {
+				return configpkg.Config{}, errors.New("bad config")
+			}
+			t.Fatalf("unexpected loadConfig path: %s", path)
+			return configpkg.Config{}, nil
+		}
+	})
+
+	missing, err := resolveStackTarget("missing")
+	if err != nil {
+		t.Fatalf("missing stack target returned error: %v", err)
+	}
+	if missing.Exists {
+		t.Fatalf("missing stack should not exist: %+v", missing)
+	}
+
+	invalid, err := resolveStackTarget("invalid")
+	if err != nil {
+		t.Fatalf("invalid stack target returned error: %v", err)
+	}
+	if !invalid.Exists || invalid.LoadErr == nil {
+		t.Fatalf("expected invalid stack target with load error, got %+v", invalid)
+	}
+
+	if _, err := resolveStackTarget("broken"); err == nil || !strings.Contains(err.Error(), "check stack config") {
+		t.Fatalf("expected stat failure to bubble up, got %v", err)
+	}
+}
+
+func TestDeleteStackTargetTracksManagedDirAndSelectionReset(t *testing.T) {
+	cfg := configpkg.DefaultForStack("staging")
+	cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+
+	var removedConfig string
+	var selected string
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.removeFile = func(path string) error {
+			removedConfig = path
+			return nil
+		}
+		d.currentStackName = func() (string, error) { return "staging", nil }
+		d.setCurrentStackName = func(name string) error {
+			selected = name
+			return nil
+		}
+	})
+
+	result, err := deleteStackTarget(context.Background(), stackTarget{
+		Name:       "staging",
+		ConfigPath: "/tmp/stackctl/stacks/staging.yaml",
+		Config:     cfg,
+		LoadErr:    nil,
+	}, false)
+	if err != nil {
+		t.Fatalf("deleteStackTarget returned error: %v", err)
+	}
+	if removedConfig != "/tmp/stackctl/stacks/staging.yaml" {
+		t.Fatalf("unexpected removed config path: %q", removedConfig)
+	}
+	if selected != configpkg.DefaultStackName {
+		t.Fatalf("expected current stack to reset to default, got %q", selected)
+	}
+	if result.ManagedDataKept != cfg.Stack.Dir || !result.ResetToDefault {
+		t.Fatalf("unexpected delete result: %+v", result)
+	}
+}
+
+func TestMoveManagedStackDirCoversHelperBranches(t *testing.T) {
+	withTestDeps(t, nil)
+
+	if err := moveManagedStackDir("/tmp/source", "/tmp/source"); err != nil {
+		t.Fatalf("same source/target should no-op: %v", err)
+	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.stat = func(path string) (os.FileInfo, error) {
+			if path == "/tmp/missing" {
+				return nil, os.ErrNotExist
+			}
+			return fakeFileInfo{name: filepath.Base(path)}, nil
+		}
+	})
+	if err := moveManagedStackDir("/tmp/missing", "/tmp/target"); err != nil {
+		t.Fatalf("missing source should no-op: %v", err)
+	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.stat = func(path string) (os.FileInfo, error) {
+			if path == "/tmp/source" {
+				return nil, errors.New("stat failed")
+			}
+			return fakeFileInfo{name: filepath.Base(path)}, nil
+		}
+	})
+	if err := moveManagedStackDir("/tmp/source", "/tmp/target"); err == nil || !strings.Contains(err.Error(), "check managed stack directory") {
+		t.Fatalf("expected source stat failure, got %v", err)
+	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.stat = func(path string) (os.FileInfo, error) {
+			if path == "/tmp/source" || path == "/tmp/target" {
+				return fakeFileInfo{name: filepath.Base(path)}, nil
+			}
+			return nil, os.ErrNotExist
+		}
+	})
+	if err := moveManagedStackDir("/tmp/source", "/tmp/target"); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected target exists failure, got %v", err)
+	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.stat = func(path string) (os.FileInfo, error) {
+			if path == "/tmp/source" {
+				return fakeFileInfo{name: filepath.Base(path)}, nil
+			}
+			if path == "/tmp/target" {
+				return nil, errors.New("target stat failed")
+			}
+			return nil, os.ErrNotExist
+		}
+	})
+	if err := moveManagedStackDir("/tmp/source", "/tmp/target"); err == nil || !strings.Contains(err.Error(), "check target managed stack directory") {
+		t.Fatalf("expected target stat failure, got %v", err)
+	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.stat = func(path string) (os.FileInfo, error) {
+			if path == "/tmp/source" {
+				return fakeFileInfo{name: filepath.Base(path)}, nil
+			}
+			if path == "/tmp/target" {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+		d.mkdirAll = func(string, os.FileMode) error { return errors.New("mkdir failed") }
+	})
+	if err := moveManagedStackDir("/tmp/source", "/tmp/target"); err == nil || !strings.Contains(err.Error(), "create managed stack directory parent") {
+		t.Fatalf("expected mkdir failure, got %v", err)
+	}
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.stat = func(path string) (os.FileInfo, error) {
+			if path == "/tmp/source" {
+				return fakeFileInfo{name: filepath.Base(path)}, nil
+			}
+			if path == "/tmp/target" {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+		d.rename = func(string, string) error { return errors.New("rename failed") }
+	})
+	if err := moveManagedStackDir("/tmp/source", "/tmp/target"); err == nil || !strings.Contains(err.Error(), "rename managed stack directory") {
+		t.Fatalf("expected rename failure, got %v", err)
+	}
+
+	renamed := false
+	withTestDeps(t, func(d *commandDeps) {
+		d.stat = func(path string) (os.FileInfo, error) {
+			if path == "/tmp/source" {
+				return fakeFileInfo{name: filepath.Base(path)}, nil
+			}
+			if path == "/tmp/target" {
+				return nil, os.ErrNotExist
+			}
+			return nil, os.ErrNotExist
+		}
+		d.rename = func(source, target string) error {
+			renamed = source == "/tmp/source" && target == "/tmp/target"
+			return nil
+		}
+	})
+	if err := moveManagedStackDir("/tmp/source", "/tmp/target"); err != nil {
+		t.Fatalf("expected moveManagedStackDir success, got %v", err)
+	}
+	if !renamed {
+		t.Fatal("expected rename to be called for successful move")
+	}
+}
+
+func TestScaffoldManagedStackFilesCoversResultModes(t *testing.T) {
+	cfg := configpkg.DefaultForStack("staging")
+	cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.scaffoldManagedStack = func(cfg configpkg.Config, _ bool) (configpkg.ScaffoldResult, error) {
+			return configpkg.ScaffoldResult{
+				CreatedDir:   true,
+				WroteCompose: true,
+				StackDir:     cfg.Stack.Dir,
+				ComposePath:  cfg.Stack.Dir + "/compose.yaml",
+			}, nil
+		}
+	})
+
+	cmd := &cobra.Command{}
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	if err := scaffoldManagedStackFiles(cmd, cfg, false); err != nil {
+		t.Fatalf("scaffoldManagedStackFiles returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "created managed stack directory") || !strings.Contains(out.String(), "wrote managed compose file") {
+		t.Fatalf("unexpected scaffold output: %s", out.String())
+	}
+
+	out.Reset()
+	withTestDeps(t, func(d *commandDeps) {
+		d.scaffoldManagedStack = func(cfg configpkg.Config, _ bool) (configpkg.ScaffoldResult, error) {
+			return configpkg.ScaffoldResult{
+				AlreadyPresent: true,
+				ComposePath:    cfg.Stack.Dir + "/compose.yaml",
+			}, nil
+		}
+	})
+	if err := scaffoldManagedStackFiles(cmd, cfg, false); err != nil {
+		t.Fatalf("scaffoldManagedStackFiles returned error for already-present path: %v", err)
+	}
+	if !strings.Contains(out.String(), "managed stack already exists") {
+		t.Fatalf("expected already-present scaffold message, got %q", out.String())
+	}
+
+	nonManaged := configpkg.Default()
+	if err := scaffoldManagedStackFiles(cmd, nonManaged, false); err != nil {
+		t.Fatalf("non-managed scaffold should no-op, got %v", err)
+	}
+}
+
+func TestStackComposeFileExistsRejectsDirectoriesAndErrors(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.stat = func(path string) (os.FileInfo, error) {
+			switch path {
+			case "/tmp/file":
+				return fakeFileInfo{name: "compose.yaml"}, nil
+			case "/tmp/dir":
+				return fakeFileInfo{name: "compose", dir: true}, nil
+			default:
+				return nil, os.ErrNotExist
+			}
+		}
+	})
+
+	if !stackComposeFileExists("/tmp/file") {
+		t.Fatal("expected regular file to exist")
+	}
+	if stackComposeFileExists("/tmp/dir") {
+		t.Fatal("directories should not count as compose files")
+	}
+	if stackComposeFileExists("/tmp/missing") {
+		t.Fatal("missing files should not count as compose files")
+	}
+}

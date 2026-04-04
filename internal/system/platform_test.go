@@ -96,6 +96,20 @@ func TestDetectPlatformFallsBackToExecutableLookup(t *testing.T) {
 	}
 }
 
+func TestDetectPlatformForUnsupportedGOOSUsesEmptyDefaults(t *testing.T) {
+	platform := detectPlatform("freebsd", func(string) ([]byte, error) {
+		t.Fatal("unsupported platforms should not read os-release")
+		return nil, nil
+	}, func(string) bool { return true })
+
+	if platform.GOOS != "freebsd" {
+		t.Fatalf("unexpected GOOS: %+v", platform)
+	}
+	if platform.PackageManager != "" || platform.ServiceManager != ServiceManagerNone {
+		t.Fatalf("unsupported platform should keep empty defaults: %+v", platform)
+	}
+}
+
 func TestDetectPlatformWithoutServiceManagerFallsBackToNone(t *testing.T) {
 	platform := detectPlatform("linux", func(string) ([]byte, error) {
 		return []byte("ID=ubuntu\nID_LIKE=debian\n"), nil
@@ -122,5 +136,121 @@ func TestParseOSReleaseHandlesQuotesAndUbuntuCodename(t *testing.T) {
 	}
 	if info.VersionCodename != "noble" {
 		t.Fatalf("unexpected codename: %+v", info)
+	}
+}
+
+func TestDetectServiceManagerCoversFallbackBranches(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform Platform
+		exists   func(string) bool
+		want     ServiceManager
+	}{
+		{
+			name:     "non-linux",
+			platform: Platform{GOOS: "darwin"},
+			exists:   func(string) bool { return true },
+			want:     ServiceManagerNone,
+		},
+		{
+			name:     "systemd",
+			platform: Platform{GOOS: "linux"},
+			exists:   func(name string) bool { return name == "systemctl" },
+			want:     ServiceManagerSystemd,
+		},
+		{
+			name:     "openrc-command",
+			platform: Platform{GOOS: "linux"},
+			exists:   func(name string) bool { return name == "rc-service" },
+			want:     ServiceManagerOpenRC,
+		},
+		{
+			name:     "alpine-fallback",
+			platform: Platform{GOOS: "linux", DistroID: "alpine"},
+			exists:   func(string) bool { return false },
+			want:     ServiceManagerOpenRC,
+		},
+		{
+			name:     "unknown-linux",
+			platform: Platform{GOOS: "linux", DistroID: "gentoo"},
+			exists:   func(string) bool { return false },
+			want:     ServiceManagerNone,
+		},
+	}
+
+	for _, tc := range tests {
+		if got := detectServiceManager(tc.platform, tc.exists); got != tc.want {
+			t.Fatalf("%s: detectServiceManager() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestDetectLinuxPackageManagerCoversKnownFamiliesAndFallbacks(t *testing.T) {
+	tests := []struct {
+		name     string
+		platform Platform
+		exists   func(string) bool
+		want     string
+	}{
+		{
+			name:     "arch-family",
+			platform: Platform{GOOS: "linux", DistroID: "arch"},
+			exists:   func(string) bool { return false },
+			want:     "pacman",
+		},
+		{
+			name:     "opensuse-family",
+			platform: Platform{GOOS: "linux", DistroLike: []string{"sles"}},
+			exists:   func(string) bool { return false },
+			want:     "zypper",
+		},
+		{
+			name:     "fedora-defaults-to-dnf",
+			platform: Platform{GOOS: "linux", DistroID: "fedora"},
+			exists:   func(string) bool { return false },
+			want:     "dnf",
+		},
+		{
+			name:     "fallback-apt-get",
+			platform: Platform{GOOS: "linux", DistroID: "unknown"},
+			exists:   func(name string) bool { return name == "apt-get" },
+			want:     "apt",
+		},
+		{
+			name:     "fallback-dnf",
+			platform: Platform{GOOS: "linux", DistroID: "unknown"},
+			exists:   func(name string) bool { return name == "dnf" },
+			want:     "dnf",
+		},
+		{
+			name:     "fallback-pacman",
+			platform: Platform{GOOS: "linux", DistroID: "unknown"},
+			exists:   func(name string) bool { return name == "pacman" },
+			want:     "pacman",
+		},
+		{
+			name:     "fallback-apk",
+			platform: Platform{GOOS: "linux", DistroID: "unknown"},
+			exists:   func(name string) bool { return name == "apk" },
+			want:     "apk",
+		},
+		{
+			name:     "fallback-brew",
+			platform: Platform{GOOS: "linux", DistroID: "unknown"},
+			exists:   func(name string) bool { return name == "brew" },
+			want:     "brew",
+		},
+		{
+			name:     "no-known-manager",
+			platform: Platform{GOOS: "linux", DistroID: "unknown"},
+			exists:   func(string) bool { return false },
+			want:     "",
+		},
+	}
+
+	for _, tc := range tests {
+		if got := detectLinuxPackageManager(tc.platform, tc.exists); got != tc.want {
+			t.Fatalf("%s: detectLinuxPackageManager() = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
