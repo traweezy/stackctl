@@ -48,3 +48,14 @@ func TestCockpitInstallEnableReasonForConfigUsesConfigPlatformFallback(t *testin
 		t.Fatalf("expected unsupported config platform reason, got %q", reason)
 	}
 }
+
+func TestPlatformCopyHelpersCoverNilAndNoRecommendationBranches(t *testing.T) {
+	t.Setenv("PATH", "")
+
+	if got := PackageManagerFieldDescriptionForPlatform(system.Platform{}); !strings.Contains(got, "should use for setup and doctor fix flows") {
+		t.Fatalf("expected package-manager fallback copy, got %q", got)
+	}
+
+	NormalizeCockpitSettings(nil)
+	NormalizeCockpitSettingsForPlatform(nil, system.Platform{})
+}
