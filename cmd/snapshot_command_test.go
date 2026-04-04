@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -551,6 +552,104 @@ func TestReadSnapshotArchiveRejectsInvalidManifestAndMissingMetadata(t *testing.
 		}
 		if err == nil || !strings.Contains(err.Error(), "missing manifest metadata") {
 			t.Fatalf("unexpected missing-manifest error: %v", err)
+		}
+	})
+}
+
+func TestReadSnapshotArchiveRejectsOversizedAndDirtyEntries(t *testing.T) {
+	t.Run("oversized manifest", func(t *testing.T) {
+		dir := t.TempDir()
+		archivePath := filepath.Join(dir, "oversized-manifest.tar")
+
+		file, err := os.Create(archivePath)
+		if err != nil {
+			t.Fatalf("create archive: %v", err)
+		}
+
+		writer := tar.NewWriter(file)
+		data := bytes.Repeat([]byte("a"), int(maxSnapshotManifestBytes+1))
+		if err := writeTarEntry(writer, "manifest.json", data); err != nil {
+			t.Fatalf("write oversized manifest: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close tar writer: %v", err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatalf("close archive: %v", err)
+		}
+
+		_, _, cleanup, err := readSnapshotArchive(archivePath)
+		if cleanup != nil {
+			defer cleanup()
+		}
+		if err == nil || !strings.Contains(err.Error(), "snapshot manifest exceeds") {
+			t.Fatalf("unexpected oversized-manifest error: %v", err)
+		}
+	})
+
+	t.Run("dirty entry path", func(t *testing.T) {
+		dir := t.TempDir()
+		archivePath := filepath.Join(dir, "dirty-entry.tar")
+
+		file, err := os.Create(archivePath)
+		if err != nil {
+			t.Fatalf("create archive: %v", err)
+		}
+
+		writer := tar.NewWriter(file)
+		manifestData, err := json.MarshalIndent(snapshotManifest{
+			Version:   1,
+			StackName: "dev-stack",
+		}, "", "  ")
+		if err != nil {
+			t.Fatalf("marshal manifest: %v", err)
+		}
+		if err := writeTarEntry(writer, "manifest.json", manifestData); err != nil {
+			t.Fatalf("write manifest: %v", err)
+		}
+		if err := writeTarEntry(writer, "volumes/../redis.tar", []byte("payload")); err != nil {
+			t.Fatalf("write dirty entry: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close tar writer: %v", err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatalf("close archive: %v", err)
+		}
+
+		_, _, cleanup, err := readSnapshotArchive(archivePath)
+		if cleanup != nil {
+			defer cleanup()
+		}
+		if err == nil || !strings.Contains(err.Error(), "must use a clean relative path") {
+			t.Fatalf("unexpected dirty-entry error: %v", err)
+		}
+	})
+}
+
+func TestSnapshotArchivePathHelpers(t *testing.T) {
+	t.Run("normalize snapshot archive entry", func(t *testing.T) {
+		entry, err := normalizeSnapshotArchiveEntry("./volumes/redis.tar")
+		if err != nil {
+			t.Fatalf("normalizeSnapshotArchiveEntry returned error: %v", err)
+		}
+		if entry != "volumes/redis.tar" {
+			t.Fatalf("unexpected normalized entry: %q", entry)
+		}
+	})
+
+	t.Run("reject invalid archive entries", func(t *testing.T) {
+		testCases := []string{"", "/redis.tar", "../redis.tar", "volumes/../redis.tar"}
+		for _, name := range testCases {
+			if _, err := normalizeSnapshotArchiveEntry(name); err == nil {
+				t.Fatalf("expected normalizeSnapshotArchiveEntry(%q) to fail", name)
+			}
+		}
+	})
+
+	t.Run("reject invalid archive roots", func(t *testing.T) {
+		if _, _, err := openSnapshotPathRoot(string(filepath.Separator)); err == nil {
+			t.Fatal("expected openSnapshotPathRoot to reject the root path")
 		}
 	})
 }

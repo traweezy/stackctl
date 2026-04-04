@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -139,6 +141,60 @@ func TestDoctorFixFallsBackToDetectedPackageManagerWhenConfigBlank(t *testing.T)
 	}
 	if !strings.Contains(stdout, "using detected apt for this run") {
 		t.Fatalf("expected fallback notice, got:\n%s", stdout)
+	}
+}
+
+func TestDoctorFixRequiresYesWhenPromptUnavailable(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			return newReport(
+				doctorpkg.Check{Status: output.StatusMiss, Message: "podman installed"},
+			), nil
+		}
+	})
+
+	_, _, err := executeRoot(t, "doctor", "--fix")
+	if err == nil || !strings.Contains(err.Error(), "automatic fix confirmation required; rerun with --yes") {
+		t.Fatalf("unexpected doctor --fix error: %v", err)
+	}
+}
+
+func TestDoctorFixPromptDeclineLeavesSystemUntouched(t *testing.T) {
+	var doctorRuns int
+	var installCalled bool
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.isTerminal = func() bool { return true }
+		d.promptYesNo = func(io.Reader, io.Writer, string, bool) (bool, error) { return false, nil }
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			doctorRuns++
+			if doctorRuns == 1 {
+				return newReport(
+					doctorpkg.Check{Status: output.StatusMiss, Message: "podman installed"},
+				), nil
+			}
+			return newReport(
+				doctorpkg.Check{Status: output.StatusOK, Message: "podman installed"},
+			), nil
+		}
+		d.installPackages = func(context.Context, system.Runner, string, []system.Requirement) ([]string, error) {
+			installCalled = true
+			return nil, errors.New("install should not run")
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "doctor", "--fix")
+	if err != nil {
+		t.Fatalf("doctor --fix returned error: %v", err)
+	}
+	if doctorRuns != 2 {
+		t.Fatalf("expected doctor to run twice, got %d", doctorRuns)
+	}
+	if installCalled {
+		t.Fatal("expected package installation to be skipped when prompt is declined")
+	}
+	if !strings.Contains(stdout, "no automatic fixes were applied") {
+		t.Fatalf("expected no-fixes message, got:\n%s", stdout)
 	}
 }
 
