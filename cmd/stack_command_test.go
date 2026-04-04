@@ -808,3 +808,208 @@ func TestStackComposeFileExistsRejectsDirectoriesAndErrors(t *testing.T) {
 		t.Fatal("missing files should not count as compose files")
 	}
 }
+
+func TestDeleteStackTargetHandlesConfigRemovalEdgeCases(t *testing.T) {
+	cfg := configpkg.DefaultForStack("staging")
+	cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+
+	t.Run("ignore missing config file", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.removeFile = func(string) error { return os.ErrNotExist }
+			d.currentStackName = func() (string, error) { return "other", nil }
+		})
+
+		result, err := deleteStackTarget(context.Background(), stackTarget{
+			Name:       "staging",
+			ConfigPath: "/tmp/stackctl/stacks/staging.yaml",
+			Config:     cfg,
+		}, false)
+		if err != nil {
+			t.Fatalf("deleteStackTarget returned error: %v", err)
+		}
+		if result.ResetToDefault {
+			t.Fatalf("unexpected reset result: %+v", result)
+		}
+	})
+
+	t.Run("surface config removal errors", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.removeFile = func(string) error { return errors.New("rm failed") }
+		})
+
+		if _, err := deleteStackTarget(context.Background(), stackTarget{
+			Name:       "staging",
+			ConfigPath: "/tmp/stackctl/stacks/staging.yaml",
+			Config:     cfg,
+		}, false); err == nil || !strings.Contains(err.Error(), "delete stack config") {
+			t.Fatalf("expected delete error, got %v", err)
+		}
+	})
+}
+
+func TestPurgeManagedStackPreconditionsCoversGuardrails(t *testing.T) {
+	cfg := configpkg.DefaultForStack("staging")
+	cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+
+	t.Run("requires managed stack", func(t *testing.T) {
+		external := cfg
+		external.Stack.Managed = false
+		if err := purgeManagedStackPreconditions(context.Background(), external); err == nil || !strings.Contains(err.Error(), "managed stack") {
+			t.Fatalf("expected managed-stack error, got %v", err)
+		}
+	})
+
+	t.Run("surfaces data dir lookup errors", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.dataDirPath = func() (string, error) { return "", errors.New("no data dir") }
+		})
+
+		if err := purgeManagedStackPreconditions(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "no data dir") {
+			t.Fatalf("expected data dir error, got %v", err)
+		}
+	})
+
+	t.Run("rejects paths outside the managed root", func(t *testing.T) {
+		outside := cfg
+		outside.Stack.Dir = "/tmp/elsewhere/staging"
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.dataDirPath = func() (string, error) { return "/tmp/stackctl-data", nil }
+		})
+
+		if err := purgeManagedStackPreconditions(context.Background(), outside); err == nil || !strings.Contains(err.Error(), "outside stackctl data dir") {
+			t.Fatalf("expected outside-root error, got %v", err)
+		}
+	})
+
+	t.Run("requires manual stop when running compose file is missing", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.dataDirPath = func() (string, error) { return "/tmp/stackctl-data", nil }
+			d.composePath = func(configpkg.Config) string { return "/tmp/stackctl-data/stacks/staging/compose.yaml" }
+			d.stat = func(path string) (os.FileInfo, error) {
+				return nil, os.ErrNotExist
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: runningContainerJSON(cfg, "postgres")}, nil
+			}
+		})
+
+		if err := purgeManagedStackPreconditions(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "stop it manually before deleting") {
+			t.Fatalf("expected missing compose error, got %v", err)
+		}
+	})
+
+	t.Run("allows runtime detection errors when compose file exists", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.dataDirPath = func() (string, error) { return "/tmp/stackctl-data", nil }
+			d.composePath = func(configpkg.Config) string { return "/tmp/stackctl-data/stacks/staging/compose.yaml" }
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == "/tmp/stackctl-data/stacks/staging/compose.yaml" {
+					return fakeFileInfo{name: "compose.yaml"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{}, errors.New("podman ps failed")
+			}
+		})
+
+		if err := purgeManagedStackPreconditions(context.Background(), cfg); err != nil {
+			t.Fatalf("expected compose-presence fallback, got %v", err)
+		}
+	})
+}
+
+func TestPurgeManagedStackLocalStateQuietHandlesComposeAndRemovalPaths(t *testing.T) {
+	cfg := configpkg.DefaultForStack("staging")
+	cfg.Stack.Dir = "/tmp/stackctl-data/stacks/staging"
+	composePath := "/tmp/stackctl-data/stacks/staging/compose.yaml"
+
+	t.Run("surfaces precondition failures", func(t *testing.T) {
+		external := cfg
+		external.Stack.Managed = false
+		if _, err := purgeManagedStackLocalStateQuiet(context.Background(), external); err == nil || !strings.Contains(err.Error(), "managed stack") {
+			t.Fatalf("expected precondition error, got %v", err)
+		}
+	})
+
+	t.Run("wraps compose down failures", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.dataDirPath = func() (string, error) { return "/tmp/stackctl-data", nil }
+			d.composePath = func(configpkg.Config) string { return composePath }
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == composePath {
+					return fakeFileInfo{name: "compose.yaml"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+			d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
+				return errors.New("compose down failed")
+			}
+		})
+
+		if _, err := purgeManagedStackLocalStateQuiet(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "tear down managed stack") {
+			t.Fatalf("expected compose down error, got %v", err)
+		}
+	})
+
+	t.Run("wraps managed dir removal failures", func(t *testing.T) {
+		withTestDeps(t, func(d *commandDeps) {
+			d.dataDirPath = func() (string, error) { return "/tmp/stackctl-data", nil }
+			d.composePath = func(configpkg.Config) string { return composePath }
+			d.stat = func(path string) (os.FileInfo, error) {
+				return nil, os.ErrNotExist
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+			d.removeAll = func(string) error { return errors.New("remove failed") }
+		})
+
+		if _, err := purgeManagedStackLocalStateQuiet(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "remove managed stack dir") {
+			t.Fatalf("expected removeAll error, got %v", err)
+		}
+	})
+
+	t.Run("removes local state after successful teardown", func(t *testing.T) {
+		composeDownCalled := false
+		removed := ""
+
+		withTestDeps(t, func(d *commandDeps) {
+			d.dataDirPath = func() (string, error) { return "/tmp/stackctl-data", nil }
+			d.composePath = func(configpkg.Config) string { return composePath }
+			d.stat = func(path string) (os.FileInfo, error) {
+				if path == composePath {
+					return fakeFileInfo{name: "compose.yaml"}, nil
+				}
+				return nil, os.ErrNotExist
+			}
+			d.captureResult = func(context.Context, string, string, ...string) (system.CommandResult, error) {
+				return system.CommandResult{Stdout: "[]"}, nil
+			}
+			d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
+				composeDownCalled = true
+				return nil
+			}
+			d.anyContainerExists = func(context.Context, []string) (bool, error) { return false, nil }
+			d.removeAll = func(path string) error {
+				removed = path
+				return nil
+			}
+		})
+
+		removedDir, err := purgeManagedStackLocalStateQuiet(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("purgeManagedStackLocalStateQuiet returned error: %v", err)
+		}
+		if !composeDownCalled {
+			t.Fatal("expected compose down to run when compose file exists")
+		}
+		if removed != cfg.Stack.Dir || removedDir != cfg.Stack.Dir {
+			t.Fatalf("unexpected removed dir values: removed=%q removedDir=%q", removed, removedDir)
+		}
+	})
+}
