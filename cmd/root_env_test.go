@@ -169,3 +169,129 @@ func TestApplyRootEnvOverridesUpdatesAllSupportedEnvironmentVariables(t *testing
 		t.Fatalf("expected trimmed log file override, got %q", got)
 	}
 }
+
+func TestApplyRootEnvOverridesReturnsFirstOverrideError(t *testing.T) {
+	t.Run("bool override failure stops processing", func(t *testing.T) {
+		cmd := &cobra.Command{}
+		cmd.Flags().String("accessible", "", "")
+		cmd.Flags().Bool("plain", false, "")
+		cmd.Flags().String("log-level", "", "")
+		cmd.Flags().String("log-format", "", "")
+		cmd.Flags().String("log-file", "", "")
+
+		if err := cmd.Flags().Set("accessible", "yes"); err != nil {
+			t.Fatalf("set accessible: %v", err)
+		}
+		if err := applyRootEnvOverrides(cmd); err == nil {
+			t.Fatal("expected applyRootEnvOverrides to fail on mismatched bool flag")
+		}
+	})
+
+	t.Run("string override failure is surfaced after bool overrides", func(t *testing.T) {
+		cmd := &cobra.Command{}
+		cmd.Flags().Bool("accessible", false, "")
+		cmd.Flags().Bool("plain", false, "")
+		cmd.Flags().Bool("log-level", false, "")
+		cmd.Flags().String("log-format", "", "")
+		cmd.Flags().String("log-file", "", "")
+
+		t.Setenv("ACCESSIBLE", "")
+		t.Setenv("STACKCTL_WIZARD_PLAIN", "1")
+		if err := cmd.Flags().Set("accessible", "true"); err != nil {
+			t.Fatalf("set accessible: %v", err)
+		}
+		if err := cmd.Flags().Set("plain", "false"); err != nil {
+			t.Fatalf("set plain: %v", err)
+		}
+		if err := cmd.Flags().Set("log-level", "true"); err != nil {
+			t.Fatalf("set log-level: %v", err)
+		}
+
+		if err := applyRootEnvOverrides(cmd); err == nil {
+			t.Fatal("expected applyRootEnvOverrides to fail on mismatched string flag")
+		}
+		if got := os.Getenv("ACCESSIBLE"); got != "1" {
+			t.Fatalf("expected earlier bool override to apply before failure, got %q", got)
+		}
+		if _, ok := os.LookupEnv("STACKCTL_WIZARD_PLAIN"); ok {
+			t.Fatal("expected earlier plain override to unset env before failure")
+		}
+	})
+}
+
+func TestApplyRootEnvOverridesReturnsErrorsFromRemainingOverrideStages(t *testing.T) {
+	tests := []struct {
+		name     string
+		setupCmd func(*cobra.Command) error
+	}{
+		{
+			name: "plain override failure",
+			setupCmd: func(cmd *cobra.Command) error {
+				cmd.Flags().Bool("accessible", false, "")
+				cmd.Flags().String("plain", "", "")
+				cmd.Flags().String("log-level", "", "")
+				cmd.Flags().String("log-format", "", "")
+				cmd.Flags().String("log-file", "", "")
+				if err := cmd.Flags().Set("accessible", "true"); err != nil {
+					return err
+				}
+				return cmd.Flags().Set("plain", "no")
+			},
+		},
+		{
+			name: "log format override failure",
+			setupCmd: func(cmd *cobra.Command) error {
+				cmd.Flags().Bool("accessible", false, "")
+				cmd.Flags().Bool("plain", false, "")
+				cmd.Flags().String("log-level", "", "")
+				cmd.Flags().Bool("log-format", false, "")
+				cmd.Flags().String("log-file", "", "")
+				if err := cmd.Flags().Set("accessible", "true"); err != nil {
+					return err
+				}
+				if err := cmd.Flags().Set("plain", "false"); err != nil {
+					return err
+				}
+				if err := cmd.Flags().Set("log-level", "warn"); err != nil {
+					return err
+				}
+				return cmd.Flags().Set("log-format", "true")
+			},
+		},
+		{
+			name: "log file override failure",
+			setupCmd: func(cmd *cobra.Command) error {
+				cmd.Flags().Bool("accessible", false, "")
+				cmd.Flags().Bool("plain", false, "")
+				cmd.Flags().String("log-level", "", "")
+				cmd.Flags().String("log-format", "", "")
+				cmd.Flags().Bool("log-file", false, "")
+				if err := cmd.Flags().Set("accessible", "true"); err != nil {
+					return err
+				}
+				if err := cmd.Flags().Set("plain", "false"); err != nil {
+					return err
+				}
+				if err := cmd.Flags().Set("log-level", "warn"); err != nil {
+					return err
+				}
+				if err := cmd.Flags().Set("log-format", "json"); err != nil {
+					return err
+				}
+				return cmd.Flags().Set("log-file", "true")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &cobra.Command{}
+			if err := tt.setupCmd(cmd); err != nil {
+				t.Fatalf("setup command flags: %v", err)
+			}
+			if err := applyRootEnvOverrides(cmd); err == nil {
+				t.Fatal("expected applyRootEnvOverrides to surface stage error")
+			}
+		})
+	}
+}

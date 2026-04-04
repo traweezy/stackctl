@@ -191,3 +191,38 @@ func TestFactoryResetStopsBeforeDeletingWhenComposeTeardownFails(t *testing.T) {
 		t.Fatal("expected removal to be skipped when compose teardown fails")
 	}
 }
+
+func TestFactoryResetPromptFormatsTargets(t *testing.T) {
+	t.Run("without managed targets", func(t *testing.T) {
+		got := factoryResetPrompt("/tmp/config", "/tmp/data", nil)
+		for _, fragment := range []string{
+			"DANGEROUS: This permanently deletes all stackctl local state.",
+			"Config dir: /tmp/config",
+			"Data dir:   /tmp/data",
+			"Continue?",
+		} {
+			if !strings.Contains(got, fragment) {
+				t.Fatalf("prompt missing %q:\n%s", fragment, got)
+			}
+		}
+		if strings.Contains(got, "Managed stacks to stop and wipe") {
+			t.Fatalf("prompt should omit managed target section:\n%s", got)
+		}
+	})
+
+	t.Run("with managed targets", func(t *testing.T) {
+		got := factoryResetPrompt("/tmp/config", "/tmp/data", []composeCleanupTarget{
+			{ComposePath: "/tmp/data/stacks/alpha/docker-compose.yml"},
+			{ComposePath: "/tmp/data/stacks/beta/docker-compose.yml"},
+		})
+		for _, fragment := range []string{
+			"Managed stacks to stop and wipe: 2",
+			"  - /tmp/data/stacks/alpha/docker-compose.yml",
+			"  - /tmp/data/stacks/beta/docker-compose.yml",
+		} {
+			if !strings.Contains(got, fragment) {
+				t.Fatalf("prompt missing %q:\n%s", fragment, got)
+			}
+		}
+	})
+}
