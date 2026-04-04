@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -21,6 +22,25 @@ func TestDBShellPropagatesComposeExecErrors(t *testing.T) {
 	_, _, err := executeRoot(t, "db", "shell")
 	if err == nil || !strings.Contains(err.Error(), "psql failed") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDBShellPropagatesVerboseComposeWriteErrors(t *testing.T) {
+	withTestDeps(t, func(d *commandDeps) {
+		d.loadConfig = func(string) (configpkg.Config, error) { return configpkg.Default(), nil }
+		d.composeExec = func(context.Context, system.Runner, configpkg.Config, string, []string, []string, bool) error {
+			t.Fatal("composeExec should not run when verbose compose output fails")
+			return nil
+		}
+	})
+
+	root := NewRootCmd(NewApp())
+	root.SetOut(&failingWriteBuffer{failAfter: 1})
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"--verbose", "db", "shell"})
+
+	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "write failed") {
+		t.Fatalf("expected db shell verbose write failure, got %v", err)
 	}
 }
 
