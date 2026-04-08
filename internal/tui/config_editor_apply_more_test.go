@@ -411,9 +411,9 @@ func TestModelConfirmationAndConfigSelectionBranches(t *testing.T) {
 
 	current.configEditor.selectedKey = "ports.postgres"
 	current.configEditor.refreshList(false)
-		if got := sidebarCompactSelectionLabel(current); got != "Postgres po…" {
-			t.Fatalf("unexpected compact config selection label: %q", got)
-		}
+	if got := sidebarCompactSelectionLabel(current); got != "Postgres po…" {
+		t.Fatalf("unexpected compact config selection label: %q", got)
+	}
 	lines := sidebarSelectionLines(current)
 	if len(lines) != 2 || !strings.Contains(lines[0], "Postgres port") || !strings.Contains(lines[1], "Ports") {
 		t.Fatalf("unexpected config sidebar selection lines: %+v", lines)
