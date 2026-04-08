@@ -86,7 +86,7 @@ func TestModelUpdateCoversKeyGuardAndToggleBranches(t *testing.T) {
 
 	current.active = servicesSection
 	current.selectedService = serviceKey(postgres)
-	updated, cmd = current.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
+	updated, _ = current.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
 	current = updated.(Model)
 	if current.palette == nil {
 		t.Fatal("expected quick jump to open a palette in services view")
@@ -103,7 +103,7 @@ func TestModelUpdateCoversKeyGuardAndToggleBranches(t *testing.T) {
 
 	current.active = servicesSection
 	current.selectedService = serviceKey(postgres)
-	updated, cmd = current.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	updated, _ = current.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	current = updated.(Model)
 	if current.palette == nil {
 		t.Fatal("expected copy-value key to open the copy palette")
