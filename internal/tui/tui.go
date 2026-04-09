@@ -822,8 +822,13 @@ func (m Model) View() tea.View {
 
 	header := renderHeader(m)
 	status := renderGlobalStatus(m, m.width)
-	body := renderBody(m)
 	footer := m.footerView()
+	sidebarWidth, bodyHeight, mainWidth := m.bodyDimensionsForHeights(
+		lipgloss.Height(header),
+		lipgloss.Height(status),
+		lipgloss.Height(footer),
+	)
+	body := renderBodyWithDimensions(m, sidebarWidth, bodyHeight, mainWidth)
 
 	blocks := []string{header}
 	if status != "" {
@@ -1198,13 +1203,18 @@ func (m *Model) syncLayout() {
 }
 
 func (m Model) bodyDimensions() (int, int, int) {
+	return m.bodyDimensionsForHeights(
+		lipgloss.Height(renderHeader(m)),
+		lipgloss.Height(renderGlobalStatus(m, m.width)),
+		lipgloss.Height(m.footerView()),
+	)
+}
+
+func (m Model) bodyDimensionsForHeights(headerHeight, statusHeight, footerHeight int) (int, int, int) {
 	sidebarWidth := 26
 	if m.active == configSection {
 		sidebarWidth = 22
 	}
-	headerHeight := lipgloss.Height(renderHeader(m))
-	statusHeight := lipgloss.Height(renderGlobalStatus(m, m.width))
-	footerHeight := lipgloss.Height(m.footerView())
 
 	bodyHeight := m.height - headerHeight - statusHeight - footerHeight
 	if bodyHeight < 4 {
@@ -1576,11 +1586,15 @@ func renderHeader(m Model) string {
 
 func renderBody(m Model) string {
 	sidebarWidth, bodyHeight, mainWidth := m.bodyDimensions()
+	return renderBodyWithDimensions(m, sidebarWidth, bodyHeight, mainWidth)
+}
+
+func renderBodyWithDimensions(m Model, sidebarWidth, bodyHeight, mainWidth int) string {
 	panelStyle := mainPanelStyle()
 	mainInnerWidth := maxInt(20, mainWidth-panelStyle.GetHorizontalFrameSize())
 	mainInnerHeight := maxInt(4, bodyHeight-panelStyle.GetVerticalFrameSize())
 
-	sidebar := sidebarStyle().Width(sidebarWidth).Height(bodyHeight).Render(renderSidebar(m))
+	sidebar := sidebarStyle().Width(sidebarWidth).Height(bodyHeight).Render(renderSidebarWithHeight(m, bodyHeight))
 	mainContent := m.viewport.View()
 	if m.confirmation != nil {
 		mainContent = renderConfirmationPanel(m.confirmation, mainInnerWidth, mainInnerHeight)
@@ -1593,6 +1607,11 @@ func renderBody(m Model) string {
 }
 
 func renderSidebar(m Model) string {
+	_, bodyHeight, _ := m.bodyDimensions()
+	return renderSidebarWithHeight(m, bodyHeight)
+}
+
+func renderSidebarWithHeight(m Model, bodyHeight int) string {
 	lines := []string{sectionTitleStyle().Render("Sections"), ""}
 	for _, candidate := range sections {
 		label := candidate.Title()
@@ -1603,7 +1622,7 @@ func renderSidebar(m Model) string {
 		lines = append(lines, navItemStyle().Render("  "+label))
 	}
 
-	if sessionRail := renderSessionRail(m); sessionRail != "" {
+	if sessionRail := renderSessionRailWithHeight(m, bodyHeight); sessionRail != "" {
 		lines = append(lines, "", sessionRail)
 	}
 
@@ -1621,6 +1640,10 @@ func renderSidebar(m Model) string {
 
 func renderSessionRail(m Model) string {
 	_, bodyHeight, _ := m.bodyDimensions()
+	return renderSessionRailWithHeight(m, bodyHeight)
+}
+
+func renderSessionRailWithHeight(m Model, bodyHeight int) string {
 	if bodyHeight <= 18 {
 		return ""
 	}
