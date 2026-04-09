@@ -232,6 +232,8 @@ type frameRenderCache struct {
 	headerValue string
 	footerKey   string
 	footerValue string
+	bodyKey     string
+	bodyValue   string
 }
 
 func (h helpBindings) ShortHelp() []key.Binding {
@@ -414,6 +416,7 @@ type Model struct {
 	palette          *paletteState
 	configEditor     configEditor
 	renderCache      *frameRenderCache
+	contentVersion   uint64
 }
 
 func NewModel(loader Loader) Model {
@@ -1224,6 +1227,7 @@ func (m *Model) syncLayout() {
 		m.configEditor.setSize(m.viewport.Width(), m.viewport.Height(), m.showSecrets)
 	}
 	m.viewport.SetContent(m.currentContent())
+	m.contentVersion++
 }
 
 func (m Model) bodyDimensions() (int, int, int) {
@@ -1647,6 +1651,21 @@ func (m Model) storeFooter(key, value string) {
 	m.renderCache.footerValue = value
 }
 
+func (m Model) cachedBody(key string) (string, bool) {
+	if m.renderCache == nil || m.renderCache.bodyKey != key {
+		return "", false
+	}
+	return m.renderCache.bodyValue, true
+}
+
+func (m Model) storeBody(key, value string) {
+	if m.renderCache == nil {
+		return
+	}
+	m.renderCache.bodyKey = key
+	m.renderCache.bodyValue = value
+}
+
 func (m Model) headerCacheKey() (string, bool) {
 	if m.isBusy() || m.errMessage != "" || m.loading || m.confirmation != nil || m.palette != nil || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
 		return "", false
@@ -1695,12 +1714,31 @@ func (m Model) footerCacheKey() (string, bool) {
 	}, "|"), true
 }
 
+func (m Model) bodyCacheKey(sidebarWidth, bodyHeight, mainWidth int) string {
+	return strings.Join([]string{
+		strconv.FormatUint(m.contentVersion, 10),
+		strconv.Itoa(sidebarWidth),
+		strconv.Itoa(bodyHeight),
+		strconv.Itoa(mainWidth),
+		strconv.Itoa(m.viewport.XOffset()),
+		strconv.Itoa(m.viewport.YOffset()),
+		strconv.FormatBool(m.mouseEnabled),
+		strconv.FormatBool(m.backgroundDark),
+		strings.TrimSpace(m.appVersion),
+	}, "|")
+}
+
 func renderBody(m Model) string {
 	sidebarWidth, bodyHeight, mainWidth := m.bodyDimensions()
 	return renderBodyWithDimensions(m, sidebarWidth, bodyHeight, mainWidth)
 }
 
 func renderBodyWithDimensions(m Model, sidebarWidth, bodyHeight, mainWidth int) string {
+	cacheKey := m.bodyCacheKey(sidebarWidth, bodyHeight, mainWidth)
+	if cached, ok := m.cachedBody(cacheKey); ok {
+		return cached
+	}
+
 	panelStyle := mainPanelStyle()
 	mainInnerWidth := maxInt(20, mainWidth-panelStyle.GetHorizontalFrameSize())
 	mainInnerHeight := maxInt(4, bodyHeight-panelStyle.GetVerticalFrameSize())
@@ -1714,7 +1752,9 @@ func renderBodyWithDimensions(m Model, sidebarWidth, bodyHeight, mainWidth int) 
 	}
 	main := panelStyle.Width(mainWidth).Height(bodyHeight).Render(mainContent)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
+	rendered := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, main)
+	m.storeBody(cacheKey, rendered)
+	return rendered
 }
 
 func renderSidebar(m Model) string {
