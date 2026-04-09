@@ -34,11 +34,18 @@ benchstat /tmp/stackctl-old.txt /tmp/stackctl-new.txt
 
 Use this when a change affects:
 
+- root-command startup and command construction
 - TUI rendering
 - palette filtering or paging
 - runtime service shaping
 - output formatting
 - config or wizard helpers
+
+Current committed startup benchmarks live in `main_benchmark_test.go`:
+
+- `BenchmarkCLIHelp`
+- `BenchmarkCLIVersion`
+- `BenchmarkCLITUIHelp`
 
 ### CPU, memory, and execution traces
 
@@ -98,10 +105,28 @@ Rules:
 The Go toolchain will automatically apply `default.pgo` when it is present in
 the main package directory.
 
+Use the repo-local evaluation flow before committing one:
+
+```bash
+bash scripts/evaluate-pgo.sh
+```
+
+Current decision as of 2026-04-09:
+
+- do not commit `default.pgo` yet
+- a candidate profile generated from the committed root startup benchmarks
+  improved `go test` benchmark samples for `--help` and `tui --help`
+- the same candidate produced mixed release-style `go build -trimpath`
+  startup results in `hyperfine`: `--help` was slower, while `version` and
+  `tui --help` were effectively neutral to slightly positive
+- re-evaluate after another representative idle-session or runtime-heavy
+  profile capture, not from synthetic startup samples alone
+
 ## Repo-specific hotspots
 
 The main candidates to measure before release are:
 
+- `main_benchmark_test.go`
 - `internal/tui/tui.go`
 - `internal/tui/palette.go`
 - `cmd/runtime.go`
@@ -119,7 +144,7 @@ The practical questions for this repo are:
 
 Before `1.0.0`, we should have:
 
-- at least one committed benchmark file for `cmd` or `internal/tui`
+- at least one committed benchmark file for `main`, `cmd`, or `internal/tui`
 - a repeatable `hyperfine` CLI benchmark path
 - one representative profile capture used to evaluate PGO
 - a documented decision on whether the TUI should set an explicit Bubble Tea FPS

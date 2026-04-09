@@ -60,6 +60,14 @@ If you change release packaging, also qualify the snapshot release path:
 goreleaser release --snapshot --clean
 ```
 
+If you change CLI startup, runtime shaping, or TUI performance-sensitive code,
+also run:
+
+```bash
+bash scripts/bench-cli.sh
+bash scripts/evaluate-pgo.sh
+```
+
 If you change README or docs links, also run:
 
 ```bash
