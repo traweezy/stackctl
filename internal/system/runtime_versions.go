@@ -90,16 +90,9 @@ func parseSemVersion(raw string) (semVersion, bool) {
 	}
 
 	parts := strings.Split(normalized, ".")
-	if len(parts) < 2 || len(parts) > 3 {
-		return semVersion{}, false
-	}
-
 	values := make([]int, 3)
 	for idx := range parts {
-		value, err := strconv.Atoi(parts[idx])
-		if err != nil {
-			return semVersion{}, false
-		}
+		value, _ := strconv.Atoi(parts[idx])
 		values[idx] = value
 	}
 

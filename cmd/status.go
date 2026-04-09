@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var marshalStatusJSON = json.MarshalIndent
+
 func newStatusCmd() *cobra.Command {
 	var jsonOutput bool
 
@@ -33,7 +35,7 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			if jsonOutput {
-				data, err := json.MarshalIndent(containers, "", "  ")
+				data, err := marshalStatusJSON(containers, "", "  ")
 				if err != nil {
 					return err
 				}

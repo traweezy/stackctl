@@ -18,6 +18,13 @@ import (
 	"github.com/traweezy/stackctl/internal/system"
 )
 
+var (
+	runtimeEnabledServiceDefinitions      = enabledServiceDefinitions
+	runtimeEnabledStackServiceDefinitions = enabledStackServiceDefinitions
+	runtimeServiceDefinitionByAlias       = serviceDefinitionByAlias
+	marshalRuntimeJSON                    = json.MarshalIndent
+)
+
 func loadRuntimeConfig(cmd *cobra.Command, allowFirstRun bool) (configpkg.Config, error) {
 	path, err := deps.configFilePath()
 	if err != nil {
@@ -99,7 +106,7 @@ func ensureComposeRuntimeForConfig(cfg configpkg.Config) error {
 }
 
 func serviceContainer(cfg configpkg.Config, service string) (string, error) {
-	definition, ok := serviceDefinitionByAlias(service)
+	definition, ok := runtimeServiceDefinitionByAlias(service)
 	if !ok || definition.Kind != serviceKindStack {
 		return "", fmt.Errorf("invalid service %q; valid values: %s", service, validStackServiceNames())
 	}
@@ -110,7 +117,7 @@ func serviceContainer(cfg configpkg.Config, service string) (string, error) {
 }
 
 func canonicalServiceName(service string) (string, error) {
-	definition, ok := serviceDefinitionByAlias(service)
+	definition, ok := runtimeServiceDefinitionByAlias(service)
 	if !ok || definition.Kind != serviceKindStack {
 		return "", fmt.Errorf("invalid service %q; valid values: %s", service, validStackServiceNames())
 	}
@@ -119,7 +126,7 @@ func canonicalServiceName(service string) (string, error) {
 
 func stackContainerNames(cfg configpkg.Config) []string {
 	names := make([]string, 0, len(serviceDefinitions()))
-	for _, definition := range enabledStackServiceDefinitions(cfg) {
+	for _, definition := range runtimeEnabledStackServiceDefinitions(cfg) {
 		if definition.ContainerName == nil {
 			continue
 		}
@@ -236,7 +243,7 @@ func healthChecks(ctx context.Context, cfg configpkg.Config) ([]outputLine, erro
 
 	containerByName := mapContainersByName(containers)
 
-	for _, definition := range enabledServiceDefinitions(cfg) {
+	for _, definition := range runtimeEnabledServiceDefinitions(cfg) {
 		if definition.PrimaryPort == nil || definition.PrimaryPortLabel == "" {
 			continue
 		}
@@ -367,7 +374,7 @@ type envGroup struct {
 
 func configuredStackServices(cfg configpkg.Config) []configuredService {
 	services := make([]configuredService, 0, len(serviceDefinitions()))
-	for _, definition := range enabledStackServiceDefinitions(cfg) {
+	for _, definition := range runtimeEnabledStackServiceDefinitions(cfg) {
 		if definition.ContainerName == nil || definition.PrimaryPort == nil {
 			continue
 		}
@@ -554,7 +561,7 @@ func printServicesJSON(cmd *cobra.Command, cfg configpkg.Config) error {
 
 	// #nosec G117 -- JSON output intentionally keeps non-secret access keys while
 	// omitting passwords, tokens, and secret keys from the payload.
-	data, err := json.MarshalIndent(services, "", "  ")
+	data, err := marshalRuntimeJSON(services, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -751,15 +758,13 @@ func writeConnectionEntries(out io.Writer, entries []connectionEntry) error {
 
 func formatConnectionEntries(entries []connectionEntry) string {
 	var builder strings.Builder
-	if err := writeConnectionEntries(&builder, entries); err != nil {
-		return ""
-	}
+	_ = writeConnectionEntries(&builder, entries)
 	return strings.TrimSpace(builder.String())
 }
 
 func connectionEntries(cfg configpkg.Config) []connectionEntry {
 	entries := make([]connectionEntry, 0, len(serviceDefinitions()))
-	for _, definition := range enabledServiceDefinitions(cfg) {
+	for _, definition := range runtimeEnabledServiceDefinitions(cfg) {
 		if definition.ConnectionEntries == nil {
 			continue
 		}
@@ -779,7 +784,7 @@ func envGroups(cfg configpkg.Config, services []string) ([]envGroup, error) {
 	}
 
 	if len(services) == 0 {
-		for _, definition := range enabledServiceDefinitions(cfg) {
+		for _, definition := range runtimeEnabledServiceDefinitions(cfg) {
 			group := envGroupForDefinition(cfg, definition)
 			if len(group.Entries) == 0 {
 				continue
@@ -792,7 +797,7 @@ func envGroups(cfg configpkg.Config, services []string) ([]envGroup, error) {
 	selected := make([]serviceDefinition, 0, len(services))
 	seen := make([]string, 0, len(services))
 	for _, service := range services {
-		definition, ok := serviceDefinitionByAlias(service)
+		definition, ok := runtimeServiceDefinitionByAlias(service)
 		if !ok {
 			return nil, fmt.Errorf("invalid env target %q; valid values: %s", service, validEnvTargetNames())
 		}
@@ -855,7 +860,7 @@ func printEnvJSON(cmd *cobra.Command, cfg configpkg.Config, services []string) e
 		return err
 	}
 
-	data, err := json.MarshalIndent(flattenEnvGroups(groups), "", "  ")
+	data, err := marshalRuntimeJSON(flattenEnvGroups(groups), "", "  ")
 	if err != nil {
 		return err
 	}
@@ -895,9 +900,7 @@ func writeEnvGroups(out io.Writer, groups []envGroup, export bool) error {
 
 func formatEnvGroups(groups []envGroup, export bool) string {
 	var builder strings.Builder
-	if err := writeEnvGroups(&builder, groups, export); err != nil {
-		return ""
-	}
+	_ = writeEnvGroups(&builder, groups, export)
 	return strings.TrimSpace(builder.String())
 }
 

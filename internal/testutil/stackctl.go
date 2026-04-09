@@ -12,13 +12,15 @@ import (
 )
 
 var (
-	buildOnce  sync.Once
-	binaryPath string
-	buildErr   error
+	buildOnce     sync.Once
+	binaryPath    string
+	buildErr      error
+	runtimeCaller = runtime.Caller
+	osEnviron     = os.Environ
 )
 
 func RepoRoot() string {
-	_, file, _, ok := runtime.Caller(0)
+	_, file, _, ok := runtimeCaller(0)
 	if !ok {
 		panic("resolve repo root: runtime.Caller failed")
 	}
@@ -41,7 +43,7 @@ func BuildStackctlBinary(t testing.TB) string {
 		// Go toolchain and a temp output path controlled in-process.
 		cmd := exec.Command("go", "build", "-o", binaryPath, ".")
 		cmd.Dir = RepoRoot()
-		cmd.Env = os.Environ()
+		cmd.Env = osEnviron()
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			buildErr = fmt.Errorf("build stackctl test binary: %w\n%s", err, string(output))
@@ -59,7 +61,7 @@ func MergeEnv(overrides []string) []string {
 	envMap := make(map[string]string)
 	order := make([]string, 0)
 
-	for _, entry := range os.Environ() {
+	for _, entry := range osEnviron() {
 		name, value, ok := strings.Cut(entry, "=")
 		if !ok {
 			continue

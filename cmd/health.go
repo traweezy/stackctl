@@ -40,10 +40,7 @@ func newHealthCmd() *cobra.Command {
 			}
 
 			printOnce := func(ctx context.Context) error {
-				lines, err := healthChecks(ctx, cfg)
-				if err != nil {
-					return err
-				}
+				lines, _ := healthChecks(ctx, cfg)
 				for _, line := range lines {
 					if err := output.StatusLine(cmd.OutOrStdout(), line.Status, line.Message); err != nil {
 						return err

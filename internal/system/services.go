@@ -15,13 +15,17 @@ func CommandExists(name string) bool {
 }
 
 func OpenCommandName() string {
-	switch runtime.GOOS {
+	return openCommandNameFor(runtime.GOOS, CommandExists)
+}
+
+func openCommandNameFor(goos string, commandExists func(string) bool) string {
+	switch goos {
 	case "darwin":
-		if CommandExists("open") {
+		if commandExists("open") {
 			return "open"
 		}
 	case "linux":
-		if CommandExists("xdg-open") {
+		if commandExists("xdg-open") {
 			return "xdg-open"
 		}
 	}

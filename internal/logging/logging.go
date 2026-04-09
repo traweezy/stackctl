@@ -25,8 +25,9 @@ type loggerState struct {
 }
 
 var (
-	loggerOnce sync.Once
-	state      loggerState
+	loggerOnce  sync.Once
+	state       loggerState
+	openLogRoot = os.OpenRoot
 )
 
 func Logger() *charmlog.Logger {
@@ -132,7 +133,7 @@ func openLogFile(target string) (*os.File, error) {
 		return nil, err
 	}
 
-	root, err := os.OpenRoot(dir)
+	root, err := openLogRoot(dir)
 	if err != nil {
 		return nil, err
 	}

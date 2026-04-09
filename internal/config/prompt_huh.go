@@ -23,6 +23,12 @@ const (
 )
 
 var (
+	runHuhForm                     = func(form *huh.Form) error { return form.Run() }
+	runHuhReviewForm               = func(form *huh.Form) error { return form.Run() }
+	runWizardReviewStep            = runWizardReview
+	wizardStateToConfigForPlatform = func(state wizardState, base Config, platform system.Platform) (Config, error) {
+		return state.toConfigForPlatform(base, platform)
+	}
 	wizardServiceLabels = map[string]string{
 		"postgres":    "Postgres",
 		"redis":       "Redis",
@@ -277,12 +283,12 @@ func runHuhWizardWithPlatform(in io.Reader, out io.Writer, base Config, platform
 		WithOutput(out).
 		WithTheme(wizardTheme(out)).
 		WithAccessible(os.Getenv("ACCESSIBLE") != "")
-	if err := form.Run(); err != nil {
+	if err := runHuhForm(form); err != nil {
 		log.Warn("wizard form cancelled", "error", err)
 		return Config{}, err
 	}
 
-	confirmed, err := runWizardReview(in, out, state)
+	confirmed, err := runWizardReviewStep(in, out, state)
 	if err != nil {
 		log.Warn("wizard review failed", "error", err)
 		return Config{}, err
@@ -292,7 +298,7 @@ func runHuhWizardWithPlatform(in io.Reader, out io.Writer, base Config, platform
 		return Config{}, errors.New("wizard cancelled")
 	}
 
-	cfg, err := state.toConfigForPlatform(normalizedBase, platform)
+	cfg, err := wizardStateToConfigForPlatform(state, normalizedBase, platform)
 	if err != nil {
 		log.Error("wizard config conversion failed", "error", err)
 		return Config{}, err
@@ -747,7 +753,7 @@ func runWizardReview(in io.Reader, out io.Writer, state wizardState) (bool, erro
 		WithTheme(wizardTheme(out)).
 		WithAccessible(os.Getenv("ACCESSIBLE") != "")
 
-	if err := reviewForm.Run(); err != nil {
+	if err := runHuhReviewForm(reviewForm); err != nil {
 		return false, err
 	}
 

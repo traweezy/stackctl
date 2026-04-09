@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var marshalVersionJSON = json.MarshalIndent
+
 func newVersionCmd(app *App) *cobra.Command {
 	var jsonOutput bool
 
@@ -23,7 +25,7 @@ func newVersionCmd(app *App) *cobra.Command {
 				BuildDate: app.BuildDate,
 			}
 			if jsonOutput {
-				data, err := json.MarshalIndent(info, "", "  ")
+				data, err := marshalVersionJSON(info, "", "  ")
 				if err != nil {
 					return err
 				}

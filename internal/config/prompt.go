@@ -13,13 +13,15 @@ import (
 	"golang.org/x/term"
 )
 
+var clearWizardScreenFunc = clearWizardScreen
+
 const maxIntValue = int(^uint(0) >> 1)
 
 func RunWizard(in io.Reader, out io.Writer, base Config) (Config, error) {
 	if shouldUsePlainWizard(in, out) {
 		return runPlainWizardWithPlatform(in, out, base, platformForInteractiveConfig(base, system.CurrentPlatform()))
 	}
-	if err := clearWizardScreen(out); err != nil {
+	if err := clearWizardScreenFunc(out); err != nil {
 		return Config{}, err
 	}
 

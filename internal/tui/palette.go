@@ -29,6 +29,22 @@ type DBShellRequest struct {
 
 type DBShellLauncher func(DBShellRequest) (tea.ExecCommand, error)
 
+var newHandoffDoneMsg = func(historyID int, action paletteAction, message string, err error, refresh bool) handoffDoneMsg {
+	return handoffDoneMsg{
+		historyID: historyID,
+		action:    action,
+		message:   message,
+		err:       err,
+		refresh:   refresh,
+	}
+}
+
+func handoffDoneCallback(historyID int, action paletteAction, message string, refresh bool) tea.ExecCallback {
+	return func(err error) tea.Msg {
+		return newHandoffDoneMsg(historyID, action, message, err, refresh)
+	}
+}
+
 type paletteMode string
 
 const (
@@ -1187,15 +1203,7 @@ func (m *Model) startHandoffAction(action paletteAction, execCmd tea.ExecCommand
 
 	return tea.Batch(
 		m.beginBusy(m.currentBusyBudget()),
-		tea.Exec(execCmd, func(err error) tea.Msg {
-			return handoffDoneMsg{
-				historyID: historyID,
-				action:    action,
-				message:   doneMessage,
-				err:       err,
-				refresh:   refresh,
-			}
-		}),
+		tea.Exec(execCmd, handoffDoneCallback(historyID, action, doneMessage, refresh)),
 	)
 }
 

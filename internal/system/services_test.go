@@ -29,6 +29,18 @@ func TestOpenURLRunsPlatformOpener(t *testing.T) {
 	}
 }
 
+func TestOpenCommandNameForCoversHostSpecificBranches(t *testing.T) {
+	if got := openCommandNameFor("darwin", func(name string) bool { return name == "open" }); got != "open" {
+		t.Fatalf("expected darwin open command, got %q", got)
+	}
+	if got := openCommandNameFor("linux", func(string) bool { return false }); got != "" {
+		t.Fatalf("expected missing linux opener to return empty string, got %q", got)
+	}
+	if got := openCommandNameFor("windows", func(string) bool { return true }); got != "" {
+		t.Fatalf("expected unsupported host to return empty string, got %q", got)
+	}
+}
+
 func TestOpenURLReturnsErrorWithoutSupportedOpener(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 

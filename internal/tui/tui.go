@@ -2222,6 +2222,7 @@ func healthReachabilityLabel(service Service) string {
 }
 
 func healthNote(service Service) string {
+	rawStatus := strings.TrimSpace(strings.ToLower(service.Status))
 	status := displayServiceStatus(service)
 	switch {
 	case transitionalServiceStatus(status):
@@ -2230,7 +2231,7 @@ func healthNote(service Service) string {
 		return "Container is running, but the host port is not reachable yet."
 	case service.PortConflict:
 		return "Host port is busy outside this stack."
-	case strings.EqualFold(status, "missing"):
+	case rawStatus == "missing":
 		if isStackService(service) {
 			return "Managed container is not present yet."
 		}

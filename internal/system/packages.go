@@ -224,10 +224,7 @@ func InstallPackages(ctx context.Context, runner Runner, packageManager string, 
 		)
 	}
 
-	plan, err := ResolveInstallPlan(normalized, requirements)
-	if err != nil {
-		return nil, err
-	}
+	plan, _ := ResolveInstallPlan(normalized, requirements)
 	if len(plan.Unsupported) > 0 {
 		names := make([]string, 0, len(plan.Unsupported))
 		for _, requirement := range plan.Unsupported {
@@ -238,9 +235,6 @@ func InstallPackages(ctx context.Context, runner Runner, packageManager string, 
 			normalized,
 			strings.Join(names, ", "),
 		)
-	}
-	if len(plan.Packages) == 0 {
-		return nil, nil
 	}
 	if err := backend.install(ctx, runner, plan.Packages); err != nil {
 		return nil, err

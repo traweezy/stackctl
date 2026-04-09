@@ -15,6 +15,8 @@ import (
 
 var ErrNotFound = errors.New("stackctl config not found")
 
+var marshalConfigYAML = yaml.Marshal
+
 type Config struct {
 	SchemaVersion int              `yaml:"schema_version"`
 	Stack         StackConfig      `yaml:"stack"`
@@ -208,7 +210,7 @@ func Save(path string, cfg Config) error {
 		return fmt.Errorf("create config directory for %q: %w", resolvedPath, err)
 	}
 
-	data, err := yaml.Marshal(cfg)
+	data, err := marshalConfigYAML(cfg)
 	if err != nil {
 		log.Error("config marshal failed", "error", err)
 		return fmt.Errorf("marshal config: %w", err)
@@ -226,7 +228,7 @@ func Save(path string, cfg Config) error {
 func Marshal(cfg Config) ([]byte, error) {
 	cfg.ApplyDerivedFields()
 
-	data, err := yaml.Marshal(cfg)
+	data, err := marshalConfigYAML(cfg)
 	if err != nil {
 		logging.With("component", "config").Error("config marshal failed", "error", err)
 		return nil, fmt.Errorf("marshal config: %w", err)

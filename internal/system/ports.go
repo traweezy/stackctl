@@ -8,8 +8,10 @@ import (
 	"time"
 )
 
+var listenPort = net.Listen
+
 func PortInUse(port int) (bool, error) {
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	listener, err := listenPort("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err == nil {
 		_ = listener.Close()
 		return false, nil

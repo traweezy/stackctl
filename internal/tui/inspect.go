@@ -10,6 +10,8 @@ import (
 	"github.com/traweezy/stackctl/internal/output"
 )
 
+var inspectPickSelectedName = pickSelectedName
+
 const (
 	splitPaneMinWidth   = 96
 	defaultListPaneMinW = 34
@@ -99,7 +101,7 @@ func cycleSelectedName(selected string, available []string, step int) string {
 }
 
 func selectedService(snapshot Snapshot, selected string) (Service, bool) {
-	name := pickSelectedName(selected, selectableServiceNames(snapshot))
+	name := inspectPickSelectedName(selected, selectableServiceNames(snapshot))
 	if name == "" {
 		return Service{}, false
 	}
@@ -113,7 +115,7 @@ func selectedService(snapshot Snapshot, selected string) (Service, bool) {
 }
 
 func selectedStackProfile(snapshot Snapshot, selected string) (StackProfile, bool) {
-	name := pickSelectedName(selected, selectableStackNames(snapshot))
+	name := inspectPickSelectedName(selected, selectableStackNames(snapshot))
 	if name == "" {
 		return StackProfile{}, false
 	}

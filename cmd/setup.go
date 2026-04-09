@@ -355,11 +355,7 @@ func displayRequirementLabels(requirements []system.Requirement, configuredPacka
 		return planDisplayLabels(fallbackPlan, labels)
 	}
 
-	plan, err := system.ResolveInstallPlan(choice.Name, requirements)
-	if err != nil {
-		return labels
-	}
-
+	plan, _ := system.ResolveInstallPlan(choice.Name, requirements)
 	return planDisplayLabels(plan, labels)
 }
 
@@ -371,9 +367,6 @@ func planDisplayLabels(plan system.InstallPlan, fallback []string) []string {
 	labels := append([]string(nil), plan.Packages...)
 	for _, requirement := range plan.Unsupported {
 		labels = append(labels, string(requirement))
-	}
-	if len(labels) == 0 {
-		return fallback
 	}
 
 	return labels

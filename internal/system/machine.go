@@ -83,14 +83,7 @@ func podmanMachineStatusWithDeps(
 }
 
 func PreparePodmanMachine(ctx context.Context, runner Runner) error {
-	return preparePodmanMachineWithDeps(
-		ctx,
-		CommandExists,
-		PodmanMachineStatus,
-		func(ctx context.Context, dir, name string, args ...string) error {
-			return runner.Run(ctx, dir, name, args...)
-		},
-	)
+	return preparePodmanMachineWithDeps(ctx, CommandExists, PodmanMachineStatus, runner.Run)
 }
 
 func preparePodmanMachineWithDeps(

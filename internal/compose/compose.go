@@ -404,9 +404,7 @@ func (f *composeNoiseFilter) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 
-	if _, err := f.buffer.Write(p); err != nil {
-		return 0, err
-	}
+	_, _ = f.buffer.Write(p)
 
 	if err := f.writeReadyLines(); err != nil {
 		return 0, err

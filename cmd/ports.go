@@ -11,6 +11,8 @@ import (
 	"github.com/traweezy/stackctl/internal/output"
 )
 
+var portMappingDefinitionsForConfig = portMappingDefinitions
+
 type portMapping struct {
 	Service      string
 	DisplayName  string
@@ -74,7 +76,7 @@ func loadPortMappings(ctx context.Context, cfg configpkg.Config) []portMapping {
 
 func configuredPortMappings(cfg configpkg.Config) []portMapping {
 	mappings := make([]portMapping, 0, len(serviceDefinitions()))
-	for _, definition := range portMappingDefinitions(cfg) {
+	for _, definition := range portMappingDefinitionsForConfig(cfg) {
 		if definition.PrimaryPort == nil {
 			continue
 		}
@@ -108,8 +110,6 @@ func writePortMappings(out io.Writer, mappings []portMapping) error {
 
 func formatPortMappings(mappings []portMapping) string {
 	var builder strings.Builder
-	if err := writePortMappings(&builder, mappings); err != nil {
-		return ""
-	}
+	_ = writePortMappings(&builder, mappings)
 	return strings.TrimSpace(builder.String())
 }

@@ -95,6 +95,12 @@ func TestPendingManagedScaffoldIssueMatchesOnlyExpectedManagedDefaults(t *testin
 		t.Fatal("expected mismatched dir issue to remain visible")
 	}
 
+	composeMismatch := cfg
+	composeMismatch.Stack.ComposeFile = "compose.dev.yaml"
+	if pendingManagedScaffoldIssue(composeMismatch, composeIssue) {
+		t.Fatal("expected non-default compose files to keep compose issues")
+	}
+
 	unmanaged := cfg
 	unmanaged.Stack.Managed = false
 	if pendingManagedScaffoldIssue(unmanaged, dirIssue) {

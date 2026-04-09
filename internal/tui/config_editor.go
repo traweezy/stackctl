@@ -20,6 +20,16 @@ import (
 	"github.com/traweezy/stackctl/internal/system"
 )
 
+var (
+	configEditorAnalyzeConfigImpact                 = analyzeConfigImpact
+	configEditorCurrentPackageManagerRecommendation = system.CurrentPackageManagerRecommendation
+	configEditorFormatPackageManagerRecommendation  = system.FormatPackageManagerRecommendation
+	configEditorMarshal                             = configpkg.Marshal
+	configEditorMarshalConfig                       = configMarshalConfig
+	configEditorSpecificFieldEffect                 = specificFieldEffect
+	configEditorEffectFollowUp                      = effectFollowUp
+)
+
 type ConfigSourceState string
 
 const (
@@ -608,7 +618,7 @@ func (e configEditor) applyPlan() configApplyPlan {
 		return plan
 	}
 
-	impact := analyzeConfigImpact(e.baseline, e.draft)
+	impact := configEditorAnalyzeConfigImpact(e.baseline, e.draft)
 	saveNeeded := e.needsSave()
 
 	if impact.stackTarget {
@@ -958,7 +968,7 @@ func (e configEditor) diffText(showSecrets bool) (string, error) {
 	oldData := []byte{}
 	var err error
 	if e.source == ConfigSourceLoaded {
-		oldData, err = configMarshalConfig(oldConfig)
+		oldData, err = configEditorMarshalConfig(oldConfig)
 		if err != nil {
 			return "", err
 		}
@@ -968,7 +978,7 @@ func (e configEditor) diffText(showSecrets bool) (string, error) {
 	if !showSecrets {
 		newConfig = redactConfigSecrets(newConfig)
 	}
-	newData, err := configMarshalConfig(newConfig)
+	newData, err := configEditorMarshalConfig(newConfig)
 	if err != nil {
 		return "", err
 	}
@@ -1342,7 +1352,7 @@ func applyFollowUpMessage(previous configpkg.Config, next configpkg.Config, plan
 }
 
 func saveFollowUpMessage(previous configpkg.Config, next configpkg.Config, runningStack int) string {
-	impact := analyzeConfigImpact(previous, next)
+	impact := configEditorAnalyzeConfigImpact(previous, next)
 	if !impact.changed {
 		return "running services are unchanged"
 	}
@@ -1434,8 +1444,8 @@ func classifyConfigImpact(impact *configImpact, key string, previous configpkg.C
 }
 
 func selectedFieldEffect(spec configFieldSpec, cfg configpkg.Config) string {
-	base := specificFieldEffect(spec, cfg)
-	followUp := effectFollowUp(spec, cfg)
+	base := configEditorSpecificFieldEffect(spec, cfg)
+	followUp := configEditorEffectFollowUp(spec, cfg)
 	switch {
 	case base == "":
 		return followUp
@@ -1566,13 +1576,13 @@ func specificFieldEffect(spec configFieldSpec, cfg configpkg.Config) string {
 		}
 		return "Controls whether setup and doctor fix install and enable Cockpit automatically."
 	case "system.package_manager":
-		recommendation := system.CurrentPackageManagerRecommendation()
+		recommendation := configEditorCurrentPackageManagerRecommendation()
 		if recommendation.Name == "" {
 			return "Controls which package manager setup and doctor fix use for host package installs."
 		}
 		return fmt.Sprintf(
 			"Controls which package manager setup and doctor fix use for host package installs. %s",
-			system.FormatPackageManagerRecommendation(recommendation),
+			configEditorFormatPackageManagerRecommendation(recommendation),
 		)
 	default:
 		return ""
@@ -1646,7 +1656,7 @@ func (e configEditor) runtimeImpactLines() []string {
 
 func configMarshalConfig(cfg configpkg.Config) ([]byte, error) {
 	cfg.ApplyDerivedFields()
-	data, err := configpkg.Marshal(cfg)
+	data, err := configEditorMarshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal config preview: %w", err)
 	}
@@ -2003,9 +2013,6 @@ func parseImageVersionTag(image string) (int, int, bool) {
 	tag = strings.SplitN(tag, "-", 2)[0]
 	tag = strings.SplitN(tag, "@", 2)[0]
 	parts := strings.Split(tag, ".")
-	if len(parts) == 0 {
-		return 0, 0, false
-	}
 
 	major, err := strconv.Atoi(parts[0])
 	if err != nil {

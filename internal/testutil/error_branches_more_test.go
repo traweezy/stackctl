@@ -55,3 +55,21 @@ func TestBuildStackctlBinaryFailsWhenGoToolIsUnavailable(t *testing.T) {
 		t.Fatalf("expected BuildStackctlBinary to fail when the go tool is unavailable, path=%q failed=%v message=%q", path, recorder.failed, recorder.message)
 	}
 }
+
+func TestRepoRootPanicsWhenRuntimeCallerFails(t *testing.T) {
+	originalCaller := runtimeCaller
+	t.Cleanup(func() { runtimeCaller = originalCaller })
+
+	runtimeCaller = func(int) (uintptr, string, int, bool) {
+		return 0, "", 0, false
+	}
+
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected RepoRoot to panic when runtime.Caller fails")
+		}
+	}()
+
+	_ = RepoRoot()
+}

@@ -32,6 +32,8 @@ var newTeaProgram = func(model tea.Model, options ...tea.ProgramOption) teaProgr
 	return tea.NewProgram(model, options...)
 }
 
+var tuiNotifyContext = signal.NotifyContext
+
 func newTUICmd(app *App) *cobra.Command {
 	var mouseMode string
 	var altScreenMode string
@@ -306,10 +308,7 @@ func buildTUISnapshot(configPath string, cfg configpkg.Config, source stacktui.C
 		if err != nil {
 			snapshot.ServiceError = err.Error()
 		}
-		health, err := healthChecks(ctx, cfg)
-		if err != nil {
-			snapshot.HealthError = err.Error()
-		}
+		health, _ := healthChecks(ctx, cfg)
 		snapshot.Services = make([]stacktui.Service, 0, len(services))
 		snapshot.Health = make([]stacktui.HealthLine, 0, len(health))
 
@@ -550,7 +549,7 @@ func (c *tuiLogWatchCommand) SetStderr(writer io.Writer) {
 }
 
 func (c *tuiLogWatchCommand) Run() error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := tuiNotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	runner := system.Runner{
@@ -578,7 +577,7 @@ func (c *tuiServiceShellCommand) SetStderr(writer io.Writer) {
 }
 
 func (c *tuiServiceShellCommand) Run() error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := tuiNotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	runner := system.Runner{
@@ -607,7 +606,7 @@ func (c *tuiDBShellCommand) SetStderr(writer io.Writer) {
 }
 
 func (c *tuiDBShellCommand) Run() error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := tuiNotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	runner := system.Runner{

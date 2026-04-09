@@ -20,6 +20,17 @@ const (
 	completionsDir = "docs/completions"
 )
 
+var (
+	openCLIAssetsRoot          = os.OpenRoot
+	closeCLIAssetsRoot         = func(root *os.Root) error { return root.Close() }
+	newCLIAssetsRootCommand    = func() *cobra.Command { return stackctlcmd.NewRootCmd(stackctlcmd.NewApp()) }
+	recreateCLIAssetsDir       = recreateDir
+	generateCLIAssetsMarkdown  = doc.GenMarkdownTreeCustom
+	generateCLIAssetsMan       = doc.GenManTree
+	normalizeCLIAssetsManDates = normalizeManDates
+	writeCLIAssetsCompletion   = writeCompletionFile
+)
+
 func main() {
 	if err := generateCLIAssets(); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "generate CLI assets: %v\n", err)
@@ -28,60 +39,60 @@ func main() {
 }
 
 func generateCLIAssets() (err error) {
-	repoRoot, err := os.OpenRoot(".")
+	repoRoot, err := openCLIAssetsRoot(".")
 	if err != nil {
 		return err
 	}
 	defer func() {
-		closeErr := repoRoot.Close()
+		closeErr := closeCLIAssetsRoot(repoRoot)
 		if err == nil && closeErr != nil {
 			err = closeErr
 		}
 	}()
 
-	rootCmd := stackctlcmd.NewRootCmd(stackctlcmd.NewApp())
+	rootCmd := newCLIAssetsRootCommand()
 	disableAutoGenTags(rootCmd)
 
-	if err := recreateDir(repoRoot, markdownDir); err != nil {
+	if err := recreateCLIAssetsDir(repoRoot, markdownDir); err != nil {
 		return err
 	}
-	if err := doc.GenMarkdownTreeCustom(rootCmd, markdownDir, func(string) string { return "" }, func(name string) string {
+	if err := generateCLIAssetsMarkdown(rootCmd, markdownDir, func(string) string { return "" }, func(name string) string {
 		return name
 	}); err != nil {
 		return err
 	}
 
-	if err := recreateDir(repoRoot, manDir); err != nil {
+	if err := recreateCLIAssetsDir(repoRoot, manDir); err != nil {
 		return err
 	}
-	if err := doc.GenManTree(rootCmd, &doc.GenManHeader{
+	if err := generateCLIAssetsMan(rootCmd, &doc.GenManHeader{
 		Title:   "stackctl",
 		Section: "1",
 		Source:  "stackctl",
 	}, manDir); err != nil {
 		return err
 	}
-	if err := normalizeManDates(repoRoot, manDir); err != nil {
+	if err := normalizeCLIAssetsManDates(repoRoot, manDir); err != nil {
 		return err
 	}
 
-	if err := recreateDir(repoRoot, completionsDir); err != nil {
+	if err := recreateCLIAssetsDir(repoRoot, completionsDir); err != nil {
 		return err
 	}
-	if err := writeCompletionFile(repoRoot, filepath.Join(completionsDir, "stackctl.bash"), func(w io.Writer) error {
+	if err := writeCLIAssetsCompletion(repoRoot, filepath.Join(completionsDir, "stackctl.bash"), func(w io.Writer) error {
 		return rootCmd.GenBashCompletionV2(w, true)
 	}); err != nil {
 		return err
 	}
-	if err := writeCompletionFile(repoRoot, filepath.Join(completionsDir, "_stackctl"), rootCmd.GenZshCompletion); err != nil {
+	if err := writeCLIAssetsCompletion(repoRoot, filepath.Join(completionsDir, "_stackctl"), rootCmd.GenZshCompletion); err != nil {
 		return err
 	}
-	if err := writeCompletionFile(repoRoot, filepath.Join(completionsDir, "stackctl.fish"), func(w io.Writer) error {
+	if err := writeCLIAssetsCompletion(repoRoot, filepath.Join(completionsDir, "stackctl.fish"), func(w io.Writer) error {
 		return rootCmd.GenFishCompletion(w, true)
 	}); err != nil {
 		return err
 	}
-	if err := writeCompletionFile(repoRoot, filepath.Join(completionsDir, "stackctl.ps1"), rootCmd.GenPowerShellCompletionWithDesc); err != nil {
+	if err := writeCLIAssetsCompletion(repoRoot, filepath.Join(completionsDir, "stackctl.ps1"), rootCmd.GenPowerShellCompletionWithDesc); err != nil {
 		return err
 	}
 

@@ -21,6 +21,16 @@ import (
 	"github.com/traweezy/stackctl/internal/output"
 )
 
+var (
+	marshalSnapshotManifestJSON = json.MarshalIndent
+	openSnapshotExtractionRoot  = os.OpenRoot
+	writeSnapshotManifestEntry  = func(writer *tar.Writer, data []byte) error {
+		return writeTarEntry(writer, "manifest.json", data)
+	}
+	closeSnapshotArchiveWriter = func(writer *tar.Writer) error { return writer.Close() }
+	closeExtractedSnapshotFile = func(file *os.File) error { return file.Close() }
+)
+
 type snapshotManifest struct {
 	Version   int                    `json:"version"`
 	StackName string                 `json:"stack_name"`
@@ -372,11 +382,11 @@ func writeSnapshotArchive(path string, manifest snapshotManifest, files map[stri
 	writer := tar.NewWriter(file)
 	defer func() { _ = writer.Close() }()
 
-	manifestData, err := json.MarshalIndent(manifest, "", "  ")
+	manifestData, err := marshalSnapshotManifestJSON(manifest, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal snapshot manifest: %w", err)
 	}
-	if err := writeTarEntry(writer, "manifest.json", manifestData); err != nil {
+	if err := writeSnapshotManifestEntry(writer, manifestData); err != nil {
 		return fmt.Errorf("write snapshot manifest: %w", err)
 	}
 
@@ -387,7 +397,7 @@ func writeSnapshotArchive(path string, manifest snapshotManifest, files map[stri
 		}
 	}
 
-	if err := writer.Close(); err != nil {
+	if err := closeSnapshotArchiveWriter(writer); err != nil {
 		return fmt.Errorf("finalize snapshot archive %s: %w", path, err)
 	}
 	return file.Close()
@@ -410,7 +420,7 @@ func readSnapshotArchive(path string) (snapshotManifest, map[string]string, func
 	if err != nil {
 		return snapshotManifest{}, nil, nil, fmt.Errorf("create snapshot extraction dir: %w", err)
 	}
-	tempRoot, err := os.OpenRoot(tempDir)
+	tempRoot, err := openSnapshotExtractionRoot(tempDir)
 	if err != nil {
 		_ = os.RemoveAll(tempDir)
 		return snapshotManifest{}, nil, nil, fmt.Errorf("open snapshot extraction dir %s: %w", tempDir, err)
@@ -445,10 +455,6 @@ func readSnapshotArchive(path string) (snapshotManifest, map[string]string, func
 
 		switch entryName {
 		case "manifest.json":
-			if header.Size < 0 {
-				cleanup()
-				return snapshotManifest{}, nil, nil, errors.New("snapshot manifest size is invalid")
-			}
 			if header.Size > maxSnapshotManifestBytes {
 				cleanup()
 				return snapshotManifest{}, nil, nil, fmt.Errorf("snapshot manifest exceeds %d bytes", maxSnapshotManifestBytes)
@@ -476,17 +482,12 @@ func readSnapshotArchive(path string) (snapshotManifest, map[string]string, func
 				cleanup()
 				return snapshotManifest{}, nil, nil, fmt.Errorf("create extracted snapshot file %s: %w", entryName, err)
 			}
-			if header.Size < 0 {
-				_ = targetFile.Close()
-				cleanup()
-				return snapshotManifest{}, nil, nil, fmt.Errorf("snapshot entry %s has an invalid size", entryName)
-			}
 			if _, err := io.CopyN(targetFile, reader, header.Size); err != nil {
 				_ = targetFile.Close()
 				cleanup()
 				return snapshotManifest{}, nil, nil, fmt.Errorf("extract snapshot entry %s: %w", entryName, err)
 			}
-			if err := targetFile.Close(); err != nil {
+			if err := closeExtractedSnapshotFile(targetFile); err != nil {
 				cleanup()
 				return snapshotManifest{}, nil, nil, fmt.Errorf("close extracted snapshot file %s: %w", entryName, err)
 			}

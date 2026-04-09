@@ -62,11 +62,7 @@ func ConfigFilePathForStack(name string) (string, error) {
 		return filepath.Join(dir, "config.yaml"), nil
 	}
 
-	stacksDir, err := ConfigStacksDirPath()
-	if err != nil {
-		return "", err
-	}
-
+	stacksDir := filepath.Join(dir, "stacks")
 	return filepath.Join(stacksDir, selected+".yaml"), nil
 }
 
@@ -175,10 +171,7 @@ func KnownConfigPaths() ([]string, error) {
 		paths[defaultPath] = struct{}{}
 	}
 
-	stacksDir, err := ConfigStacksDirPath()
-	if err != nil {
-		return nil, err
-	}
+	stacksDir := filepath.Join(configDir, "stacks")
 	entries, err := os.ReadDir(stacksDir)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read stack config directory %s: %w", stacksDir, err)

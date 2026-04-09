@@ -11,6 +11,23 @@ import (
 	embedded "github.com/traweezy/stackctl/templates"
 )
 
+var (
+	openScaffoldRoot = os.OpenRoot
+	readScaffoldFile = func(root *os.Root, name string) ([]byte, error) {
+		return root.ReadFile(name)
+	}
+	parseScaffoldTemplate = func(name, text string) (*template.Template, error) {
+		return template.New(name).Option("missingkey=error").Parse(text)
+	}
+	executeScaffoldTemplate = func(tmpl *template.Template, data any) ([]byte, error) {
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, data); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+)
+
 type ScaffoldResult struct {
 	StackDir            string
 	ComposePath         string
@@ -194,81 +211,81 @@ func ScaffoldManagedStack(cfg Config, force bool) (ScaffoldResult, error) {
 func renderManagedCompose(cfg Config) ([]byte, error) {
 	cfg.ApplyDerivedFields()
 
-	tmpl, err := template.New("dev-stack-compose").Option("missingkey=error").Parse(string(embedded.DevStackComposeYAML()))
+	tmpl, err := parseScaffoldTemplate("dev-stack-compose", string(embedded.DevStackComposeYAML()))
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded compose template: %w", err)
 	}
 
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, cfg); err != nil {
+	data, err := executeScaffoldTemplate(tmpl, cfg)
+	if err != nil {
 		return nil, fmt.Errorf("render managed compose template: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	return data, nil
 }
 
 func renderManagedNATSConfig(cfg Config) ([]byte, error) {
 	cfg.ApplyDerivedFields()
 
-	tmpl, err := template.New("dev-stack-nats").Option("missingkey=error").Parse(string(embedded.DevStackNATSConfig()))
+	tmpl, err := parseScaffoldTemplate("dev-stack-nats", string(embedded.DevStackNATSConfig()))
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded nats template: %w", err)
 	}
 
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, cfg); err != nil {
+	data, err := executeScaffoldTemplate(tmpl, cfg)
+	if err != nil {
 		return nil, fmt.Errorf("render managed nats template: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	return data, nil
 }
 
 func renderManagedRedisACL(cfg Config) ([]byte, error) {
 	cfg.ApplyDerivedFields()
 
-	tmpl, err := template.New("dev-stack-redis-acl").Option("missingkey=error").Parse(string(embedded.DevStackRedisACL()))
+	tmpl, err := parseScaffoldTemplate("dev-stack-redis-acl", string(embedded.DevStackRedisACL()))
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded redis ACL template: %w", err)
 	}
 
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, cfg); err != nil {
+	data, err := executeScaffoldTemplate(tmpl, cfg)
+	if err != nil {
 		return nil, fmt.Errorf("render managed redis ACL template: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	return data, nil
 }
 
 func renderManagedPgAdminServers(cfg Config) ([]byte, error) {
 	cfg.ApplyDerivedFields()
 
-	tmpl, err := template.New("dev-stack-pgadmin-servers").Option("missingkey=error").Parse(string(embedded.DevStackPgAdminServers()))
+	tmpl, err := parseScaffoldTemplate("dev-stack-pgadmin-servers", string(embedded.DevStackPgAdminServers()))
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded pgAdmin server template: %w", err)
 	}
 
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, cfg); err != nil {
+	data, err := executeScaffoldTemplate(tmpl, cfg)
+	if err != nil {
 		return nil, fmt.Errorf("render managed pgAdmin server template: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	return data, nil
 }
 
 func renderManagedPGPass(cfg Config) ([]byte, error) {
 	cfg.ApplyDerivedFields()
 
-	tmpl, err := template.New("dev-stack-pgpass").Option("missingkey=error").Parse(string(embedded.DevStackPGPass()))
+	tmpl, err := parseScaffoldTemplate("dev-stack-pgpass", string(embedded.DevStackPGPass()))
 	if err != nil {
 		return nil, fmt.Errorf("parse embedded pgpass template: %w", err)
 	}
 
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, cfg); err != nil {
+	data, err := executeScaffoldTemplate(tmpl, cfg)
+	if err != nil {
 		return nil, fmt.Errorf("render managed pgpass template: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	return data, nil
 }
 
 func scaffoldFileMissing(path string) (bool, error) {
@@ -292,13 +309,13 @@ func scaffoldFileNeedsWrite(path string, expected []byte) (bool, error) {
 		return missing, err
 	}
 
-	root, err := os.OpenRoot(filepath.Dir(path))
+	root, err := openScaffoldRoot(filepath.Dir(path))
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = root.Close() }()
 
-	current, err := root.ReadFile(filepath.Base(path))
+	current, err := readScaffoldFile(root, filepath.Base(path))
 	if err != nil {
 		return false, err
 	}

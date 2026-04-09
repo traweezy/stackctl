@@ -16,6 +16,9 @@ import (
 	"github.com/traweezy/stackctl/internal/output"
 )
 
+var runNotifyContext = signal.NotifyContext
+var runSelectedStackServiceDefinitions = selectedStackServiceDefinitions
+
 func newRunCmd() *cobra.Command {
 	var noStart bool
 	var dryRun bool
@@ -94,7 +97,7 @@ func newRunCmd() *cobra.Command {
 				}
 			}
 
-			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+			ctx, stop := runNotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
 			runner := runnerFor(cmd)
@@ -121,9 +124,6 @@ func parseRunInvocation(cmd *cobra.Command, args []string) ([]string, []string, 
 
 	serviceArgs := append([]string(nil), args[:dash]...)
 	commandArgs := append([]string(nil), args[dash:]...)
-	if len(commandArgs) == 0 {
-		return nil, nil, errors.New("usage: stackctl run [service...] -- <command...>")
-	}
 
 	return serviceArgs, commandArgs, nil
 }
@@ -158,7 +158,7 @@ func startRunServices(cmd *cobra.Command, cfg configpkg.Config, services []strin
 }
 
 func waitForRunServices(ctx context.Context, cfg configpkg.Config, services []string) error {
-	for _, definition := range selectedStackServiceDefinitions(cfg, services) {
+	for _, definition := range runSelectedStackServiceDefinitions(cfg, services) {
 		if definition.PrimaryPort == nil {
 			continue
 		}

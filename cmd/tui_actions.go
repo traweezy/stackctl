@@ -15,6 +15,8 @@ import (
 	stacktui "github.com/traweezy/stackctl/internal/tui"
 )
 
+var setStackNameEnv = os.Setenv
+
 func runTUIAction(action stacktui.ActionID) (stacktui.ActionReport, error) {
 	if verb, stackName, ok := stacktuiStackAction(action); ok {
 		switch verb {
@@ -131,11 +133,8 @@ func runTUIDeleteStack(stackName string) (stacktui.ActionReport, error) {
 	if result.PurgedDataDir != "" {
 		details = append(details, fmt.Sprintf("Purged managed data: %s", result.PurgedDataDir))
 	}
-	if result.ManagedDataKept != "" {
-		details = append(details, fmt.Sprintf("Managed data still exists: %s", result.ManagedDataKept))
-	}
 	if result.ResetToDefault {
-		if err := os.Setenv(configpkg.StackNameEnvVar, configpkg.DefaultStackName); err != nil {
+		if err := setStackNameEnv(configpkg.StackNameEnvVar, configpkg.DefaultStackName); err != nil {
 			return stacktui.ActionReport{}, err
 		}
 		details = append(details, fmt.Sprintf("Selected stack reset to %s", configpkg.DefaultStackName))
