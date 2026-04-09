@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-threshold="${STACKCTL_COVERAGE_THRESHOLD:-${1:-75.0}}"
+threshold="${STACKCTL_COVERAGE_THRESHOLD:-${1:-100.0}}"
 profile_path="${STACKCTL_COVERAGE_PROFILE:-${2:-tmp/coverage.out}}"
 
 mkdir -p "$(dirname "$profile_path")"

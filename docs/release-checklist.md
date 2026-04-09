@@ -35,6 +35,10 @@ bash scripts/journey-smoke.sh
 goreleaser release --snapshot --clean
 ```
 
+`scripts/check-coverage.sh` now enforces a `100.0%` baseline by default. Only
+override it intentionally when you are comparing historical branches or doing a
+temporary local diagnostic run.
+
 If the release changes CLI flags or help text, also run:
 
 ```bash

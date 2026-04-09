@@ -42,6 +42,9 @@ go vet ./...
 bash scripts/check-coverage.sh
 ```
 
+The coverage gate is intentionally strict: `scripts/check-coverage.sh` defaults
+to `100.0%`, matching the hosted CI and release workflows.
+
 When the change touches installer, release, or runtime flows, also run the
 relevant deeper checks:
 
