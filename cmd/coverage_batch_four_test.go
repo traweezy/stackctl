@@ -280,7 +280,9 @@ func TestSetupCoverageBatchFour(t *testing.T) {
 func TestDoctorCoverageBatchFour(t *testing.T) {
 	t.Run("runDoctorFixes propagates diagnostic errors", func(t *testing.T) {
 		withTestDeps(t, func(d *commandDeps) {
-			d.runDoctor = func(context.Context) (doctorpkg.Report, error) { return doctorpkg.Report{}, errors.New("doctor failed") }
+			d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+				return doctorpkg.Report{}, errors.New("doctor failed")
+			}
 		})
 
 		cmd := NewRootCmd(NewApp())
@@ -481,7 +483,9 @@ func TestTUIActionCoverageBatchFour(t *testing.T) {
 
 	t.Run("runTUIStop propagates compose down errors", func(t *testing.T) {
 		withTestDeps(t, func(d *commandDeps) {
-			d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error { return errors.New("compose down failed") }
+			d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
+				return errors.New("compose down failed")
+			}
 		})
 
 		_, err := runTUIStop(configpkg.DefaultForStack(configpkg.DefaultStackName), nil)
@@ -505,7 +509,9 @@ func TestTUIActionCoverageBatchFour(t *testing.T) {
 
 	t.Run("runTUIRestart propagates compose down errors", func(t *testing.T) {
 		withTestDeps(t, func(d *commandDeps) {
-			d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error { return errors.New("compose down failed") }
+			d.composeDown = func(context.Context, system.Runner, configpkg.Config, bool) error {
+				return errors.New("compose down failed")
+			}
 		})
 
 		_, err := runTUIRestart(configpkg.DefaultForStack(configpkg.DefaultStackName), nil)
