@@ -37,3 +37,40 @@ func TestRenderBodyWithDimensionsWithoutRenderCache(t *testing.T) {
 		t.Fatal("expected body render without cache")
 	}
 }
+
+func TestModelViewCachesStableFrames(t *testing.T) {
+	model := benchmarkModel(overviewSection)
+
+	first := model.View().Content
+	if first == "" {
+		t.Fatal("expected initial view output")
+	}
+	if model.renderCache == nil || !model.renderCache.viewSet {
+		t.Fatalf("expected view cache to be populated, got %+v", model.renderCache)
+	}
+
+	model.renderCache.viewValue = "cached frame"
+	cached := model.View().Content
+	if cached != "cached frame" {
+		t.Fatalf("expected cached view render, got %q", cached)
+	}
+
+	model.contentVersion++
+	updated := model.View().Content
+	if updated == "cached frame" {
+		t.Fatalf("expected content change to invalidate view cache, got %q", updated)
+	}
+}
+
+func TestModelViewSkipsCacheForBanners(t *testing.T) {
+	model := benchmarkModel(overviewSection)
+
+	_ = model.View()
+	model.renderCache.viewValue = "cached frame"
+	model.banner = &actionBanner{Status: "warn", Message: "watch out"}
+
+	rendered := model.View().Content
+	if rendered == "cached frame" {
+		t.Fatalf("expected banner view to bypass cache, got %q", rendered)
+	}
+}

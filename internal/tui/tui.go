@@ -227,6 +227,32 @@ type helpBindings struct {
 	full  [][]key.Binding
 }
 
+type viewRenderState struct {
+	width             int
+	height            int
+	contentVersion    uint64
+	viewportX         int
+	viewportY         int
+	active            section
+	layout            layoutMode
+	autoRefresh       bool
+	refreshInterval   time.Duration
+	showSecrets       bool
+	backgroundDark    bool
+	helpShowAll       bool
+	snapshotManaged   bool
+	snapshotLoadedAt  int64
+	appVersion        string
+	stackName         string
+	selectedStack     string
+	selectedService   string
+	selectedHealth    string
+	runnerAvailable   bool
+	configAvailable   bool
+	configEditing     bool
+	scaffoldAvailable bool
+}
+
 type frameRenderCache struct {
 	headerKey   string
 	headerValue string
@@ -234,6 +260,9 @@ type frameRenderCache struct {
 	footerValue string
 	bodyKey     string
 	bodyValue   string
+	viewState   viewRenderState
+	viewValue   string
+	viewSet     bool
 }
 
 func (h helpBindings) ShortHelp() []key.Binding {
@@ -833,6 +862,13 @@ func (m Model) View() tea.View {
 		return view
 	}
 
+	viewState, cacheable := m.viewCacheState()
+	if cacheable {
+		if cached, ok := m.cachedView(viewState); ok {
+			return m.newView(cached)
+		}
+	}
+
 	header := renderHeader(m)
 	status := renderGlobalStatus(m, m.width)
 	footer := m.footerView()
@@ -849,14 +885,12 @@ func (m Model) View() tea.View {
 	}
 	blocks = append(blocks, body, footer)
 
-	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, blocks...))
-	view.AltScreen = m.altScreen
-	view.ReportFocus = true
-	view.KeyboardEnhancements.ReportEventTypes = true
-	if m.mouseEnabled {
-		view.MouseMode = tea.MouseModeCellMotion
+	rendered := lipgloss.JoinVertical(lipgloss.Left, blocks...)
+	if cacheable {
+		m.storeView(viewState, rendered)
 	}
-	return view
+
+	return m.newView(rendered)
 }
 
 func AltScreenEnabledFromEnv() bool {
@@ -1664,6 +1698,65 @@ func (m Model) storeBody(key, value string) {
 	}
 	m.renderCache.bodyKey = key
 	m.renderCache.bodyValue = value
+}
+
+func (m Model) cachedView(state viewRenderState) (string, bool) {
+	if m.renderCache == nil || !m.renderCache.viewSet || m.renderCache.viewState != state {
+		return "", false
+	}
+	return m.renderCache.viewValue, true
+}
+
+func (m Model) storeView(state viewRenderState, value string) {
+	if m.renderCache == nil {
+		return
+	}
+	m.renderCache.viewState = state
+	m.renderCache.viewValue = value
+	m.renderCache.viewSet = true
+}
+
+func (m Model) viewCacheState() (viewRenderState, bool) {
+	if m.loading || m.banner != nil || m.isBusy() || m.errMessage != "" || m.confirmation != nil || m.palette != nil || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+		return viewRenderState{}, false
+	}
+
+	return viewRenderState{
+		width:             m.width,
+		height:            m.height,
+		contentVersion:    m.contentVersion,
+		viewportX:         m.viewport.XOffset(),
+		viewportY:         m.viewport.YOffset(),
+		active:            m.active,
+		layout:            m.layout,
+		autoRefresh:       m.autoRefresh,
+		refreshInterval:   m.refreshInterval(),
+		showSecrets:       m.showSecrets,
+		backgroundDark:    m.backgroundDark,
+		helpShowAll:       m.help.ShowAll,
+		snapshotManaged:   m.snapshot.Managed,
+		snapshotLoadedAt:  m.snapshot.LoadedAt.UnixNano(),
+		appVersion:        strings.TrimSpace(m.appVersion),
+		stackName:         strings.TrimSpace(m.snapshot.StackName),
+		selectedStack:     strings.TrimSpace(m.selectedStack),
+		selectedService:   strings.TrimSpace(m.selectedService),
+		selectedHealth:    strings.TrimSpace(m.selectedHealth),
+		runnerAvailable:   m.runner != nil,
+		configAvailable:   m.configManager != nil,
+		configEditing:     m.configEditor.editing,
+		scaffoldAvailable: m.configEditor.showScaffoldAction(),
+	}, true
+}
+
+func (m Model) newView(content string) tea.View {
+	view := tea.NewView(content)
+	view.AltScreen = m.altScreen
+	view.ReportFocus = true
+	view.KeyboardEnhancements.ReportEventTypes = true
+	if m.mouseEnabled {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
+	return view
 }
 
 func (m Model) headerCacheKey() (string, bool) {
