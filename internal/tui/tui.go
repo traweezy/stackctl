@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -226,6 +227,13 @@ type helpBindings struct {
 	full  [][]key.Binding
 }
 
+type frameRenderCache struct {
+	headerKey   string
+	headerValue string
+	footerKey   string
+	footerValue string
+}
+
 func (h helpBindings) ShortHelp() []key.Binding {
 	return h.short
 }
@@ -405,6 +413,7 @@ type Model struct {
 	pinnedServices   map[string]struct{}
 	palette          *paletteState
 	configEditor     configEditor
+	renderCache      *frameRenderCache
 }
 
 func NewModel(loader Loader) Model {
@@ -451,6 +460,7 @@ func newModel(loader Loader, logWatchLauncher LogWatchLauncher, runner ActionRun
 		busyStartedAt:    time.Now(),
 		pinnedServices:   make(map[string]struct{}),
 		configEditor:     newConfigEditor(),
+		renderCache:      &frameRenderCache{},
 	}
 }
 
@@ -851,9 +861,19 @@ func AltScreenEnabledFromEnv() bool {
 }
 
 func (m Model) footerView() string {
+	if key, ok := m.footerCacheKey(); ok {
+		if cached, ok := m.cachedFooter(key); ok {
+			return cached
+		}
+	}
+
 	contentWidth := maxInt(20, m.width-footerStyle().GetHorizontalFrameSize())
 	if m.palette != nil {
-		return footerStyle().Width(m.width).Render(renderPaletteFooter(contentWidth))
+		rendered := footerStyle().Width(m.width).Render(renderPaletteFooter(contentWidth))
+		if key, ok := m.footerCacheKey(); ok {
+			m.storeFooter(key, rendered)
+		}
+		return rendered
 	}
 
 	helpModel := m.help
@@ -867,7 +887,11 @@ func (m Model) footerView() string {
 		content = renderWrappedShortHelp(helpModel, bindings.ShortHelp(), contentWidth)
 	}
 
-	return footerStyle().Width(m.width).Render(content)
+	rendered := footerStyle().Width(m.width).Render(content)
+	if key, ok := m.footerCacheKey(); ok {
+		m.storeFooter(key, rendered)
+	}
+	return rendered
 }
 
 func renderPaletteFooter(width int) string {
@@ -1502,6 +1526,12 @@ func renderGlobalStatus(m Model, width int) string {
 }
 
 func renderHeader(m Model) string {
+	if key, ok := m.headerCacheKey(); ok {
+		if cached, ok := m.cachedHeader(key); ok {
+			return cached
+		}
+	}
+
 	statusLabel := "Ready"
 	switch {
 	case m.runningAction != nil:
@@ -1574,6 +1604,9 @@ func renderHeader(m Model) string {
 		if progress := renderBusyProgress(m, maxInt(20, m.width-4)); progress != "" {
 			return lipgloss.JoinVertical(lipgloss.Left, header, headerShellStyle().Render(progress))
 		}
+		if key, ok := m.headerCacheKey(); ok {
+			m.storeHeader(key, header)
+		}
 		return header
 	}
 
@@ -1582,6 +1615,84 @@ func renderHeader(m Model) string {
 		return lipgloss.JoinVertical(lipgloss.Left, body, headerShellStyle().Render(progress))
 	}
 	return body
+}
+
+func (m Model) cachedHeader(key string) (string, bool) {
+	if m.renderCache == nil || m.renderCache.headerKey != key {
+		return "", false
+	}
+	return m.renderCache.headerValue, true
+}
+
+func (m Model) storeHeader(key, value string) {
+	if m.renderCache == nil {
+		return
+	}
+	m.renderCache.headerKey = key
+	m.renderCache.headerValue = value
+}
+
+func (m Model) cachedFooter(key string) (string, bool) {
+	if m.renderCache == nil || m.renderCache.footerKey != key {
+		return "", false
+	}
+	return m.renderCache.footerValue, true
+}
+
+func (m Model) storeFooter(key, value string) {
+	if m.renderCache == nil {
+		return
+	}
+	m.renderCache.footerKey = key
+	m.renderCache.footerValue = value
+}
+
+func (m Model) headerCacheKey() (string, bool) {
+	if m.isBusy() || m.errMessage != "" || m.loading || m.confirmation != nil || m.palette != nil || m.runningAction != nil || m.runningHandoff != nil || m.runningConfigOp != nil {
+		return "", false
+	}
+
+	return strings.Join([]string{
+		strconv.Itoa(m.width),
+		strconv.Itoa(int(m.active)),
+		strconv.Itoa(int(m.layout)),
+		strconv.FormatBool(m.autoRefresh),
+		m.refreshInterval().String(),
+		strconv.FormatBool(m.snapshot.Managed),
+		strconv.FormatInt(m.snapshot.LoadedAt.UnixNano(), 10),
+		strconv.FormatBool(m.showSecrets),
+		strconv.FormatBool(m.backgroundDark),
+		strings.TrimSpace(m.appVersion),
+		strings.TrimSpace(m.snapshot.StackName),
+	}, "|"), true
+}
+
+func (m Model) footerCacheKey() (string, bool) {
+	if m.palette != nil {
+		return strings.Join([]string{
+			"palette",
+			strconv.Itoa(m.width),
+			strconv.FormatBool(m.backgroundDark),
+		}, "|"), true
+	}
+
+	return strings.Join([]string{
+		strconv.Itoa(m.width),
+		strconv.Itoa(int(m.active)),
+		strconv.FormatBool(m.backgroundDark),
+		strconv.FormatBool(m.help.ShowAll),
+		strconv.FormatBool(m.runner != nil),
+		strconv.FormatBool(m.configManager != nil),
+		strconv.FormatBool(m.configEditor.editing),
+		strconv.FormatBool(m.configEditor.showScaffoldAction()),
+		strconv.FormatBool(m.showProductivityHelp()),
+		strconv.FormatBool(m.activeHasSelectionList()),
+		strconv.FormatBool(m.showCopyHelp()),
+		strconv.FormatBool(m.showWatchLogsHelp()),
+		strconv.FormatBool(m.showExecShellHelp()),
+		strconv.FormatBool(m.showDBShellHelp()),
+		strconv.FormatBool(m.showPinHelp()),
+	}, "|"), true
 }
 
 func renderBody(m Model) string {
