@@ -190,7 +190,9 @@ func TestConfigCommandAdditionalBranches(t *testing.T) {
 func TestDoctorCommandAdditionalBranches(t *testing.T) {
 	t.Run("doctor command surfaces run and report failures", func(t *testing.T) {
 		withTestDeps(t, func(d *commandDeps) {
-			d.runDoctor = func(context.Context) (doctorpkg.Report, error) { return doctorpkg.Report{}, errors.New("doctor failed") }
+			d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+				return doctorpkg.Report{}, errors.New("doctor failed")
+			}
 		})
 
 		_, _, err := executeRoot(t, "doctor")

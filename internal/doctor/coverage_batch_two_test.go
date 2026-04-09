@@ -51,19 +51,21 @@ func TestRunWithDepsAdditionalBranches(t *testing.T) {
 					ServiceManager: system.ServiceManagerNone,
 				}
 			},
-			commandExists:        func(string) bool { return false },
-			podmanComposeAvail:   func(context.Context) bool { return false },
-			podmanMachineStatus:  func(context.Context) system.PodmanMachineState { return system.PodmanMachineState{} },
-			openCommandName:      func() string { return "" },
-			cockpitStatus:        func(context.Context) system.CockpitState { return system.CockpitState{Installed: false, Active: false, State: "inactive"} },
+			commandExists:       func(string) bool { return false },
+			podmanComposeAvail:  func(context.Context) bool { return false },
+			podmanMachineStatus: func(context.Context) system.PodmanMachineState { return system.PodmanMachineState{} },
+			openCommandName:     func() string { return "" },
+			cockpitStatus: func(context.Context) system.CockpitState {
+				return system.CockpitState{Installed: false, Active: false, State: "inactive"}
+			},
 			portInUse: func(port int) (bool, error) {
 				if port == cfg.Ports.Cockpit {
 					return false, errors.New("port check failed")
 				}
 				return false, nil
 			},
-			listContainers:       func(context.Context) ([]system.Container, error) { return nil, nil },
-			redisOvercommit:      func(context.Context) (system.OvercommitStatus, error) { return system.OvercommitStatus{}, nil },
+			listContainers:  func(context.Context) ([]system.Container, error) { return nil, nil },
+			redisOvercommit: func(context.Context) (system.OvercommitStatus, error) { return system.OvercommitStatus{}, nil },
 		})
 		if err != nil {
 			t.Fatalf("runWithDeps returned error: %v", err)
@@ -89,28 +91,28 @@ func TestRunWithDepsAdditionalBranches(t *testing.T) {
 		baseCfg.ApplyDerivedFields()
 
 		testCases := []struct {
-			name    string
+			name     string
 			platform system.Platform
-			cockpit system.CockpitState
-			want    string
+			cockpit  system.CockpitState
+			want     string
 		}{
 			{
-				name: "inactive socket",
+				name:     "inactive socket",
 				platform: system.Platform{GOOS: "linux", PackageManager: "dnf", ServiceManager: system.ServiceManagerSystemd},
-				cockpit: system.CockpitState{Installed: true, Active: false, State: "inactive"},
-				want: "cockpit.socket inactive",
+				cockpit:  system.CockpitState{Installed: true, Active: false, State: "inactive"},
+				want:     "cockpit.socket inactive",
 			},
 			{
-				name: "autoinstall supported",
+				name:     "autoinstall supported",
 				platform: system.Platform{GOOS: "linux", PackageManager: "dnf", ServiceManager: system.ServiceManagerSystemd},
-				cockpit: system.CockpitState{Installed: false, Active: false},
-				want: "cockpit.socket not installed",
+				cockpit:  system.CockpitState{Installed: false, Active: false},
+				want:     "cockpit.socket not installed",
 			},
 			{
-				name: "active port check failure",
+				name:     "active port check failure",
 				platform: system.Platform{GOOS: "linux", PackageManager: "dnf", ServiceManager: system.ServiceManagerSystemd},
-				cockpit: system.CockpitState{Installed: true, Active: true, State: "active"},
-				want: "port 9090 check failed: cockpit port failed",
+				cockpit:  system.CockpitState{Installed: true, Active: true, State: "active"},
+				want:     "port 9090 check failed: cockpit port failed",
 			},
 		}
 
@@ -124,9 +126,9 @@ func TestRunWithDepsAdditionalBranches(t *testing.T) {
 					stat: func(path string) (os.FileInfo, error) {
 						return fakeDoctorFileInfo{name: path, dir: !strings.HasSuffix(path, ".yaml")}, nil
 					},
-					platform:            func() system.Platform { return tc.platform },
-					commandExists:       func(string) bool { return true },
-					podmanVersion:       func(context.Context) (string, error) { return system.SupportedPodmanVersion, nil },
+					platform:      func() system.Platform { return tc.platform },
+					commandExists: func(string) bool { return true },
+					podmanVersion: func(context.Context) (string, error) { return system.SupportedPodmanVersion, nil },
 					podmanComposeVersion: func(context.Context) (string, error) {
 						return system.SupportedComposeProviderVersion, nil
 					},
