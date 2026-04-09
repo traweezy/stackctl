@@ -123,6 +123,9 @@ func TestTUIStackAndLifecycleErrorPaths(t *testing.T) {
 	})
 
 	t.Run("runTUIRestart and runTUIDeleteStack cover remaining error branches", func(t *testing.T) {
+		dataHome := t.TempDir()
+		t.Setenv("XDG_DATA_HOME", dataHome)
+
 		cfg := configpkg.Default()
 		cfg.ApplyDerivedFields()
 
@@ -155,7 +158,7 @@ func TestTUIStackAndLifecycleErrorPaths(t *testing.T) {
 				return stack, nil
 			}
 			value.currentStackName = func() (string, error) { return "staging", nil }
-			value.dataDirPath = func() (string, error) { return "/home/tylers/.local/share/stackctl", nil }
+			value.dataDirPath = configpkg.DataDirPath
 			value.removeFile = func(string) error { return nil }
 			value.removeAll = func(string) error { return nil }
 		})
