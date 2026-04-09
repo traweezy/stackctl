@@ -39,6 +39,15 @@ var newHandoffDoneMsg = func(historyID int, action paletteAction, message string
 	}
 }
 
+var paletteQueryReplacer = strings.NewReplacer(
+	"-", "",
+	"_", "",
+	":", "",
+	"/", "",
+	".", "",
+	"  ", " ",
+)
+
 func handoffDoneCallback(historyID int, action paletteAction, message string, refresh bool) tea.ExecCallback {
 	return func(err error) tea.Msg {
 		return newHandoffDoneMsg(historyID, action, message, err, refresh)
@@ -102,16 +111,17 @@ type paletteAction struct {
 }
 
 type paletteState struct {
-	mode      paletteMode
-	title     string
-	prompt    string
-	input     textinput.Model
-	items     []paletteAction
-	filtered  []paletteAction
-	paginator bubblespaginator.Model
-	pageSize  int
-	selected  int
-	offset    int
+	mode       paletteMode
+	title      string
+	prompt     string
+	input      textinput.Model
+	items      []paletteAction
+	normalized []string
+	filtered   []paletteAction
+	paginator  bubblespaginator.Model
+	pageSize   int
+	selected   int
+	offset     int
 }
 
 type runningHandoff struct {
@@ -158,14 +168,21 @@ func newPaletteState(mode paletteMode, title, prompt string, items []paletteActi
 	pager.Type = bubblespaginator.Arabic
 	pager.ArabicFormat = "page %d/%d"
 
+	preparedItems := append([]paletteAction(nil), items...)
+	normalized := make([]string, len(preparedItems))
+	for idx, item := range preparedItems {
+		normalized[idx] = normalizePaletteQuery(item.searchText())
+	}
+
 	state := &paletteState{
-		mode:      mode,
-		title:     strings.TrimSpace(title),
-		prompt:    strings.TrimSpace(prompt),
-		input:     input,
-		items:     append([]paletteAction(nil), items...),
-		paginator: pager,
-		pageSize:  8,
+		mode:       mode,
+		title:      strings.TrimSpace(title),
+		prompt:     strings.TrimSpace(prompt),
+		input:      input,
+		items:      preparedItems,
+		normalized: normalized,
+		paginator:  pager,
+		pageSize:   8,
 	}
 	state.applyFilter()
 	return state
@@ -174,14 +191,14 @@ func newPaletteState(mode paletteMode, title, prompt string, items []paletteActi
 func (p *paletteState) applyFilter() {
 	query := normalizePaletteQuery(p.input.Value())
 	if query == "" {
-		p.filtered = append([]paletteAction(nil), p.items...)
+		p.filtered = append(p.filtered[:0], p.items...)
 		p.clampSelection()
 		return
 	}
 
 	matches := make([]scoredPaletteAction, 0, len(p.items))
 	for idx, item := range p.items {
-		score, ok := paletteMatchScore(query, item.searchText())
+		score, ok := paletteMatchScoreNormalized(query, p.normalized[idx])
 		if !ok {
 			continue
 		}
@@ -289,13 +306,19 @@ func (a paletteAction) recentKey() string {
 
 func normalizePaletteQuery(value string) string {
 	trimmed := strings.ToLower(strings.TrimSpace(value))
-	replacer := strings.NewReplacer("-", "", "_", "", ":", "", "/", "", ".", "", "  ", " ")
-	return replacer.Replace(trimmed)
+	return paletteQueryReplacer.Replace(trimmed)
 }
 
 func paletteMatchScore(query, candidate string) (int, bool) {
-	q := normalizePaletteQuery(query)
-	c := normalizePaletteQuery(candidate)
+	return paletteMatchScoreNormalized(
+		normalizePaletteQuery(query),
+		normalizePaletteQuery(candidate),
+	)
+}
+
+func paletteMatchScoreNormalized(query, candidate string) (int, bool) {
+	q := query
+	c := candidate
 	if q == "" {
 		return 0, true
 	}
