@@ -104,6 +104,10 @@ flows.
 After the release workflow completes:
 
 - download one archive and verify it against `checksums.txt`
+- if the release includes GitHub artifact attestations, run
+  `gh release verify-asset <tag> <archive>`
+- if the release includes `checksums.txt.sigstore.json`, verify it with
+  `cosign verify-blob`
 - run `stackctl version --json` from the released binary
 - spot-check the generated docs in the archive
 - confirm the release notes and attached assets look complete

@@ -34,11 +34,14 @@ For the current supply-chain monitoring and release-artifact posture, see
 
 ## Release Artifact Verification
 
-Tagged releases are intended to ship with:
+Releases cut from the current tagged-release workflow are expected to ship
+with:
 
 - `checksums.txt`
 - `checksums.txt.sigstore.json`
 - per-archive SPDX SBOMs (`*.spdx.json`)
 - GitHub artifact attestations for the archives listed in `checksums.txt`
 
-Consumers should verify release artifacts before use.
+Older `0.x` tags may predate some of these assets. Consumers should always
+verify `checksums.txt`, then layer on Sigstore bundle or GitHub attestation
+checks only when the release actually carries those artifacts.

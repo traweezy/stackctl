@@ -75,7 +75,8 @@ actually needs them.
 
 ## Tagged release artifacts
 
-Tagged releases are expected to ship with:
+Releases cut from the current tagged-release workflow are expected to ship
+with:
 
 - `checksums.txt`
 - `checksums.txt.sigstore.json`
@@ -85,3 +86,7 @@ Tagged releases are expected to ship with:
 Operators should verify artifacts before use. See
 [install-and-upgrade.md](./install-and-upgrade.md) and
 [../SECURITY.md](../SECURITY.md).
+
+Older `0.x` tags may predate some of these assets. For those historical
+releases, checksum verification is still the baseline, but Sigstore bundle and
+GitHub attestation checks only apply when the release actually publishes them.

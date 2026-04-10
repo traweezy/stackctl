@@ -9,8 +9,55 @@ qualification expectations around upgrades and rollbacks.
   the latest GitHub release.
 - Pin both the raw script URL and the `--version` flag when you need a
   deterministic install, upgrade, or rollback.
-- Tagged release archives are always verified against `checksums.txt` before
-  extraction. See the README for optional Sigstore and attestation verification.
+- Always verify `checksums.txt` before extracting a release archive manually.
+- Newer tags cut from the current tagged-release workflow may also include
+  `checksums.txt.sigstore.json`, per-archive SPDX SBOMs, and GitHub artifact
+  attestations.
+- Older `0.x` tags may predate those extra release assets.
+
+## Verify a release archive before extraction
+
+Manual installs should verify the downloaded archive before extraction. The
+bootstrap installer in [`../scripts/install.sh`](../scripts/install.sh) already
+does the checksum step automatically.
+
+Linux example:
+
+```bash
+STACKCTL_VERSION=vX.Y.Z
+mkdir -p /tmp/stackctl-verify
+cd /tmp/stackctl-verify
+
+gh release download "${STACKCTL_VERSION}" --repo traweezy/stackctl \
+  -p 'checksums.txt' \
+  -p 'stackctl_Linux_x86_64.tar.gz'
+
+sha256sum -c --ignore-missing checksums.txt
+```
+
+For newer tags that also publish GitHub artifact attestations, you can verify
+the archive against the release metadata directly:
+
+```bash
+gh release verify-asset "${STACKCTL_VERSION}" ./stackctl_Linux_x86_64.tar.gz \
+  --repo traweezy/stackctl
+```
+
+For newer tags that also publish `checksums.txt.sigstore.json`, you can verify
+the checksum manifest itself with `cosign`:
+
+```bash
+cosign verify-blob \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity "https://github.com/traweezy/stackctl/.github/workflows/release.yml@refs/tags/${STACKCTL_VERSION}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+```
+
+If a historical `0.x` tag does not ship attestations or a Sigstore bundle,
+`gh release verify-asset` will report that no attestations were found and the
+bundle file will be absent. In that case, treat `checksums.txt` verification as
+the supported baseline.
 
 ## Latest install
 

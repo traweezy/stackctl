@@ -186,13 +186,19 @@ High-value entry points:
 
 ## Release verification
 
-Tagged releases are intended to ship with:
+Releases cut from the current tagged-release workflow are expected to ship
+with:
 
 - `checksums.txt`
 - `checksums.txt.sigstore.json`
 - per-archive SPDX SBOMs
 - GitHub artifact attestations
 - generated CLI docs, man pages, and shell completions
+
+Older `0.x` tags may predate some of these assets. For historical releases,
+treat `checksums.txt` as the minimum verification surface and only run the
+Sigstore or attestation steps when the corresponding files exist on the
+release.
 
 Manual verification and rollback guidance lives in
 [docs/install-and-upgrade.md](./docs/install-and-upgrade.md),
