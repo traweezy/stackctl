@@ -57,6 +57,16 @@ bash scripts/evaluate-tui-idle.sh
 For code-level regressions, compare benchmark runs with the workflow in
 [performance.md](./performance.md).
 
+If the release includes TUI layout changes or README/wiki media refreshes,
+also run:
+
+```bash
+bash scripts/capture-docs-media.sh
+```
+
+Then inspect `docs/media/tui-services.png` and confirm the checked-in still
+matches the current rendered experience.
+
 If `homebrew_casks` is enabled with `skip_upload: true`, also inspect the
 generated cask in `dist/` after the snapshot dry-run and confirm that its
 binary, man page, completion, and caveat paths still match the release
