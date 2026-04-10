@@ -555,7 +555,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.busySpinner, cmd = m.busySpinner.Update(msg)
 		if m.isBusy() {
-			m.syncLayout()
+			m.syncBusyLayout()
 			return m, cmd
 		}
 		return m, nil
@@ -563,7 +563,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.busyStopwatch, cmd = m.busyStopwatch.Update(msg)
 		if m.isBusy() {
-			m.syncLayout()
+			m.syncBusyLayout()
 			return m, cmd
 		}
 		return m, nil
@@ -571,7 +571,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.busyTimer, cmd = m.busyTimer.Update(msg)
 		if m.isBusy() && m.busyBudget > 0 {
-			m.syncLayout()
+			m.syncBusyLayout()
 			return m, cmd
 		}
 		return m, nil
@@ -1252,14 +1252,35 @@ func previousSection(current section) section {
 }
 
 func (m *Model) syncLayout() {
+	m.syncViewportFrame()
+	m.refreshViewportContent()
+}
+
+func (m *Model) syncBusyLayout() {
+	if !m.syncViewportFrame() {
+		return
+	}
+	m.refreshViewportContent()
+}
+
+func (m *Model) syncViewportFrame() bool {
 	_, bodyHeight, mainWidth := m.bodyDimensions()
 
 	panelStyle := mainPanelStyle()
-	m.viewport.SetWidth(maxInt(20, mainWidth-panelStyle.GetHorizontalFrameSize()))
-	m.viewport.SetHeight(maxInt(4, bodyHeight-panelStyle.GetVerticalFrameSize()))
+	width := maxInt(20, mainWidth-panelStyle.GetHorizontalFrameSize())
+	height := maxInt(4, bodyHeight-panelStyle.GetVerticalFrameSize())
+	resized := width != m.viewport.Width() || height != m.viewport.Height()
+
+	m.viewport.SetWidth(width)
+	m.viewport.SetHeight(height)
 	if m.configManager != nil {
 		m.configEditor.setSize(m.viewport.Width(), m.viewport.Height(), m.showSecrets)
 	}
+
+	return resized
+}
+
+func (m *Model) refreshViewportContent() {
 	m.viewport.SetContent(m.currentContent())
 	m.contentVersion++
 }
