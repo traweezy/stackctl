@@ -85,6 +85,16 @@ bash scripts/check-links.sh
 If GitHub link checks get rate-limited locally, export `GITHUB_TOKEN` first or
 make sure `gh auth` is available so the script can reuse that token.
 
+If you change README or wiki media capture flows, also exercise the docs
+helpers you touched:
+
+```bash
+bash scripts/capture-docs-media.sh
+bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape
+```
+
+The VHS helper uses a pinned container image and may pull it on the first run.
+
 Pull requests also run GitHub-hosted dependency review, and the default branch
 has a separate Scorecard workflow for ongoing supply-chain posture tracking.
 

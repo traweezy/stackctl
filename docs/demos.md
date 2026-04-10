@@ -28,6 +28,26 @@ Use one of the supported installation paths from the upstream project:
 If you run `vhs` directly on the host, make sure `ttyd` and `ffmpeg` are also
 installed and available on `PATH`.
 
+## Repo helper
+
+The supported repo-local path is the helper script:
+
+```bash
+bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape
+bash scripts/render-vhs-demo.sh --tape examples/vhs/version-json.tape
+```
+
+The helper:
+
+- pins the container image to `ghcr.io/charmbracelet/vhs:v0.11.0`
+- prefers `podman`, then falls back to `docker`
+- builds `./dist/stackctl` automatically unless you pass `--binary` or
+  `--no-build`
+- can rewrite the tape `Output` path with `--output`
+
+The first run may pull the pinned VHS image if it is not already present
+locally.
+
 ## Sample tapes
 
 The repo keeps starter tapes under [../examples/vhs](../examples/vhs).
@@ -35,10 +55,8 @@ The repo keeps starter tapes under [../examples/vhs](../examples/vhs).
 Run them from the repo root:
 
 ```bash
-go build -trimpath -o dist/stackctl .
-mkdir -p tmp/vhs
-vhs examples/vhs/help.tape
-vhs examples/vhs/version-json.tape
+bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape
+bash scripts/render-vhs-demo.sh --tape examples/vhs/version-json.tape
 ```
 
 Both example tapes render into `tmp/vhs/`, which stays out of git.
@@ -53,6 +71,13 @@ bash scripts/capture-docs-media.sh
 
 This uses a deterministic docs-only TUI harness, launches it in `xterm`, and
 captures a real rendered window into `docs/media/tui-services.png`.
+
+If you intentionally want to refresh a versioned motion asset as well, render
+it explicitly:
+
+```bash
+bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape --output docs/media/help.gif
+```
 
 ## Adding a new demo
 

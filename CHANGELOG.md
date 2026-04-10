@@ -21,6 +21,8 @@ authoritative per-release summary.
   intentionally disabled until the tap and signing decisions are made
 - a repo-local `scripts/verify-release-asset.sh` helper for checksum,
   attestation, and Sigstore bundle verification of tagged releases
+- a pinned `scripts/render-vhs-demo.sh` helper for reproducible CLI and TUI
+  demo rendering from the repo's VHS tapes
 
 ### Changed
 

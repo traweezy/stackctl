@@ -62,10 +62,15 @@ also run:
 
 ```bash
 bash scripts/capture-docs-media.sh
+bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape
 ```
 
 Then inspect `docs/media/tui-services.png` and confirm the checked-in still
 matches the current rendered experience.
+
+If you are also refreshing a versioned GIF, review that output before checking
+it in. The first VHS helper run may pull the pinned
+`ghcr.io/charmbracelet/vhs:v0.11.0` image.
 
 If `homebrew_casks` is enabled with `skip_upload: true`, also inspect the
 generated cask in `dist/` after the snapshot dry-run and confirm that its
