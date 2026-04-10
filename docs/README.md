@@ -19,6 +19,7 @@ reference.
 - [supply-chain.md](./supply-chain.md)
 - [output-contract.md](./output-contract.md)
 - [release-checklist.md](./release-checklist.md)
+- [wiki-seed/Home.md](./wiki-seed/Home.md)
 
 ## Command reference
 
@@ -63,4 +64,5 @@ with the installed release.
 ## Future wiki seed
 
 If the project later enables a GitHub wiki, starter pages live under
-[wiki-seed/README.md](./wiki-seed/README.md).
+[wiki-seed/README.md](./wiki-seed/README.md). The intended landing page is
+[wiki-seed/Home.md](./wiki-seed/Home.md).

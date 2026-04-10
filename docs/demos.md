@@ -1,4 +1,4 @@
-# Demo Capture
+# Demo Capture and Media
 
 `stackctl` can use [Charm VHS](https://github.com/charmbracelet/vhs) for
 reproducible CLI and TUI demos.
