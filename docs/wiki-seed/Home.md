@@ -2,6 +2,8 @@
 
 This wiki is for narrative operating guidance around `stackctl`.
 
+![stackctl TUI services view](../media/tui-services.png)
+
 Use it for:
 
 - troubleshooting playbooks

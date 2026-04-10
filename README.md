@@ -10,6 +10,8 @@ them without hand-maintaining compose files, ports, or helper scripts.
 stackctl start
 ```
 
+![stackctl TUI services view](./docs/media/tui-services.png)
+
 It also gives you:
 
 - guided setup and config flows with the wizard
@@ -176,6 +178,7 @@ High-value entry points:
 - [docs/demos.md](./docs/demos.md)
 - [docs/supply-chain.md](./docs/supply-chain.md)
 - [docs/output-contract.md](./docs/output-contract.md)
+- [docs/wiki-seed/Home.md](./docs/wiki-seed/Home.md)
 - [docs/cli/stackctl.md](./docs/cli/stackctl.md)
 - [docs/man/man1/stackctl.1](./docs/man/man1/stackctl.1)
 - [docs/completions](./docs/completions)

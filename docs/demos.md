@@ -5,6 +5,10 @@ reproducible CLI and TUI demos.
 
 This is an optional docs and release tool, not part of the required CI path.
 
+The repo now also carries a versioned still asset for the README and wiki seed:
+
+- `docs/media/tui-services.png`
+
 ## Why VHS
 
 VHS makes terminal demos reviewable as code:
@@ -39,6 +43,17 @@ vhs examples/vhs/version-json.tape
 
 Both example tapes render into `tmp/vhs/`, which stays out of git.
 
+## Versioned screenshot capture
+
+To refresh the checked-in TUI screenshot, run:
+
+```bash
+bash scripts/capture-docs-media.sh
+```
+
+This uses a deterministic docs-only TUI harness, launches it in `xterm`, and
+captures a real rendered window into `docs/media/tui-services.png`.
+
 ## Adding a new demo
 
 Start by recording or hand-authoring a tape:
@@ -57,7 +72,9 @@ Good demo candidates:
 - carefully scripted TUI paths that do not depend on host-local secrets
 
 Avoid committing generated GIFs or videos unless the repo later decides to ship
-release assets directly from source control.
+release assets directly from source control. Still screenshots are acceptable
+when they are intentional, reproducible, and clearly support the landing-page
+docs.
 
 The starter tapes intentionally drive `./dist/stackctl` so they work from a
 repo-local build instead of depending on a globally installed binary.
