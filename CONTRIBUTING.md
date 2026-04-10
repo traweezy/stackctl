@@ -66,6 +66,7 @@ also run:
 ```bash
 bash scripts/bench-cli.sh
 bash scripts/evaluate-pgo.sh
+bash scripts/evaluate-tui-idle.sh
 ```
 
 If you change README or docs links, also run:

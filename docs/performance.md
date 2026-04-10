@@ -91,6 +91,32 @@ These are intentionally config-independent and safe on any development host.
 If you want config-dependent commands too, pass them explicitly to `hyperfine`
 or extend the script for the target branch.
 
+### Idle-session TUI FPS evaluation
+
+Use the repo-local evaluator before deciding whether `stackctl` should carry
+an explicit `tea.WithFPS(...)` cap.
+
+```bash
+bash scripts/evaluate-tui-idle.sh
+```
+
+This compares the default Bubble Tea renderer behavior with a capped `30 FPS`
+idle run and writes benchmark plus `pprof` artifacts under `tmp/perf/idle/`.
+
+Current decision as of 2026-04-10:
+
+- do not set an explicit `tea.WithFPS(...)` cap yet
+- the first 5-second idle-session comparison was effectively flat:
+  - default: `5.002 s/op`, `3.74 MB/op`, `40986 allocs/op`
+  - `WithFPS(30)`: `5.001 s/op`, `3.73 MB/op`, `40843 allocs/op`
+- CPU profile samples were tiny in both captures:
+  - default: about `40 ms` total samples over `5 s`
+  - `WithFPS(30)`: about `30 ms` total samples over `5 s`
+- the sampled time was dominated by runtime polling and parking, not by a hot
+  steady-state render loop
+- re-evaluate only if a future trace shows meaningful idle redraw pressure or
+  another animation-heavy path lands
+
 ### Profile-guided optimization
 
 Once representative profiles exist, we can add a committed `default.pgo` for
@@ -149,6 +175,8 @@ Before `1.0.0`, we should have:
 - one representative profile capture used to evaluate PGO
 - a documented decision on whether the TUI should set an explicit Bubble Tea FPS
   cap
+
+The FPS-cap decision is currently: keep the default Bubble Tea setting.
 
 ## Non-goals
 

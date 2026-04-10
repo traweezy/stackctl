@@ -51,6 +51,7 @@ If the release includes performance-sensitive TUI or runtime changes, also run:
 ```bash
 bash scripts/bench-cli.sh
 bash scripts/evaluate-pgo.sh
+bash scripts/evaluate-tui-idle.sh
 ```
 
 For code-level regressions, compare benchmark runs with the workflow in
