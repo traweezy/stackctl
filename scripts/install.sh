@@ -147,15 +147,25 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Installing stackctl ${VERSION} for ${os}/${arch}..."
-echo "Downloading ${download_url}"
-curl -fsSL "$download_url" -o "$archive_path"
+echo "Downloading ${checksums_url}"
 curl -fsSL "$checksums_url" -o "$checksums_path"
 
 expected_checksum="$(awk -v asset="$asset" '$2 == asset { print $1; exit }' "$checksums_path")"
 if [[ -z "$expected_checksum" ]]; then
-  echo "Could not find a checksum for ${asset} in ${checksums_url}" >&2
+  echo "Release ${VERSION} does not publish ${asset}." >&2
+  available_assets="$(awk '{print $2}' "$checksums_path" | grep '^stackctl_.*\.tar\.gz$' || true)"
+  if [[ -n "$available_assets" ]]; then
+    echo "Available archives in ${checksums_url}:" >&2
+    while IFS= read -r available_asset; do
+      echo "  - ${available_asset}" >&2
+    done <<< "$available_assets"
+  fi
+  echo "Choose a newer release for this platform or build from source." >&2
   exit 1
 fi
+
+echo "Downloading ${download_url}"
+curl -fsSL "$download_url" -o "$archive_path"
 
 actual_checksum="$(compute_sha256 "$archive_path")"
 if [[ "$actual_checksum" != "$expected_checksum" ]]; then

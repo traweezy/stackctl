@@ -13,7 +13,8 @@ qualification expectations around upgrades and rollbacks.
 - Newer tags cut from the current tagged-release workflow may also include
   `checksums.txt.sigstore.json`, per-archive SPDX SBOMs, and GitHub artifact
   attestations.
-- Older `0.x` tags may predate those extra release assets.
+- Older `0.x` tags may predate those extra release assets and may only publish
+  Linux archives.
 
 ## Verify a release archive before extraction
 

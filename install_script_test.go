@@ -101,6 +101,81 @@ func TestInstallScriptFailsOnChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestInstallScriptFailsWhenReleaseLacksRequestedPlatformArchive(t *testing.T) {
+	workspace := t.TempDir()
+	fakeBin := filepath.Join(workspace, "fake-bin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatalf("create fake bin dir: %v", err)
+	}
+
+	writeTestScript(t, filepath.Join(fakeBin, "uname"), `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-m" ]]; then
+  printf 'x86_64\n'
+  exit 0
+fi
+printf 'Darwin\n'
+`)
+	writeTestScript(t, filepath.Join(fakeBin, "shasum"), "#!/usr/bin/env bash\nset -euo pipefail\nfile=\"${3:?missing file}\"\nprintf '%s  %s\\n' \"$(openssl dgst -sha256 \"$file\" | awk '{print $NF}')\" \"$file\"\n")
+
+	versionTag := "v0.20.1"
+	requestedAsset := "stackctl_Darwin_x86_64.tar.gz"
+	checksumsPath := filepath.Join(workspace, "checksums.txt")
+	checksumsContent := strings.Join([]string{
+		"1111111111111111111111111111111111111111111111111111111111111111  stackctl_Linux_x86_64.tar.gz",
+		"2222222222222222222222222222222222222222222222222222222222222222  stackctl_Linux_arm64.tar.gz",
+		"",
+	}, "\n")
+	if err := os.WriteFile(checksumsPath, []byte(checksumsContent), 0o644); err != nil {
+		t.Fatalf("write checksums file: %v", err)
+	}
+
+	var archiveRequestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/traweezy/stackctl/releases/latest":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": versionTag})
+		case "/traweezy/stackctl/releases/download/" + versionTag + "/checksums.txt":
+			http.ServeFile(w, r, checksumsPath)
+		case "/traweezy/stackctl/releases/download/" + versionTag + "/" + requestedAsset:
+			archiveRequestCount.Add(1)
+			http.NotFound(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	installDir := filepath.Join(workspace, "bin")
+	cmd := exec.Command("bash", "scripts/install.sh", "--dir", installDir, "--repo", "traweezy/stackctl")
+	cmd.Env = append(
+		os.Environ(),
+		"PATH="+fakeBin+":"+os.Getenv("PATH"),
+		"STACKCTL_INSTALL_API_BASE_URL="+server.URL,
+		"STACKCTL_INSTALL_DOWNLOAD_BASE_URL="+server.URL,
+	)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		t.Fatalf("expected missing platform archive to fail\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if archiveRequestCount.Load() != 0 {
+		t.Fatalf("expected install script to stop before archive download, got %d archive requests", archiveRequestCount.Load())
+	}
+	if !strings.Contains(stderr.String(), "Release "+versionTag+" does not publish "+requestedAsset+".") {
+		t.Fatalf("expected missing-asset message in stderr:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Choose a newer release for this platform or build from source.") {
+		t.Fatalf("expected remediation hint in stderr:\n%s", stderr.String())
+	}
+}
+
 func TestInstallScriptSmokeFromLocalReleaseServer(t *testing.T) {
 	if os.Getenv("STACKCTL_RUN_INSTALL_SMOKE") != "1" {
 		t.Skip("set STACKCTL_RUN_INSTALL_SMOKE=1 to run the installer smoke test")
