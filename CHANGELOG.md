@@ -32,6 +32,8 @@ authoritative per-release summary.
   aggressively, cutting steady-state render cost and allocations
 - the README, docs index, and wiki seed now align on the versioned docs,
   media, and release entry points expected before `1.0.0`
+- the README and wiki landing pages now point directly to the demo-capture
+  path and make the one-stack, Podman-first posture more explicit
 - release verification docs now distinguish newer hardened tags from older
   `0.x` releases that predate attestations, Sigstore bundles, or wider
   archive coverage

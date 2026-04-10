@@ -34,6 +34,11 @@ No. `stackctl` intentionally enforces a one-local-stack-at-a-time safety model.
 Named stacks help you switch cleanly between profiles, but only one managed
 local stack should be running at once.
 
+## Where do I find the screenshot and demo capture path?
+
+Use [../demos.md](../demos.md) for the checked-in screenshot refresh flow, the
+repo-local VHS helper, and the starter tapes under `examples/vhs/`.
+
 ## Where is the real command reference?
 
 Use:

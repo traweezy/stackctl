@@ -12,6 +12,9 @@ stackctl start
 
 ![stackctl TUI services view](./docs/media/tui-services.png)
 
+Reproducible demo capture notes and the repo-local VHS helper live in
+[docs/demos.md](./docs/demos.md).
+
 It also gives you:
 
 - guided setup and config flows with the wizard
@@ -33,6 +36,24 @@ Instead of asking:
 - why did this stack fail to start
 
 you use one CLI that answers those questions directly.
+
+## Good fit
+
+`stackctl` is a strong fit when you want:
+
+- one repeatable local backend stack across projects and machines
+- guided setup plus clear connection details, health checks, and diagnostics
+- a local operator tool that is explicit about Podman, supported platforms, and
+  machine-readable outputs
+
+## Opinionated by design
+
+`stackctl` intentionally assumes:
+
+- the managed runtime path is Podman on Linux or macOS
+- only one managed local stack should run at a time
+- the stable contract lives in the versioned docs, not in changing TUI copy or
+  wiki prose
 
 ## Quick start
 
