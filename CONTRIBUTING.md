@@ -60,6 +60,13 @@ If you change release packaging, also qualify the snapshot release path:
 goreleaser release --snapshot --clean
 ```
 
+If you change release-verification behavior or release-asset expectations, also
+exercise the maintainer helper against a published tag:
+
+```bash
+bash scripts/verify-release-asset.sh --tag v0.20.1
+```
+
 If you change CLI startup, runtime shaping, or TUI performance-sensitive code,
 also run:
 

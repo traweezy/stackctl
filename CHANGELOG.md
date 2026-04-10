@@ -19,6 +19,8 @@ authoritative per-release summary.
   `xterm`-based capture path for README and wiki refreshes
 - Homebrew cask scaffolding in GoReleaser, kept reviewable with upload
   intentionally disabled until the tap and signing decisions are made
+- a repo-local `scripts/verify-release-asset.sh` helper for checksum,
+  attestation, and Sigstore bundle verification of tagged releases
 
 ### Changed
 

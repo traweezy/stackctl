@@ -60,6 +60,10 @@ If a historical `0.x` tag does not ship attestations or a Sigstore bundle,
 bundle file will be absent. In that case, treat `checksums.txt` verification as
 the supported baseline.
 
+Maintainers working from a repo checkout can use
+[`../scripts/verify-release-asset.sh`](../scripts/verify-release-asset.sh) to
+bundle these checks into one step.
+
 ## Latest install
 
 Install the latest release to `~/.local/bin`:
