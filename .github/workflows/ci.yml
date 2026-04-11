@@ -383,6 +383,7 @@ jobs:
           disable_search: true
           files: tmp/coverage.out
           fail_ci_if_error: false
+          use_legacy_upload_endpoint: true
           use_oidc: true
           verbose: true
 
