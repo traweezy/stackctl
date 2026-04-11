@@ -76,6 +76,13 @@ bash scripts/evaluate-pgo.sh
 bash scripts/evaluate-tui-idle.sh
 ```
 
+If you change markdown rendering, release-note output, or other parser-heavy
+formatting paths, also exercise the fuzz targets:
+
+```bash
+go test ./internal/output -run '^$' -fuzz '^FuzzRenderMarkdown$' -fuzztime 10s
+```
+
 If you change README or docs links, also run:
 
 ```bash

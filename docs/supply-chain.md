@@ -67,6 +67,15 @@ permissions, release posture, and other supply-chain signals.
 The Scorecards workflow also runs StepSecurity Harden-Runner in `audit` mode so
 the repo can observe outbound runner behavior without blocking the job.
 
+The repo also carries Go fuzz targets for the markdown render path in
+[`internal/output/markdown_fuzz_test.go`](../internal/output/markdown_fuzz_test.go),
+covering the `glamour` and `bluemonday` dependency chain behind formatted CLI
+output. To exercise that path locally, run:
+
+```bash
+go test ./internal/output -run '^$' -fuzz '^FuzzRenderMarkdown$' -fuzztime 10s
+```
+
 Workflow token scopes are intentionally explicit. The general hosted checks and
 Scorecards paths only request read access plus the write scopes required for
 SARIF uploads, while the tagged-release path elevates to `contents: write`,

@@ -13,9 +13,14 @@ Older tagged releases are not supported.
 
 Do not open public issues for suspected vulnerabilities.
 
-Prefer GitHub private vulnerability reporting for this repository if it is
-available. If private reporting is unavailable, contact the maintainer
-privately through GitHub before disclosing details publicly.
+Use GitHub private vulnerability reporting for this repository:
+
+- <https://github.com/traweezy/stackctl/security/advisories/new>
+
+If the advisory form is unavailable, start from the repository security page
+and request a private disclosure path before sharing details publicly:
+
+- <https://github.com/traweezy/stackctl/security>
 
 When reporting a vulnerability, include:
 
@@ -23,6 +28,19 @@ When reporting a vulnerability, include:
 - clear reproduction steps or a proof of concept
 - the security impact you observed or expect
 - any mitigation or workaround already identified
+
+## Disclosure timeline
+
+For non-spam reports that include enough detail to reproduce or assess:
+
+- initial acknowledgement target: within 3 business days
+- next status update target: within 7 calendar days
+- coordinated public disclosure target: after a fix or mitigation is ready, or
+  after an agreed disclosure window if a fix needs more time
+
+The exact remediation timeline depends on severity, exploitability, and whether
+the issue affects the latest tagged release, `master`, or only unsupported
+historical tags.
 
 ## Continuous Security Posture
 

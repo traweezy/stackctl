@@ -46,7 +46,7 @@ func RenderMarkdown(w io.Writer, markdown string) error {
 		return writeErr
 	}
 
-	rendered, err := renderer.Render(trimmed)
+	rendered, err := renderMarkdownTerminal(renderer, trimmed)
 	if err != nil {
 		_, writeErr := fmt.Fprintln(w, trimmed)
 		return writeErr
@@ -54,6 +54,16 @@ func RenderMarkdown(w io.Writer, markdown string) error {
 
 	_, err = io.WriteString(w, rendered)
 	return err
+}
+
+func renderMarkdownTerminal(renderer markdownRenderer, markdown string) (rendered string, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("render markdown terminal output: %v", recovered)
+		}
+	}()
+
+	return renderer.Render(markdown)
 }
 
 func markdownStyleOption(w io.Writer) glamour.TermRendererOption {

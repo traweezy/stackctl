@@ -24,6 +24,8 @@ authoritative per-release summary.
 - a pinned `scripts/render-vhs-demo.sh` helper for reproducible CLI and TUI
   demo rendering from the repo's VHS tapes
 - a versioned `docs/media/help.gif` CLI help demo rendered from the VHS helper
+- committed Go fuzz targets for the markdown render path so the
+  `glamour`/`bluemonday` dependency chain is exercised directly in-repo
 
 ### Changed
 
@@ -41,3 +43,5 @@ authoritative per-release summary.
 - the bootstrap installer now checks `checksums.txt` before archive download so
   historical tags fail with a clear missing-platform message instead of a raw
   404
+- the markdown-output dependency floor now tracks current `golang.org/x/net`
+  releases instead of the older vulnerable `v0.44.0` line

@@ -92,6 +92,28 @@ func TestRenderMarkdownFallsBackWhenRendererRenderFails(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownFallsBackWhenRendererPanics(t *testing.T) {
+	originalTerminalCheck := terminalWriterCheck
+	originalRendererFactory := newMarkdownRenderer
+	t.Cleanup(func() {
+		terminalWriterCheck = originalTerminalCheck
+		newMarkdownRenderer = originalRendererFactory
+	})
+
+	terminalWriterCheck = func(io.Writer) bool { return true }
+	newMarkdownRenderer = func(io.Writer) (markdownRenderer, error) {
+		return panicMarkdownRenderer{}, nil
+	}
+
+	var buffer bytes.Buffer
+	if err := RenderMarkdown(&buffer, "  # Heading  "); err != nil {
+		t.Fatalf("render markdown: %v", err)
+	}
+	if got := buffer.String(); got != "# Heading\n" {
+		t.Fatalf("expected fallback plain text after panic, got %q", got)
+	}
+}
+
 func TestRenderMarkdownWritesRenderedTerminalOutput(t *testing.T) {
 	originalTerminalCheck := terminalWriterCheck
 	originalRendererFactory := newMarkdownRenderer
@@ -174,4 +196,10 @@ type stubMarkdownRenderer struct {
 
 func (s stubMarkdownRenderer) Render(string) (string, error) {
 	return s.rendered, s.err
+}
+
+type panicMarkdownRenderer struct{}
+
+func (panicMarkdownRenderer) Render(string) (string, error) {
+	panic("boom")
 }
