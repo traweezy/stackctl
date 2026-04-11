@@ -73,6 +73,8 @@ Workflow token scopes stay narrow by default:
 
 - normal hosted checks and Scorecards request read access plus the write scopes
   needed for SARIF uploads
+- the coverage upload job adds `id-token: write` only so Codecov can verify the
+  upload with OIDC
 - the tagged-release publish job adds `contents: write`,
   `attestations: write`, and `id-token: write` only where they are required
 
