@@ -1,6 +1,9 @@
 # stackctl
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/traweezy/stackctl/badge)](https://scorecard.dev/viewer/?uri=github.com/traweezy/stackctl)
+[![CI](https://github.com/traweezy/stackctl/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/traweezy/stackctl/actions/workflows/ci.yml?query=branch%3Amaster)
+[![CodeQL](https://github.com/traweezy/stackctl/actions/workflows/codeql.yml/badge.svg?branch=master&event=push)](https://github.com/traweezy/stackctl/actions/workflows/codeql.yml?query=branch%3Amaster)
+[![Go Report Card](https://goreportcard.com/badge/github.com/traweezy/stackctl)](https://goreportcard.com/report/github.com/traweezy/stackctl)
 
 `stackctl` gives you a local backend stack on Linux or macOS without making you
 hand-maintain compose files, port maps, or connection notes.
