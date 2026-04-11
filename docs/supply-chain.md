@@ -73,10 +73,15 @@ Workflow token scopes stay narrow by default:
 
 - normal hosted checks and Scorecards request read access plus the write scopes
   needed for SARIF uploads
-- the coverage upload job adds `id-token: write` only so Codecov can verify the
-  upload with OIDC
+- the coverage upload job prefers `CODECOV_TOKEN` when the repo is configured
+  for Codecov, and falls back to `id-token: write` only for Codecov's OIDC
+  upload path
 - the tagged-release publish job adds `contents: write`,
   `attestations: write`, and `id-token: write` only where they are required
+
+The checked-in [`../codecov.yml`](../codecov.yml) matches the repo's current
+coverage posture: project and patch coverage both target `100%`, which aligns
+with `scripts/check-coverage.sh` and the hosted `COVERAGE_THRESHOLD` gate.
 
 ## Tagged release artifacts
 

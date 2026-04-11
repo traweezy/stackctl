@@ -342,6 +342,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      STACKCTL_CODECOV_TOKEN_PRESENT: ${{ secrets.CODECOV_TOKEN != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -364,13 +366,37 @@ jobs:
           path: tmp/coverage.out
           retention-days: 7
 
-      - name: Upload coverage to Codecov
+      - name: Upload coverage to Codecov with token
+        if: ${{ env.STACKCTL_CODECOV_TOKEN_PRESENT == 'true' }}
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         with:
+          disable_search: true
+          files: tmp/coverage.out
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+
+      - name: Upload coverage to Codecov with OIDC fallback
+        if: ${{ env.STACKCTL_CODECOV_TOKEN_PRESENT != 'true' }}
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        with:
+          disable_search: true
           files: tmp/coverage.out
           fail_ci_if_error: false
           use_oidc: true
           verbose: true
+
+      - name: Summarize Codecov auth mode
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [[ "${STACKCTL_CODECOV_TOKEN_PRESENT}" == "true" ]]; then
+            echo "- Codecov upload auth: \`CODECOV_TOKEN\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Coverage gate source of truth: \`scripts/check-coverage.sh\` and \`codecov.yml\` at 100.0%" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Codecov upload auth: OIDC fallback (no \`CODECOV_TOKEN\` configured)" >> "$GITHUB_STEP_SUMMARY"
+            echo "- If uploads still fail or the public badge stays unknown, install the Codecov GitHub App and add \`CODECOV_TOKEN\` in repo secrets." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   integration-tests:
     name: Test / integration
