@@ -1,57 +1,52 @@
 # Architecture overview
 
-`stackctl` is a Go CLI that combines three main surfaces:
+`stackctl` is one Go application with three user-facing entry points:
 
-- command-line operator workflows
-- guided configuration flows
-- an interactive terminal UI
+- CLI commands
+- setup and config flows
+- a Bubble Tea TUI
 
-## High-level layout
+Those entry points sit on the same config and runtime model so users do not
+have to learn three different products.
+
+## Package layout
 
 - `cmd/`
-  Cobra command wiring and the top-level user-facing command surface.
+  Cobra command wiring and root command behavior.
 - `internal/config/`
-  config loading, schema normalization, prompt flows, validation, and stack
-  file handling.
+  config loading, normalization, prompts, validation, and stack files.
 - `internal/compose/`
-  compose and container runtime orchestration helpers.
+  compose rendering and runtime orchestration helpers.
 - `internal/system/`
-  host runtime detection, package-manager helpers, and environment checks.
+  host detection, package-manager integration, and environment checks.
 - `internal/doctor/`
   diagnostics and remediation guidance.
 - `internal/output/`
-  human-oriented and machine-oriented output helpers.
+  human-readable and machine-readable output helpers.
 - `internal/tui/`
-  the Bubble Tea-based dashboard and command palette surface.
+  the interactive dashboard and palette.
 - `scripts/`
-  installer, smoke tests, journey coverage, and release qualification helpers.
-- `tools/generate-cli-assets/`
-  generation of CLI Markdown docs, man pages, and shell completions.
+  installer, smoke coverage, and release-maintenance helpers.
 
 ## Runtime model
 
-The project supports two main stack modes:
+`stackctl` supports two stack modes:
 
-- managed stacks, where `stackctl` owns and renders the stack files
-- external stacks, where `stackctl` operates on an existing compose setup
+- managed stacks, where `stackctl` owns the generated compose files
+- external stacks, where `stackctl` works against an existing compose setup
 
-The CLI, wizard, and TUI all sit on top of the same config and runtime model so
-operators are not learning different products for each surface.
+That shared model is why `stackctl services`, `stackctl env`, the wizard, and
+the TUI all agree on what is configured and running.
 
-## Release and verification model
+## Release shape
 
-The repo treats CI and release qualification as part of the product contract:
-
-- hosted CI verifies build, lint, security, unit, integration, installer, and
-  packaging paths
-- `platform-lab` extends that coverage to full-host Linux and macOS journeys
-- release archives ship the binary plus the docs, security policy, and license
+Release archives ship the binary plus the generated docs, man pages, license,
+security policy, and changelog. Hosted CI covers the everyday build and test
+path; the scheduled `platform-lab` workflows extend that coverage to full-host
+Linux and macOS journeys.
 
 ## Documentation split
 
-The repo intentionally keeps the stable contract in versioned docs and uses the
-future wiki only for narrative guidance.
-
-That separation matters for `1.x`: command docs and compatibility guarantees
-should remain tied to tagged releases, while troubleshooting notes and platform
-walkthroughs can evolve more freely.
+Use the versioned docs for the stable command and JSON contract. Use the wiki
+pages for guidance, troubleshooting, and platform walkthroughs that may evolve
+between releases.

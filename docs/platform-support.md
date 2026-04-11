@@ -1,12 +1,12 @@
 # Platform Support Matrix
 
-This document explains what `stackctl` currently expects from each supported
-host path.
+Use this matrix when you need to know what `stackctl` can install or manage on
+each supported host family.
 
-Use it together with [compatibility.md](./compatibility.md):
+Pair it with [compatibility.md](./compatibility.md):
 
-- `compatibility.md` defines the `1.x` contract and verification policy
-- this document explains the package-manager and host-service differences
+- `compatibility.md` defines the support policy and runtime floor
+- this page explains package-manager and host-service differences
 
 ## Runtime baseline
 
@@ -15,24 +15,24 @@ The supported managed-runtime floor is:
 - `podman` `4.9.3+`
 - a `podman compose` provider `1.0.6+`
 
-Those minimums apply across Linux and macOS. Older distro packages may still
-install, but installability alone does not expand the supported runtime floor.
+Those minimums apply across Linux and macOS. The fact that an older package
+still installs does not expand the support floor.
 
-## Verification tiers
+## What gets tested where
 
-Hosted CI continuously verifies:
+Hosted CI continuously covers:
 
 - build, lint, vet, race, coverage, and security checks
 - Linux Podman integration
 - Linux package-manager smoke in disposable distro containers
 - installer and journey smoke
 
-Release-qualified `platform-lab` verifies:
+Release-time and scheduled `platform-lab` coverage extends that to:
 
 - full-host Linux distro journeys
 - macOS Homebrew plus `podman machine`
 
-See [compatibility.md](./compatibility.md) for the formal support policy.
+See [compatibility.md](./compatibility.md) for the policy details.
 
 ## Host matrix
 
@@ -45,11 +45,11 @@ Automatic package install support:
 - `buildah`
 - `skopeo`
 
-Cockpit behavior:
+Cockpit notes:
 
-- Cockpit helpers are supported when the host uses `systemd`
-- `stackctl` does not auto-install Cockpit on the `apt` path
-- if you want Cockpit here, install it manually and let `stackctl` keep the
+- supported when the host uses `systemd`
+- not auto-installed by `stackctl`
+- if you want Cockpit here, install it yourself and let `stackctl` keep the
   helper URLs, open actions, and diagnostics aligned
 
 ### Fedora and RHEL family: `dnf`, `yum`
@@ -63,11 +63,11 @@ Automatic package install support:
 - `cockpit`
 - `cockpit-podman`
 
-Cockpit behavior:
+Cockpit notes:
 
-- Cockpit helpers are supported when the host uses `systemd`
+- supported when the host uses `systemd`
 - `stackctl setup --install` and `stackctl doctor --fix` can install and enable
-  Cockpit automatically on this path
+  Cockpit automatically
 
 ### Arch family: `pacman`
 
@@ -80,10 +80,10 @@ Automatic package install support:
 - `cockpit`
 - `cockpit-podman`
 
-Cockpit behavior:
+Cockpit notes:
 
-- Cockpit helpers are supported when the host uses `systemd`
-- automatic Cockpit install and enablement are supported on this path
+- supported when the host uses `systemd`
+- automatic Cockpit install and enablement are supported
 
 ### openSUSE family: `zypper`
 
@@ -96,12 +96,12 @@ Automatic package install support:
 - `cockpit`
 - `cockpit-podman`
 
-Cockpit behavior:
+Cockpit notes:
 
-- Cockpit helpers are supported when the host uses `systemd`
-- automatic Cockpit install and enablement are supported on this path
+- supported when the host uses `systemd`
+- automatic Cockpit install and enablement are supported
 - the smoke harness retries `zypper refresh` and install flows because mirror
-  metadata failures are common enough to be worth handling explicitly
+  metadata failures are common enough to handle explicitly
 
 ### Alpine: `apk`
 
@@ -112,11 +112,11 @@ Automatic package install support:
 - `buildah`
 - `skopeo`
 
-Cockpit behavior:
+Cockpit notes:
 
 - Cockpit is not supported through `stackctl` on Alpine
-- `stackctl` should not expect `systemctl` or other `systemd`-specific behavior
-- Cockpit helper and install settings should stay off on this host path
+- `stackctl` does not assume `systemd`
+- Cockpit helper and install settings should stay off on this host
 
 ### macOS: `brew`
 
@@ -139,23 +139,20 @@ Extra readiness requirement:
 Operational meaning:
 
 - Homebrew is the runtime bootstrap path for macOS
-- GitHub Releases remain the official `stackctl` binary distribution path until
-  a Homebrew tap is published intentionally
+- GitHub Releases remain the official `stackctl` binary distribution channel
+  until a Homebrew tap is published
 
 See [homebrew.md](./homebrew.md) for the distribution plan.
 
-## Important config nuance
+## Important config detail
 
 `system.package_manager` chooses the package backend for setup and doctor fix
-flows, but it does not redefine the actual host.
+flows, but it does not redefine the real host.
 
 That means:
 
-- changing `system.package_manager` to `brew` on Linux does not make Linux use
+- setting `system.package_manager: brew` on Linux does not make Linux use
   `podman machine`
-- changing `system.package_manager` to `apt` on macOS does not make macOS gain
+- setting `system.package_manager: apt` on macOS does not make macOS gain
   `systemd` or Cockpit support
-- host OS and service-manager behavior still come from the real machine
-
-The CLI, wizard, and TUI try to describe this as accurately as possible from
-the current host plus the current config draft.
+- the actual host OS and service manager still come from the machine you are on

@@ -1,41 +1,29 @@
 # stackctl Wiki
 
-This wiki is for narrative operating guidance around `stackctl`.
+Use the wiki for practical operating guidance: troubleshooting, platform notes,
+and explanations that are useful between releases but do not need to be part of
+the strict command reference.
 
 ![stackctl TUI services view](../media/tui-services.png)
 
-If you want the reproducible screenshot and VHS demo capture path, start with
-[../demos.md](../demos.md).
-Animated CLI help demo: [../media/help.gif](../media/help.gif)
+## Start here
 
-Use the wiki when you want:
-
-- troubleshooting playbooks
-- platform-specific walkthroughs
-- architecture context
-- FAQ-style explanations
-
-Do not treat the wiki as the compatibility contract. The stable `1.x` contract
-still lives in the versioned repo docs:
-
-- [Compatibility Policy](../compatibility.md)
-- [Install, Upgrade, and Roll Back](../install-and-upgrade.md)
-- [Output Contract](../output-contract.md)
-- [CLI Reference](../cli/stackctl.md)
-
-Start here if you are evaluating `stackctl`:
+If you are evaluating `stackctl`:
 
 - [../../README.md](../../README.md)
-- [../compatibility.md](../compatibility.md)
-- [../demos.md](../demos.md)
+- [../install-and-upgrade.md](../install-and-upgrade.md)
+- [../platform-support.md](../platform-support.md)
 
-Start here if you are operating it:
+If you are already running it:
 
 - [Troubleshooting](./Troubleshooting.md)
 - [macOS + Homebrew + podman machine](./macOS-Homebrew-podman-machine.md)
 - [Upgrade and rollback](./Upgrade-and-rollback.md)
 
-Start here if you want broader context:
+If you want background and policy:
 
 - [FAQ](./FAQ.md)
 - [Architecture overview](./Architecture-overview.md)
+- [../compatibility.md](../compatibility.md)
+
+If you are maintaining docs media, use [../demos.md](../demos.md).

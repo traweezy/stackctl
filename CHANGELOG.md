@@ -23,7 +23,6 @@ authoritative per-release summary.
   attestation, and Sigstore bundle verification of tagged releases
 - a pinned `scripts/render-vhs-demo.sh` helper for reproducible CLI and TUI
   demo rendering from the repo's VHS tapes
-- a versioned `docs/media/help.gif` CLI help demo rendered from the VHS helper
 - committed Go fuzz targets for the markdown render path so the
   `glamour`/`bluemonday` dependency chain is exercised directly in-repo
 
@@ -37,6 +36,9 @@ authoritative per-release summary.
   media, role-based entry points, and release guidance expected before `1.0.0`
 - the README and wiki landing pages now point directly to the demo-capture
   path and make the one-stack, Podman-first posture more explicit
+- the main human-authored docs now lead with user tasks and operational
+  decisions instead of maintainer process language, and VHS is framed as local
+  maintainer tooling rather than a reader-facing feature
 - release verification docs now distinguish newer hardened tags from older
   `0.x` releases that predate attestations, Sigstore bundles, or wider
   archive coverage

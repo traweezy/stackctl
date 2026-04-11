@@ -1,37 +1,55 @@
-# Demo Capture and Media
+# Docs Media and Local Demos
 
-`stackctl` can use [Charm VHS](https://github.com/charmbracelet/vhs) for
-reproducible CLI and TUI demos.
+Most `stackctl` users do not need to care about VHS, demo tapes, or screenshot
+capture. This page is for maintainers who are refreshing README or wiki media,
+or who want a deterministic way to record a terminal walkthrough.
 
-This is an optional docs and release tool, not part of the required CI path.
+## What lives in git
 
-The repo now carries versioned media for the README and wiki seed:
+The only checked-in docs image today is:
 
 - `docs/media/tui-services.png`
-- `docs/media/help.gif`
 
-## Why VHS
+That image earns its place because it shows the TUI layout at a glance. We do
+not currently check in an animated GIF. The old `--help` animation added motion
+without teaching anything the README text did not already cover.
 
-VHS makes terminal demos reviewable as code:
+## When to use VHS
 
-- tapes are plain text and easy to diff
-- rendered media is reproducible from the same commands
-- operator flows can be documented without hand-recorded screencasts
+Use [Charm VHS](https://github.com/charmbracelet/vhs) when you need terminal
+media that is:
 
-## Prerequisites
+- deterministic
+- reviewable in plain text
+- easy to rerender after UI or copy changes
 
-Use one of the supported installation paths from the upstream project:
+That is useful for maintainers because tapes diff cleanly and can be rerun on a
+branch. It is not a product feature, and it should not drive the user-facing
+story in the README.
 
-- `brew install vhs`
-- `go install github.com/charmbracelet/vhs@latest`
-- `docker run --rm -v "$PWD:/vhs" ghcr.io/charmbracelet/vhs <tape>.tape`
+## Choosing the right asset
 
-If you run `vhs` directly on the host, make sure `ttyd` and `ffmpeg` are also
-installed and available on `PATH`.
+Prefer:
 
-## Repo helper
+- a screenshot when one still image explains the interface quickly
+- a code block when plain command output is the point
+- a local VHS demo when motion or timing actually matters
 
-The supported repo-local path is the helper script:
+Only check in a GIF or video if it teaches something a screenshot and text
+cannot. A moving `--help` screen usually fails that test.
+
+## Refresh the checked-in screenshot
+
+```bash
+bash scripts/capture-docs-media.sh
+```
+
+This runs the deterministic docs-only TUI harness, opens it in `xterm`, and
+captures a real rendered window into `docs/media/tui-services.png`.
+
+## Render local VHS examples
+
+Run the repo helper:
 
 ```bash
 bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape
@@ -40,67 +58,20 @@ bash scripts/render-vhs-demo.sh --tape examples/vhs/version-json.tape
 
 The helper:
 
-- pins the container image to `ghcr.io/charmbracelet/vhs:v0.11.0`
+- pins `ghcr.io/charmbracelet/vhs:v0.11.0`
 - prefers `podman`, then falls back to `docker`
-- builds `./dist/stackctl` automatically unless you pass `--binary` or
-  `--no-build`
-- can rewrite the tape `Output` path with `--output`
+- builds `./dist/stackctl` unless you pass `--binary` or `--no-build`
+- lets you override the tape `Output` path with `--output`
 
-The first run may pull the pinned VHS image if it is not already present
-locally.
+The example tapes render into `tmp/vhs/`, which stays out of git.
 
-## Sample tapes
+## Starter tapes
 
-The repo keeps starter tapes under [../examples/vhs](../examples/vhs).
+Starter tapes live in [../examples/vhs](../examples/vhs). They are small,
+deterministic examples meant for local preview and iteration:
 
-Run them from the repo root:
+- `help.tape`
+- `version-json.tape`
 
-```bash
-bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape
-bash scripts/render-vhs-demo.sh --tape examples/vhs/version-json.tape
-```
-
-Both example tapes render into `tmp/vhs/`, which stays out of git.
-
-## Versioned screenshot capture
-
-To refresh the checked-in TUI screenshot, run:
-
-```bash
-bash scripts/capture-docs-media.sh
-```
-
-This uses a deterministic docs-only TUI harness, launches it in `xterm`, and
-captures a real rendered window into `docs/media/tui-services.png`.
-
-If you intentionally want to refresh a versioned motion asset as well, render
-it explicitly:
-
-```bash
-bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape --output docs/media/help.gif
-```
-
-## Adding a new demo
-
-Start by recording or hand-authoring a tape:
-
-```bash
-vhs record > examples/vhs/my-flow.tape
-```
-
-Then edit it down so the flow stays deterministic.
-
-Good demo candidates:
-
-- `stackctl --help`
-- `stackctl version --json`
-- static docs or config inspection flows
-- carefully scripted TUI paths that do not depend on host-local secrets
-
-The repo intentionally versions the small `docs/media/help.gif` help demo and
-the `docs/media/tui-services.png` still. Avoid adding more generated GIFs or
-videos unless they are equally intentional, reproducible, and clearly useful to
-the landing-page docs.
-
-The starter tapes intentionally drive `./dist/stackctl` so they work from a
-repo-local build instead of depending on a globally installed binary.
+If you add another tape, keep it deterministic, keep it short, and prefer a
+flow that shows actual user value instead of generic help text.

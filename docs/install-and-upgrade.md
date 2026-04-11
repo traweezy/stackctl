@@ -1,26 +1,54 @@
 # Install, Upgrade, and Roll Back
 
-This guide covers the supported install paths for `stackctl` plus the release
-qualification expectations around upgrades and rollbacks.
+Use this guide when you need to install `stackctl`, pin a specific release, or
+roll back safely.
 
-## Choose the install path
+## Pick an install method
 
-- Use the default-branch bootstrap script when you want the convenience path to
-  the latest GitHub release.
+- Use the default-branch install script when you want the latest release with
+  the least typing.
 - Pin both the raw script URL and the `--version` flag when you need a
   deterministic install, upgrade, or rollback.
-- Always verify `checksums.txt` before extracting a release archive manually.
-- Newer tags cut from the current tagged-release workflow may also include
-  `checksums.txt.sigstore.json`, per-archive SPDX SBOMs, and GitHub artifact
-  attestations.
-- Older `0.x` tags may predate those extra release assets and may only publish
-  Linux archives.
+- If you download archives manually, verify `checksums.txt` before extraction.
+- Newer tags may also ship `checksums.txt.sigstore.json`, per-archive SPDX
+  SBOMs, and GitHub artifact attestations.
+- Older `0.x` tags may predate those extra assets and may only publish Linux
+  archives.
 
-## Verify a release archive before extraction
+## Install the latest release
 
-Manual installs should verify the downloaded archive before extraction. The
-bootstrap installer in [`../scripts/install.sh`](../scripts/install.sh) already
-does the checksum step automatically.
+Install to `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | bash
+```
+
+Install to `/usr/local/bin` instead:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | \
+  bash -s -- --system
+```
+
+This is the convenience path: the script comes from the default branch and then
+downloads the latest tagged release archive for your platform.
+
+## Install a specific release
+
+Pin the same tag in both places:
+
+```bash
+STACKCTL_VERSION=vX.Y.Z
+curl -fsSL "https://raw.githubusercontent.com/traweezy/stackctl/${STACKCTL_VERSION}/scripts/install.sh" | \
+  bash -s -- --version "${STACKCTL_VERSION}"
+```
+
+That keeps the bootstrap script and the installed archive on the same release.
+
+## Verify a release archive manually
+
+The install script already checks `checksums.txt`. Use the manual path when you
+want to inspect the archive yourself before extraction.
 
 Linux example:
 
@@ -36,16 +64,14 @@ gh release download "${STACKCTL_VERSION}" --repo traweezy/stackctl \
 sha256sum -c --ignore-missing checksums.txt
 ```
 
-For newer tags that also publish GitHub artifact attestations, you can verify
-the archive against the release metadata directly:
+If the release also publishes GitHub artifact attestations:
 
 ```bash
 gh release verify-asset "${STACKCTL_VERSION}" ./stackctl_Linux_x86_64.tar.gz \
   --repo traweezy/stackctl
 ```
 
-For newer tags that also publish `checksums.txt.sigstore.json`, you can verify
-the checksum manifest itself with `cosign`:
+If the release also publishes `checksums.txt.sigstore.json`:
 
 ```bash
 cosign verify-blob \
@@ -55,45 +81,11 @@ cosign verify-blob \
   checksums.txt
 ```
 
-If a historical `0.x` tag does not ship attestations or a Sigstore bundle,
-`gh release verify-asset` will report that no attestations were found and the
-bundle file will be absent. In that case, treat `checksums.txt` verification as
-the supported baseline.
+For historical `0.x` tags that do not ship attestations or a Sigstore bundle,
+checksum verification is the supported baseline.
 
-Maintainers working from a repo checkout can use
-[`../scripts/verify-release-asset.sh`](../scripts/verify-release-asset.sh) to
-bundle these checks into one step.
-
-## Latest install
-
-Install the latest release to `~/.local/bin`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | bash
-```
-
-Install to `/usr/local/bin` instead:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | \
-  bash -s -- --system
-```
-
-This is the convenience path. The bootstrap script comes from the default
-branch, then downloads the latest tagged release archive for your platform.
-
-## Deterministic install of a specific release
-
-Pin the same tag in both places:
-
-```bash
-STACKCTL_VERSION=vX.Y.Z
-curl -fsSL "https://raw.githubusercontent.com/traweezy/stackctl/${STACKCTL_VERSION}/scripts/install.sh" | \
-  bash -s -- --version "${STACKCTL_VERSION}"
-```
-
-That keeps the bootstrap script and the installed archive on the same release
-boundary.
+Maintainers working from a repo checkout can also use
+[`../scripts/verify-release-asset.sh`](../scripts/verify-release-asset.sh).
 
 ## Verify the installed binary
 
@@ -101,7 +93,7 @@ boundary.
 stackctl version --json
 ```
 
-The machine-readable output is part of the documented compatibility contract in
+That JSON output is part of the documented automation contract in
 [output-contract.md](./output-contract.md).
 
 ## Upgrade
@@ -122,7 +114,7 @@ curl -fsSL "https://raw.githubusercontent.com/traweezy/stackctl/${STACKCTL_VERSI
 stackctl version --json
 ```
 
-Before upgrade-sensitive transitions, back up the whole config directory:
+Before upgrade-sensitive transitions, back up the config directory:
 
 ```bash
 stackctl_config_root="${XDG_CONFIG_HOME:-$HOME/.config}/stackctl"
@@ -135,7 +127,7 @@ of a single file.
 
 ## Roll back
 
-Roll back to a previous tagged release the same way:
+Rollback uses the same pinned-install flow:
 
 ```bash
 STACKCTL_VERSION=vX.Y.Z
@@ -144,8 +136,8 @@ curl -fsSL "https://raw.githubusercontent.com/traweezy/stackctl/${STACKCTL_VERSI
 stackctl version --json
 ```
 
-For the `1.x` contract, rollback is expected between releases that understand
-`schema_version: 1`.
+For the planned `1.x` contract, rollback is expected between releases that
+understand `schema_version: 1`.
 
 If you intentionally roll back to an older pre-schema `0.x` build, restore the
 config backup you made before the upgrade instead of assuming backward config

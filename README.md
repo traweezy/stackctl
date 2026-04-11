@@ -2,9 +2,8 @@
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/traweezy/stackctl/badge)](https://scorecard.dev/viewer/?uri=github.com/traweezy/stackctl)
 
-`stackctl` is a local-backend operator for developers who want one command to
-bring up PostgreSQL, Redis, NATS, pgAdmin, and the connection details around
-them without hand-maintaining compose files, ports, or helper scripts.
+`stackctl` gives you a local backend stack on Linux or macOS without making you
+hand-maintain compose files, port maps, or connection notes.
 
 ```bash
 stackctl start
@@ -12,22 +11,18 @@ stackctl start
 
 ![stackctl TUI services view](./docs/media/tui-services.png)
 
-![stackctl CLI help demo](./docs/media/help.gif)
+With one CLI, you can:
 
-Reproducible screenshot and VHS demo capture notes live in
-[docs/demos.md](./docs/demos.md).
-
-It also gives you:
-
-- guided setup and config flows with the wizard
-- a terminal UI for status, actions, logs, and shortcuts
-- connection helpers, environment export, health checks, and diagnostics
-- optional SeaweedFS and Meilisearch services when you want object storage or
-  local search
+- install or check the Podman runtime
+- start Postgres, Redis, NATS, and pgAdmin
+- inspect ports, URLs, DSNs, and exported environment variables
+- switch between named stack profiles
+- use a TUI for status, logs, actions, and shortcuts
+- add SeaweedFS or Meilisearch when you need object storage or local search
 
 ## Why use it
 
-`stackctl` is for teams and solo developers who want a consistent local stack
+`stackctl` is for teams and solo developers who want the same local stack story
 across projects and machines.
 
 Instead of asking:
@@ -44,18 +39,17 @@ you use one CLI that answers those questions directly.
 `stackctl` is a strong fit when you want:
 
 - one repeatable local backend stack across projects and machines
-- guided setup plus clear connection details, health checks, and diagnostics
-- a local operator tool that is explicit about Podman, supported platforms, and
-  machine-readable outputs
+- setup help plus clear connection details, health checks, and diagnostics
+- a tool that is explicit about Podman, supported platforms, and JSON output
 
-## Opinionated by design
+## Operating model
 
-`stackctl` intentionally assumes:
+`stackctl` is opinionated on purpose:
 
-- the managed runtime path is Podman on Linux or macOS
+- the managed runtime is Podman on Linux or macOS
 - only one managed local stack should run at a time
-- the stable contract lives in the versioned docs, not in changing TUI copy or
-  wiki prose
+- the stable automation contract is the documented CLI and JSON output, not the
+  wording of prompts, spinners, or TUI copy
 
 ## Quick start
 
@@ -101,7 +95,7 @@ Optional services:
 - SeaweedFS for S3-compatible local object storage
 - Meilisearch for local search and autocomplete
 
-Core operator flows:
+Core flows:
 
 - `stackctl setup` to bootstrap the machine and walk through configuration
 - `stackctl start`, `stop`, and `restart` to control the stack
@@ -127,15 +121,15 @@ paths. Full-host Linux distro and macOS journeys are qualified in
 The compatibility contract for `1.x` is documented in
 [docs/compatibility.md](./docs/compatibility.md).
 
-## Install paths
+## Install options
 
-Latest release convenience path:
+Latest release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/traweezy/stackctl/master/scripts/install.sh | bash
 ```
 
-Deterministic install, upgrade, or rollback of a specific release:
+Specific release:
 
 ```bash
 STACKCTL_VERSION=vX.Y.Z
@@ -155,7 +149,7 @@ go build -trimpath -o dist/stackctl .
 For pinned installs, upgrades, rollbacks, and config backups, use
 [docs/install-and-upgrade.md](./docs/install-and-upgrade.md).
 
-## Typical journeys
+## Common workflows
 
 New machine:
 
@@ -190,14 +184,12 @@ External stack management:
 
 ## Documentation
 
-The README is intentionally the short landing page. The deeper docs live under
-[docs/README.md](./docs/README.md).
+Use [docs/README.md](./docs/README.md) as the full docs index.
 
 If you are evaluating `stackctl`:
 
 - [docs/install-and-upgrade.md](./docs/install-and-upgrade.md)
 - [docs/platform-support.md](./docs/platform-support.md)
-- [docs/demos.md](./docs/demos.md)
 - [docs/compatibility.md](./docs/compatibility.md)
 
 If you are automating or operating it:
@@ -244,7 +236,7 @@ Manual verification and rollback guidance lives in
 
 ## Status
 
-The project is still in `0.x`, but the repo is explicitly freezing the public
-surfaces intended for `1.x`. Track release-to-release changes in
+The project is still in `0.x`, but the public CLI and JSON surfaces are being
+stabilized for `1.x`. Track release-to-release changes in
 [CHANGELOG.md](./CHANGELOG.md) and the compatibility guarantees in
 [docs/compatibility.md](./docs/compatibility.md).

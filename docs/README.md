@@ -1,48 +1,40 @@
 # Documentation
 
-This directory holds the versioned documentation that complements the short
-top-level README.
+Use this index when you need the next right `stackctl` document.
 
-Use the README for the product overview and quick start. Use the docs here when
-you need the stable contract, operator procedures, or generated command
-reference.
-
-## Start here
-
-If you are evaluating or installing `stackctl`:
+## Evaluate or install
 
 - [../README.md](../README.md)
 - [install-and-upgrade.md](./install-and-upgrade.md)
 - [platform-support.md](./platform-support.md)
 - [compatibility.md](./compatibility.md)
-- [demos.md](./demos.md)
 
-If you are operating or troubleshooting it:
+## Run or troubleshoot
 
 - [wiki-seed/Home.md](./wiki-seed/Home.md)
-- [performance.md](./performance.md)
+- [wiki-seed/Troubleshooting.md](./wiki-seed/Troubleshooting.md)
+- [wiki-seed/FAQ.md](./wiki-seed/FAQ.md)
 - [homebrew.md](./homebrew.md)
 
-If you are automating against stable surfaces:
+## Automate against it
 
 - [output-contract.md](./output-contract.md)
 - [cli/stackctl.md](./cli/stackctl.md)
 - [man/man1/stackctl.1](./man/man1/stackctl.1)
 
-If you are verifying releases:
+The documented JSON outputs for `1.x` are:
+
+- `stackctl version --json`
+- `stackctl env --json`
+- `stackctl services --json`
+- `stackctl status --json`
+
+## Verify releases
 
 - [supply-chain.md](./supply-chain.md)
 - [release-checklist.md](./release-checklist.md)
+- [../SECURITY.md](../SECURITY.md)
 - [../CHANGELOG.md](../CHANGELOG.md)
-
-## Command reference
-
-- [cli/stackctl.md](./cli/stackctl.md)
-- [man/man1/stackctl.1](./man/man1/stackctl.1)
-
-The `docs/cli/` tree contains generated Markdown docs for every command. The
-`docs/man/man1/` tree contains the generated man pages shipped in release
-archives.
 
 ## Shell completions
 
@@ -51,32 +43,11 @@ archives.
 - [completions/stackctl.ps1](./completions/stackctl.ps1)
 - [completions/_stackctl](./completions/_stackctl)
 
-## Stable automation surfaces
+## Maintain docs and media
 
-The machine-readable `1.x` contract is intentionally narrow:
+- [demos.md](./demos.md)
+- [performance.md](./performance.md)
+- [wiki-seed/README.md](./wiki-seed/README.md)
 
-- `stackctl version --json`
-- `stackctl env --json`
-- `stackctl services --json`
-- `stackctl status --json`
-
-See [output-contract.md](./output-contract.md) for the documented field-level
-expectations.
-
-## Security and release artifacts
-
-Release verification expectations live in:
-
-- [../SECURITY.md](../SECURITY.md)
-- [supply-chain.md](./supply-chain.md)
-- [install-and-upgrade.md](./install-and-upgrade.md)
-
-Tagged release archives include this docs tree alongside the binary, license,
-changelog, and security policy so operators can keep the local reference set
-with the installed release.
-
-## Future wiki seed
-
-If the project later enables a GitHub wiki, starter pages live under
-[wiki-seed/README.md](./wiki-seed/README.md). The intended landing page is
-[wiki-seed/Home.md](./wiki-seed/Home.md).
+The `docs/cli/` tree and `docs/man/man1/` tree are generated command
+references that ship in release archives.

@@ -1,26 +1,26 @@
 # Release Checklist
 
-This is the operator-facing checklist for cutting a `stackctl` release.
+Use this checklist when cutting a `stackctl` release.
 
-It complements the enforced CI/release workflows. Use it to make sure the human
-side of the release still matches the documented `1.x` contract.
+The workflows enforce a lot automatically. This page covers the human checks
+that still matter before and after tagging.
 
 ## Before tagging
 
-Confirm that the branch is in a releasable state:
+Confirm that:
 
-- `CHANGELOG.md` reflects the release scope
-- compatibility-sensitive changes were reviewed against
+- `CHANGELOG.md` matches the release scope
+- compatibility-sensitive changes were checked against
   [compatibility.md](./compatibility.md)
-- machine-readable output changes were reviewed against
+- JSON output changes were checked against
   [output-contract.md](./output-contract.md)
-- install or rollback behavior changes were reflected in
+- install or rollback changes were reflected in
   [install-and-upgrade.md](./install-and-upgrade.md)
-- generated docs/man/completions are current
+- generated docs, man pages, and completions are current
 
 ## Local verification
 
-Run the normal local release qualification commands:
+Run the normal local release gates:
 
 ```bash
 bash scripts/check-workflows.sh
@@ -35,9 +35,9 @@ bash scripts/journey-smoke.sh
 goreleaser release --snapshot --clean
 ```
 
-`scripts/check-coverage.sh` now enforces a `100.0%` baseline by default. Only
-override it intentionally when you are comparing historical branches or doing a
-temporary local diagnostic run.
+`scripts/check-coverage.sh` enforces a `100.0%` baseline by default. Only
+override it when you are intentionally comparing history or doing local
+diagnostics.
 
 If the release changes CLI flags or help text, also run:
 
@@ -46,7 +46,7 @@ bash scripts/generate-cli-assets.sh
 git diff --exit-code docs/cli docs/man docs/completions
 ```
 
-If the release includes performance-sensitive TUI or runtime changes, also run:
+If the release changes performance-sensitive TUI or runtime code, also run:
 
 ```bash
 bash scripts/bench-cli.sh
@@ -54,28 +54,20 @@ bash scripts/evaluate-pgo.sh
 bash scripts/evaluate-tui-idle.sh
 ```
 
-For code-level regressions, compare benchmark runs with the workflow in
-[performance.md](./performance.md).
-
-If the release includes TUI layout changes or README/wiki media refreshes,
-also run:
+If the release changes TUI layout or README screenshots, refresh and inspect
+the checked-in still:
 
 ```bash
 bash scripts/capture-docs-media.sh
-bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape
 ```
 
-Then inspect `docs/media/tui-services.png` and confirm the checked-in still
-matches the current rendered experience.
+Use `bash scripts/render-vhs-demo.sh ...` only when you are testing or creating
+local terminal demos. Do not check in a GIF unless it teaches something a
+screenshot and text cannot.
 
-If you are also refreshing a versioned GIF, review that output before checking
-it in. The first VHS helper run may pull the pinned
-`ghcr.io/charmbracelet/vhs:v0.11.0` image.
-
-If `homebrew_casks` is enabled with `skip_upload: true`, also inspect the
-generated cask in `dist/` after the snapshot dry-run and confirm that its
-binary, man page, completion, and caveat paths still match the release
-archive.
+If `homebrew_casks` is enabled with `skip_upload: true`, inspect the generated
+cask in `dist/` after the snapshot dry-run and confirm that its binary, man
+page, completion, and caveat paths still match the release archive.
 
 ## CI and release gates
 
@@ -86,10 +78,10 @@ Before a tag is treated as releasable, verify:
 - `platform-lab` passes for the release tag
 - the snapshot release dry-run is green
 
-The tag gate is intentionally stronger than the normal push gate. Hosted CI and
-`platform-lab` together are the release qualification path.
+The tag gate is stricter than the normal push gate because it covers packaging
+and cross-platform release qualification.
 
-## Artifact expectations
+## Expected release artifacts
 
 Tagged releases are expected to publish:
 
@@ -100,27 +92,24 @@ Tagged releases are expected to publish:
 - GitHub artifact attestations
 - generated docs, man pages, and shell completions in the release archives
 
-See [../SECURITY.md](../SECURITY.md) for the verification posture and
-[install-and-upgrade.md](./install-and-upgrade.md) for the install and rollback
-flows.
+See [../SECURITY.md](../SECURITY.md) for verification posture and
+[install-and-upgrade.md](./install-and-upgrade.md) for install and rollback
+steps.
 
-## Post-tag checks
+## After tagging
 
 After the release workflow completes:
 
 - run
   `bash scripts/verify-release-asset.sh --tag <tag> --require-attestations --require-sigstore-bundle`
-- if you want to inspect the raw commands manually, also verify the archive
-  against `checksums.txt`, `gh release verify-asset`, and `cosign verify-blob`
+- if you want the raw manual flow too, verify the archive against
+  `checksums.txt`, `gh release verify-asset`, and `cosign verify-blob`
 - run `stackctl version --json` from the released binary
 - spot-check the generated docs in the archive
 - confirm the release notes and attached assets look complete
 
 ## Homebrew note
 
-Homebrew distribution is still a planned path, not the authoritative binary
-channel.
-
-Until a tap repository, publish token, and macOS signing decision exist,
-GitHub Releases remain the official install source. See
-[homebrew.md](./homebrew.md).
+Homebrew distribution is still planned, not live. Until a tap repository,
+publish token, and macOS signing decision exist, GitHub Releases remain the
+official binary channel. See [homebrew.md](./homebrew.md).

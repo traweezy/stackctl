@@ -1,35 +1,32 @@
 # Compatibility Policy
 
-`stackctl` is still in `0.x`, but the project is already freezing the surfaces
-that are intended to define the `1.x` compatibility contract.
+Use this page when you need to know what a future `1.x` release can change
+without breaking you.
 
-This document explains what should be considered stable, what is intentionally
-human-oriented and allowed to evolve, and how platform support is qualified.
+`stackctl` is still in `0.x`, but the project is already tightening the parts
+that are meant to become the `1.x` contract.
 
 ## SemVer intent
 
-The project follows Semantic Versioning for the public CLI contract.
+For `1.x`:
 
-For `1.x`, the intent is:
-
-- breaking changes happen only in a new major version
-- additive features may ship in minor releases
-- patch releases fix bugs without intentionally breaking documented stable
-  behavior
+- breaking changes land only in a new major version
+- additive features can land in minor releases
+- patch releases fix bugs without breaking documented behavior
 
 ## Stable in `1.x`
 
-The following surfaces are intended to be stable in `1.x` once `1.0.0` ships.
+These are the parts callers should be able to rely on.
 
-### CLI surface
+### CLI and installer contract
 
 - documented command names
 - documented flag names and meanings
 - documented root flags
-- documented command argument ordering
+- documented argument ordering
 - documented installer flags in `scripts/install.sh`
 
-### Environment and selection surface
+### Environment and selection
 
 - `STACKCTL_STACK`
 - documented root-output env overrides such as `ACCESSIBLE`,
@@ -38,121 +35,109 @@ The following surfaces are intended to be stable in `1.x` once `1.0.0` ships.
 
 ### Saved config
 
-- the saved YAML config is part of the public API
-- current config files written by maintained releases include
-  `schema_version: 1`
-- legacy config files without `schema_version` are upgraded in-memory on load
-  and rewritten with `schema_version: 1` on save
-- config files with a newer unknown `schema_version` are rejected rather than
-  guessed at
+- the saved YAML config format
+- `schema_version: 1` for current maintained releases
+- in-memory upgrade of legacy config files that predate `schema_version`
+- rejection of unknown future schema versions instead of guessing
 
 ### Machine-readable output
 
-The stable machine-readable outputs are documented in
-[output-contract.md](./output-contract.md):
+These commands are the documented JSON contract:
 
 - `stackctl version --json`
 - `stackctl env --json`
 - `stackctl services --json`
 - `stackctl status --json`
 
-## Allowed to evolve in `1.x`
+See [output-contract.md](./output-contract.md) for fields and expectations.
 
-The following surfaces are intentionally human-oriented and may change between
-minor releases as long as the command behavior remains compatible.
+## Allowed to change in `1.x`
+
+These user-facing details can evolve as long as command behavior stays
+compatible:
 
 - table formatting
 - spacing and color choices
 - wizard copy and prompt phrasing
-- TUI layout, navigation hints, and visual hierarchy
-- spinner and progress wording
+- TUI layout and navigation hints
+- spinner text and progress wording
 - non-JSON diagnostic text
 
-These should still aim to remain familiar, but they are not treated as strict
-automation contracts.
+Treat them as UI, not as a scripting interface.
 
 ## JSON stability rules
 
-For the documented machine-readable outputs:
+For the documented JSON outputs:
 
-- existing top-level commands and `--json` flags should remain available in
-  `1.x`
-- existing documented field names should not be renamed or removed in `1.x`
-- existing documented field meanings and types should not change in `1.x`
+- existing commands and `--json` flags should stay available in `1.x`
+- documented field names should not be renamed or removed in `1.x`
+- documented field meanings and types should not change in `1.x`
 - minor releases may add new optional fields
 - consumers should ignore unknown fields
 
-## Exit behavior
+## Exit codes
 
-`stackctl` primarily guarantees:
+The stable guarantee today is simple:
 
 - `0` on success
 - non-zero on failure
 
-Specific non-zero exit code numbers are not currently treated as a stable
-public contract.
+Specific non-zero numbers are not yet part of the public contract.
 
-## Platform support policy
+## Runtime support
 
 `stackctl` targets Linux and macOS for local runtime setup.
 
-The supported managed-runtime floor for the `1.x` contract is:
+The supported managed-runtime floor for `1.x` is:
 
 - `podman` `4.9.3+`
 - a `podman compose` provider `1.0.6+`
 
-When a detected runtime is below that floor, `stackctl doctor` warns and
-managed runtime commands fail fast with upgrade guidance instead of guessing
-through older behavior.
+If the detected runtime is older than that floor, `stackctl doctor` warns and
+managed runtime commands fail fast with upgrade guidance.
 
-Support is qualified at two levels:
+## How support is tested
 
-### Continuously verified
+### On normal development pushes
 
-These paths are exercised in hosted CI on every normal development cycle:
+Hosted CI covers:
 
 - build, lint, race, coverage, and security checks
 - installer smoke
-- Linux Podman integration coverage
-- Linux package-manager smoke using disposable distro containers
+- Linux Podman integration
+- Linux package-manager smoke in disposable distro containers
 
-The hosted Linux Podman integration path is the source of truth for the managed
-runtime version floor above.
+That Linux Podman integration path is the source of truth for the managed
+runtime floor above.
 
-### Release-qualified
+### Before and around releases
 
-These paths are qualified on a weekly schedule and as part of the tagged
-release gate, but they are not run on every push:
+Scheduled and release-time coverage extends to:
 
 - full-host Linux distro journeys on self-hosted runners
 - macOS Homebrew plus `podman machine` journeys on self-hosted runners
 
-Some release-qualified install flows may still prove that older distro packages
-can be installed. That installability coverage does not expand the supported
-managed-runtime floor unless the compatibility policy is updated intentionally.
+Some of those flows may still prove that older distro packages install. That
+does not expand the support floor unless this policy changes.
 
-The release-qualified workflows live in
-`.github/workflows/platform-lab.yml`.
-
-The package-manager, `podman machine`, and Cockpit capability matrix lives in
+The release-qualified workflows live in `.github/workflows/platform-lab.yml`.
+For package-manager and host differences, see
 [platform-support.md](./platform-support.md).
 
-## Install and rollback guidance
+## Install and rollback expectations
 
-Operational install, upgrade, rollback, and config-backup guidance lives in
-[install-and-upgrade.md](./install-and-upgrade.md).
+Use [install-and-upgrade.md](./install-and-upgrade.md) for the operational
+steps.
 
-The `1.x` rollback expectation assumes both versions understand
-`schema_version: 1`.
+The `1.x` rollback promise assumes both versions understand `schema_version: 1`.
+If you roll back to an older pre-schema `0.x` build, restore the config backup
+you made before the upgrade.
 
-Until `1.0.0` ships, rolling back to an older pre-schema `0.x` build should be
-paired with restoring the config backup you made before the upgrade.
+## If the contract needs to change
 
-## Changing the contract
+If a future change would break one of the stable items above, the preferred
+order is:
 
-If a future change would break one of the stable surfaces above, it should be
-handled in one of these ways:
-
-- make the change additive instead of breaking
-- stage the change behind a new flag or output mode
-- defer the change to a new major version
+- make it additive instead
+- stage it behind a new flag or output mode
+- defer it to a new major version

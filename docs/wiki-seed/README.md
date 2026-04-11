@@ -2,18 +2,22 @@
 
 This directory is a starter set for a future GitHub wiki.
 
-These files are intentionally narrative and operator-oriented. They are not the
-source of truth for the stable `1.x` contract. Keep the versioned contract docs
-in the main docs tree:
+Use these pages for narrative guidance that benefits from looser iteration:
+
+- troubleshooting
+- platform-specific notes
+- architecture context
+- FAQ-style explanations
+
+Keep the stable release contract in the versioned docs tree:
 
 - [../compatibility.md](../compatibility.md)
 - [../install-and-upgrade.md](../install-and-upgrade.md)
 - [../output-contract.md](../output-contract.md)
 - [../cli/stackctl.md](../cli/stackctl.md)
 
-If the GitHub wiki is enabled later, these files can be copied into the wiki
-repository and evolved there without turning the wiki into a duplicate of the
-generated command reference.
+If the GitHub wiki is enabled later, these files can move there with only light
+editing.
 
 Suggested first pages:
 

@@ -1,22 +1,22 @@
 # Performance
 
-This document is the local performance playbook for `stackctl`.
+This is the local performance playbook for `stackctl`.
 
-The goal is to measure startup, rendering, and allocation changes before we
-claim that a refactor or release candidate is faster.
+Use it when you are changing startup, rendering, config flows, or other code
+that users will feel directly.
 
 ## Principles
 
 - measure first, optimize second
-- prefer built-in Go profiling and tracing over guesswork
-- treat CLI startup latency and TUI redraw cost as first-class operator UX
-- keep benchmark paths reproducible and easy to rerun on a branch
+- use Go benchmarks and profiles before guessing
+- treat CLI startup and TUI redraw cost as real UX work
+- keep benchmark flows easy to rerun on a branch
 
-## Primary tools
+## Benchmarks
 
 ### Go benchmarks plus `benchstat`
 
-Use package benchmarks for stable A/B comparisons of hot paths.
+Use package benchmarks for stable A/B comparisons of hot code.
 
 Install `benchstat` when needed:
 
@@ -32,7 +32,7 @@ go test ./cmd ./internal/tui -run '^$' -bench . -benchmem -count=10 > /tmp/stack
 benchstat /tmp/stackctl-old.txt /tmp/stackctl-new.txt
 ```
 
-Use this when a change affects:
+Use this for:
 
 - root-command startup and command construction
 - TUI rendering
@@ -41,13 +41,13 @@ Use this when a change affects:
 - output formatting
 - config or wizard helpers
 
-Current committed startup benchmarks live in `main_benchmark_test.go`:
+Committed startup benchmarks live in `main_benchmark_test.go`:
 
 - `BenchmarkCLIHelp`
 - `BenchmarkCLIVersion`
 - `BenchmarkCLITUIHelp`
 
-### CPU, memory, and execution traces
+### CPU, memory, and trace captures
 
 Use Go profiling flags before changing runtime behavior.
 
@@ -63,38 +63,33 @@ go tool pprof -http=:0 /tmp/stackctl-tui.cpu.out
 go tool trace /tmp/stackctl-tui.trace.out
 ```
 
-Prefer this path when you need to answer:
+Use this when you need to answer:
 
-- where is CPU time actually going?
-- which code paths allocate most heavily?
-- is the TUI blocked on rendering, I/O, or scheduler behavior?
+- where is CPU time actually going
+- which code paths allocate most heavily
+- whether the TUI is blocked on rendering, I/O, or scheduler behavior
 
 ### `hyperfine` for real CLI timing
 
-Use `hyperfine` for end-to-end command latency instead of package-level
+Use `hyperfine` for end-to-end command latency instead of only relying on
 microbenchmarks.
-
-The repo-local wrapper is:
 
 ```bash
 bash scripts/bench-cli.sh
 ```
 
-It builds a local benchmark binary and measures:
+That script builds a local benchmark binary and measures:
 
 - `stackctl --help`
 - `stackctl version`
 - `stackctl tui --help`
 
-These are intentionally config-independent and safe on any development host.
-
-If you want config-dependent commands too, pass them explicitly to `hyperfine`
-or extend the script for the target branch.
+These are config-independent and safe on any development host.
 
 ### Idle-session TUI FPS evaluation
 
-Use the repo-local evaluator before deciding whether `stackctl` should carry
-an explicit `tea.WithFPS(...)` cap.
+Use the local evaluator before deciding whether to carry an explicit
+`tea.WithFPS(...)` cap:
 
 ```bash
 bash scripts/evaluate-tui-idle.sh
@@ -109,18 +104,15 @@ Current decision as of 2026-04-10:
 - the first 5-second idle-session comparison was effectively flat:
   - default: `5.002 s/op`, `3.74 MB/op`, `40986 allocs/op`
   - `WithFPS(30)`: `5.001 s/op`, `3.73 MB/op`, `40843 allocs/op`
-- CPU profile samples were tiny in both captures:
-  - default: about `40 ms` total samples over `5 s`
-  - `WithFPS(30)`: about `30 ms` total samples over `5 s`
-- the sampled time was dominated by runtime polling and parking, not by a hot
-  steady-state render loop
-- re-evaluate only if a future trace shows meaningful idle redraw pressure or
-  another animation-heavy path lands
+- sampled CPU time was tiny in both captures and dominated by runtime polling
+  and parking
+- re-evaluate only if a later trace shows real idle redraw pressure or another
+  animation-heavy path lands
 
 ### Profile-guided optimization
 
-Once representative profiles exist, we can add a committed `default.pgo` for
-release builds.
+Once representative profiles exist, the repo can carry a committed
+`default.pgo` for release builds.
 
 Rules:
 
@@ -128,10 +120,10 @@ Rules:
 - prefer representative TUI and command paths
 - refresh the profile when performance-sensitive code changes substantially
 
-The Go toolchain will automatically apply `default.pgo` when it is present in
-the main package directory.
+The Go toolchain automatically applies `default.pgo` when it is present in the
+main package directory.
 
-Use the repo-local evaluation flow before committing one:
+Use the local evaluator before committing one:
 
 ```bash
 bash scripts/evaluate-pgo.sh
@@ -141,14 +133,13 @@ Current decision as of 2026-04-09:
 
 - do not commit `default.pgo` yet
 - a candidate profile generated from the committed root startup benchmarks
-  improved `go test` benchmark samples for `--help` and `tui --help`
-- the same candidate produced mixed release-style `go build -trimpath`
-  startup results in `hyperfine`: `--help` was slower, while `version` and
-  `tui --help` were effectively neutral to slightly positive
+  improved `go test` samples for `--help` and `tui --help`
+- the same candidate produced mixed `go build -trimpath` startup results in
+  `hyperfine`
 - re-evaluate after another representative idle-session or runtime-heavy
   profile capture, not from synthetic startup samples alone
 
-## Repo-specific hotspots
+## Likely hotspots
 
 The main candidates to measure before release are:
 
@@ -159,28 +150,28 @@ The main candidates to measure before release are:
 - `cmd/tui.go`
 - `internal/config/prompt_huh.go`
 
-The practical questions for this repo are:
+The practical questions are:
 
-- how much startup latency do common operator commands add?
-- how expensive is a full TUI render on medium and compact terminals?
-- how much work does palette filtering do as services and stacks grow?
-- are we redrawing or allocating more than necessary while idle?
+- how much startup latency do common commands add
+- how expensive is a full TUI render on medium and compact terminals
+- how much work does palette filtering do as services and stacks grow
+- whether idle redraw or allocation work is higher than it should be
 
-## Release-candidate checks
+## Release-candidate checklist
 
-Before `1.0.0`, we should have:
+Before `1.0.0`, keep these in place:
 
 - at least one committed benchmark file for `main`, `cmd`, or `internal/tui`
-- a repeatable `hyperfine` CLI benchmark path
+- a repeatable `hyperfine` CLI benchmark flow
 - one representative profile capture used to evaluate PGO
-- a documented decision on whether the TUI should set an explicit Bubble Tea FPS
-  cap
+- a documented decision on whether the TUI should set an explicit Bubble Tea
+  FPS cap
 
-The FPS-cap decision is currently: keep the default Bubble Tea setting.
+The current FPS-cap decision is to keep the Bubble Tea default.
 
 ## Non-goals
 
 - no speculative performance churn without measurements
 - no UX regressions just to improve one benchmark number
-- no heavyweight continuous benchmarking service before the local benchmark
-  story is stable
+- no heavyweight continuous benchmarking service before the local story is
+  stable

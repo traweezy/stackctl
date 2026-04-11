@@ -1,32 +1,29 @@
 # Supply-Chain and Security Checks
 
-This document describes the continuous supply-chain checks around `stackctl`.
+This page explains what `stackctl` checks continuously, what only runs for pull
+requests or releases, and what release artifacts users should verify.
 
-It complements [../SECURITY.md](../SECURITY.md), the main CI workflow, and the
-tagged-release verification path.
+Use it with [../SECURITY.md](../SECURITY.md).
 
-## Continuous hosted checks
+## On every push to `master`
 
-The main `ci` workflow continuously enforces:
+The main `ci` workflow enforces:
 
 - `gitleaks` for secret scanning
 - `gosec` for Go static security findings
 - `govulncheck` for reachable Go vulnerability checks
-- `codeql` for hosted semantic code scanning on the Go codebase
 - `actionlint` for GitHub workflow linting
 - `shellcheck` for shell script linting
 - `lychee` for README and docs link validation
 - `golangci-lint`, `go vet`, unit tests, race tests, coverage, integration, and
-  installer/runtime smoke paths
+  installer/runtime smoke coverage
 
-The dedicated `codeql` workflow runs on pushes to `master`, pull requests, and
-the weekly hosted security schedule so OpenSSF Scorecard can see a first-class
-SAST signal instead of inferring from general linting alone.
+The dedicated `codeql` workflow also runs on pushes to `master`, pull requests,
+and the weekly hosted security schedule.
 
-## Pull request dependency review
+## On pull requests
 
-The `dependency-review` workflow runs on pull requests and inspects dependency
-changes before merge.
+The `dependency-review` workflow inspects dependency changes before merge.
 
 Current policy:
 
@@ -35,18 +32,12 @@ Current policy:
 - show OpenSSF Scorecard data for changed dependencies in the job summary
 - retry briefly while GitHub dependency snapshots are still being prepared
 
-License enforcement is intentionally not enabled in this first pass. The repo
-already ships SBOMs for tagged releases, but transitive dependency license
-allow-listing is deferred until the dependency graph is baselined with low
-false-positive risk.
-
-The dependency-review policy lives in
-[../.github/dependency-review-config.yml](../.github/dependency-review-config.yml).
+License allow-listing is not enabled yet. Tagged releases already ship SBOMs,
+but dependency license policy is deferred until the dependency graph is
+baselined with low false-positive noise.
 
 Separately, [../.github/dependabot.yml](../.github/dependabot.yml) opens
-scheduled update pull requests for both `gomod` dependencies and GitHub
-Actions pins. That keeps runtime dependencies and the workflow action surface
-moving forward without relying on manual upgrade sweeps.
+scheduled update PRs for Go modules and GitHub Actions.
 
 ## Repository scorecards
 
@@ -55,47 +46,48 @@ Saturday schedule.
 
 It publishes:
 
-- StepSecurity Harden-Runner audit data for runner egress visibility
+- StepSecurity Harden-Runner audit data
 - SARIF results to GitHub code scanning
 - a short-lived workflow artifact for debugging
-- the latest repository score so the README badge stays current
+- the latest repository score that drives the README badge
 
-This does not replace the repo's other security checks. It adds a separate
-OpenSSF-oriented view of branch protection, dependency pinning, token
-permissions, release posture, and other supply-chain signals.
+Scorecards does not replace the repo's other security checks. It adds an
+OpenSSF view over branch protection, dependency pinning, token permissions,
+release posture, and similar supply-chain signals.
 
-The Scorecards workflow also runs StepSecurity Harden-Runner in `audit` mode so
-the repo can observe outbound runner behavior without blocking the job.
+## Local fuzzing
 
-The repo also carries Go fuzz targets for the markdown render path in
+The repo carries Go fuzz targets for the markdown render path in
 [`internal/output/markdown_fuzz_test.go`](../internal/output/markdown_fuzz_test.go),
-covering the `glamour` and `bluemonday` dependency chain behind formatted CLI
-output. To exercise that path locally, run:
+covering the `glamour` and `bluemonday` chain behind formatted CLI output.
+
+Run it locally with:
 
 ```bash
 go test ./internal/output -run '^$' -fuzz '^FuzzRenderMarkdown$' -fuzztime 10s
 ```
 
-Workflow token scopes are intentionally explicit. The general hosted checks and
-Scorecards paths only request read access plus the write scopes required for
-SARIF uploads, while the tagged-release path elevates to `contents: write`,
-`attestations: write`, and `id-token: write` only in the publish job that
-actually needs them.
+## Workflow permissions
+
+Workflow token scopes stay narrow by default:
+
+- normal hosted checks and Scorecards request read access plus the write scopes
+  needed for SARIF uploads
+- the tagged-release publish job adds `contents: write`,
+  `attestations: write`, and `id-token: write` only where they are required
 
 ## Tagged release artifacts
 
-Releases cut from the current tagged-release workflow are expected to ship
-with:
+Releases from the current tagged-release workflow are expected to ship:
 
 - `checksums.txt`
 - `checksums.txt.sigstore.json`
 - per-archive SPDX SBOMs (`*.spdx.json`)
 - GitHub artifact attestations
 
-Operators should verify artifacts before use. See
-[install-and-upgrade.md](./install-and-upgrade.md) and
-[../SECURITY.md](../SECURITY.md).
+Use [install-and-upgrade.md](./install-and-upgrade.md) and
+[../SECURITY.md](../SECURITY.md) for the verification steps.
 
-Older `0.x` tags may predate some of these assets. For those historical
-releases, checksum verification is still the baseline, but Sigstore bundle and
-GitHub attestation checks only apply when the release actually publishes them.
+Older `0.x` tags may predate some of these assets. For those releases,
+checksum verification is still the baseline, while Sigstore and attestation
+checks only apply when the release actually publishes them.
