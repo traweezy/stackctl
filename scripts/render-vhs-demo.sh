@@ -186,12 +186,25 @@ awk -v output="$output_rel" '
     }
   }
 ' "$tape_path" > "$temp_tape_path"
+chmod 0644 "$temp_tape_path"
 
 echo "Rendering $output_rel with $container_engine using $container_image"
-"$container_engine" run --rm \
-  --user "$(id -u):$(id -g)" \
-  -v "$repo_root:/vhs" \
-  -w /vhs \
+container_run_args=(run --rm)
+if [[ "$container_engine" == "podman" ]]; then
+  container_run_args+=(--userns keep-id --user "$(id -u):$(id -g)")
+else
+  container_run_args+=(--user "$(id -u):$(id -g)")
+fi
+container_run_args+=(
+  -e HOME=/tmp/vhs-home
+  -e XDG_CONFIG_HOME=/tmp/vhs-config
+  -e XDG_CACHE_HOME=/tmp/vhs-cache
+  -e XDG_DATA_HOME=/tmp/vhs-data
+  -v "$repo_root:/vhs"
+  -w /vhs
+)
+
+"$container_engine" "${container_run_args[@]}" \
   "$container_image" \
   "/vhs/$temp_tape_rel"
 

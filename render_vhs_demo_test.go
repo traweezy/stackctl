@@ -107,6 +107,12 @@ printf 'rendered from %s\n' "$tape_path" > "${STACKCTL_VHS_TEST_REPO_ROOT}/${out
 	if !strings.Contains(logText, "ghcr.io/charmbracelet/vhs:v0.11.0") {
 		t.Fatalf("expected pinned image in engine log:\n%s", logText)
 	}
+	if !strings.Contains(logText, "--userns keep-id") {
+		t.Fatalf("expected podman keep-id args in engine log:\n%s", logText)
+	}
+	if !strings.Contains(logText, "-e HOME=/tmp/vhs-home") {
+		t.Fatalf("expected ephemeral container HOME in engine log:\n%s", logText)
+	}
 	if !strings.Contains(logText, "/vhs/tmp/vhs/") {
 		t.Fatalf("expected repo-mounted tape path in engine log:\n%s", logText)
 	}
