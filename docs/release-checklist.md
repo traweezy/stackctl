@@ -49,21 +49,17 @@ git diff --exit-code docs/cli docs/man docs/completions
 If the release changes performance-sensitive TUI or runtime code, also run:
 
 ```bash
-bash scripts/bench-cli.sh
-bash scripts/evaluate-pgo.sh
-bash scripts/evaluate-tui-idle.sh
+go test . -run '^$' -bench '^BenchmarkCLI(Help|Version|TUIHelp)$' -benchmem -count=10 > /tmp/stackctl-main-bench.txt
+go test ./cmd ./internal/tui -run '^$' -bench . -benchmem -count=10 > /tmp/stackctl-hot-paths-bench.txt
+STACKCTL_IDLE_BENCH_DURATION=5s go test ./internal/tui -run '^$' -bench '^BenchmarkIdleProgram(DefaultFPS|FPS30)$' -benchmem -count=1 -benchtime=1x
 ```
+
+Keep the comparison artifacts under ignored `tmp/`, `.tmp/`, or `local/`.
 
 If the release changes TUI layout or README screenshots, refresh and inspect
-the checked-in still:
-
-```bash
-bash scripts/capture-docs-media.sh
-```
-
-Use `bash scripts/render-vhs-demo.sh ...` only when you are testing or creating
-local terminal demos. Do not check in a GIF unless it teaches something a
-screenshot and text cannot.
+the checked-in still from a real rendered terminal window. Keep scratch
+captures or demo material under ignored `tmp/`, `.tmp/`, or `local/`; do not
+check in GIFs or maintainer-only demo tapes.
 
 If `homebrew_casks` is enabled with `skip_upload: true`, inspect the generated
 cask in `dist/` after the snapshot dry-run and confirm that its binary, man
@@ -100,10 +96,10 @@ steps.
 
 After the release workflow completes:
 
-- run
-  `bash scripts/verify-release-asset.sh --tag <tag> --require-attestations --require-sigstore-bundle`
-- if you want the raw manual flow too, verify the archive against
-  `checksums.txt`, `gh release verify-asset`, and `cosign verify-blob`
+- walk the manual verification flow in
+  [install-and-upgrade.md](./install-and-upgrade.md) against the new tag,
+  including checksum verification and, when present, `gh release verify-asset`
+  plus `cosign verify-blob`
 - run `stackctl version --json` from the released binary
 - spot-check the generated docs in the archive
 - confirm the release notes and attached assets look complete

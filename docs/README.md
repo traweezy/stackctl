@@ -43,9 +43,9 @@ The documented JSON outputs for `1.x` are:
 - [completions/stackctl.ps1](./completions/stackctl.ps1)
 - [completions/_stackctl](./completions/_stackctl)
 
-## Maintain docs and media
+## Maintain or contribute
 
-- [demos.md](./demos.md)
+- [../CONTRIBUTING.md](../CONTRIBUTING.md)
 - [performance.md](./performance.md)
 - [wiki-seed/README.md](./wiki-seed/README.md)
 

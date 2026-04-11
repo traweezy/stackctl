@@ -61,20 +61,22 @@ goreleaser release --snapshot --clean
 ```
 
 If you change release-verification behavior or release-asset expectations, also
-exercise the maintainer helper against a published tag:
-
-```bash
-bash scripts/verify-release-asset.sh --tag v0.20.1
-```
+walk the manual verification flow in
+[docs/install-and-upgrade.md](./docs/install-and-upgrade.md) against a
+published tag. The published release assets are the contract, not a repo-local
+wrapper script.
 
 If you change CLI startup, runtime shaping, or TUI performance-sensitive code,
 also run:
 
 ```bash
-bash scripts/bench-cli.sh
-bash scripts/evaluate-pgo.sh
-bash scripts/evaluate-tui-idle.sh
+go test . -run '^$' -bench '^BenchmarkCLI(Help|Version|TUIHelp)$' -benchmem -count=10 > /tmp/stackctl-main-bench.txt
+go test ./cmd ./internal/tui -run '^$' -bench . -benchmem -count=10 > /tmp/stackctl-hot-paths-bench.txt
+STACKCTL_IDLE_BENCH_DURATION=5s go test ./internal/tui -run '^$' -bench '^BenchmarkIdleProgram(DefaultFPS|FPS30)$' -benchmem -count=1 -benchtime=1x
 ```
+
+Keep one-off benchmark, profile, and comparison artifacts under ignored
+`tmp/`, `.tmp/`, or `local/`.
 
 If you change markdown rendering, release-note output, or other parser-heavy
 formatting paths, also exercise the fuzz targets:
@@ -92,15 +94,10 @@ bash scripts/check-links.sh
 If GitHub link checks get rate-limited locally, export `GITHUB_TOKEN` first or
 make sure `gh auth` is available so the script can reuse that token.
 
-If you change README or wiki media capture flows, also exercise the docs
-helpers you touched:
-
-```bash
-bash scripts/capture-docs-media.sh
-bash scripts/render-vhs-demo.sh --tape examples/vhs/help.tape
-```
-
-The VHS helper uses a pinned container image and may pull it on the first run.
+If you change README or wiki screenshots, validate the real rendered TUI in a
+terminal window, inspect the capture yourself, and keep scratch screenshots or
+demo material under ignored `tmp/`, `.tmp/`, or `local/`. Do not check in GIFs
+or maintainer-only demo tapes.
 
 Pull requests also run GitHub-hosted dependency review, and the default branch
 has a separate Scorecard workflow for ongoing supply-chain posture tracking.

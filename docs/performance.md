@@ -5,6 +5,9 @@ This is the local performance playbook for `stackctl`.
 Use it when you are changing startup, rendering, config flows, or other code
 that users will feel directly.
 
+Keep local benchmark and profile artifacts under ignored `tmp/`, `.tmp/`, or
+outside the repo. Do not add one-off helper scripts just to wrap these flows.
+
 ## Principles
 
 - measure first, optimize second
@@ -75,28 +78,54 @@ Use `hyperfine` for end-to-end command latency instead of only relying on
 microbenchmarks.
 
 ```bash
-bash scripts/bench-cli.sh
+go build -trimpath -o /tmp/stackctl-bench .
+hyperfine \
+  --warmup 3 \
+  --export-json /tmp/stackctl-cli-bench.json \
+  --export-markdown /tmp/stackctl-cli-bench.md \
+  '/tmp/stackctl-bench --help' \
+  '/tmp/stackctl-bench version' \
+  '/tmp/stackctl-bench tui --help'
 ```
 
-That script builds a local benchmark binary and measures:
+That flow measures:
 
 - `stackctl --help`
 - `stackctl version`
 - `stackctl tui --help`
 
-These are config-independent and safe on any development host.
+These commands are config-independent and safe on any development host.
 
 ### Idle-session TUI FPS evaluation
 
-Use the local evaluator before deciding whether to carry an explicit
+Use these benchmark commands before deciding whether to carry an explicit
 `tea.WithFPS(...)` cap:
 
 ```bash
-bash scripts/evaluate-tui-idle.sh
+STACKCTL_IDLE_BENCH_DURATION=5s \
+go test ./internal/tui -run '^$' \
+  -bench '^BenchmarkIdleProgram(DefaultFPS|FPS30)$' \
+  -benchmem -count=1 -benchtime=1x
 ```
 
-This compares the default Bubble Tea renderer behavior with a capped `30 FPS`
-idle run and writes benchmark plus `pprof` artifacts under `tmp/perf/idle/`.
+Capture profiles when you need to inspect where the idle time goes:
+
+```bash
+STACKCTL_IDLE_BENCH_DURATION=5s \
+go test ./internal/tui -run '^$' \
+  -bench '^BenchmarkIdleProgramDefaultFPS$' \
+  -benchmem -count=1 -benchtime=1x \
+  -cpuprofile /tmp/stackctl-idle-default.cpu.out
+
+STACKCTL_IDLE_BENCH_DURATION=5s \
+go test ./internal/tui -run '^$' \
+  -bench '^BenchmarkIdleProgramFPS30$' \
+  -benchmem -count=1 -benchtime=1x \
+  -cpuprofile /tmp/stackctl-idle-fps30.cpu.out
+
+go tool pprof -top /tmp/stackctl-idle-default.cpu.out
+go tool pprof -top /tmp/stackctl-idle-fps30.cpu.out
+```
 
 Current decision as of 2026-04-10:
 
@@ -123,10 +152,26 @@ Rules:
 The Go toolchain automatically applies `default.pgo` when it is present in the
 main package directory.
 
-Use the local evaluator before committing one:
+Use these commands before committing one:
 
 ```bash
-bash scripts/evaluate-pgo.sh
+go test . -run '^$' -bench '^BenchmarkCLI(Help|Version|TUIHelp)$' \
+  -benchmem -count=1 \
+  -cpuprofile /tmp/stackctl-main-startup.pgo
+
+go test . -run '^$' -bench '^BenchmarkCLI(Help|Version|TUIHelp)$' \
+  -benchmem -count=5 -pgo=off > /tmp/stackctl-main-bench-off.txt
+
+go test . -run '^$' -bench '^BenchmarkCLI(Help|Version|TUIHelp)$' \
+  -benchmem -count=5 -pgo=/tmp/stackctl-main-startup.pgo \
+  > /tmp/stackctl-main-bench-pgo.txt
+
+go build -trimpath -pgo=off -o /tmp/stackctl-off .
+go build -trimpath -pgo=/tmp/stackctl-main-startup.pgo -o /tmp/stackctl-pgo .
+
+hyperfine --warmup 3 '/tmp/stackctl-off --help' '/tmp/stackctl-pgo --help'
+hyperfine --warmup 3 '/tmp/stackctl-off version' '/tmp/stackctl-pgo version'
+hyperfine --warmup 3 '/tmp/stackctl-off tui --help' '/tmp/stackctl-pgo tui --help'
 ```
 
 Current decision as of 2026-04-09:

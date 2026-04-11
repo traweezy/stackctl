@@ -26,4 +26,5 @@ If you want background and policy:
 - [Architecture overview](./Architecture-overview.md)
 - [../compatibility.md](../compatibility.md)
 
-If you are maintaining docs media, use [../demos.md](../demos.md).
+If you are maintaining docs or screenshots, start with
+[../../CONTRIBUTING.md](../../CONTRIBUTING.md).

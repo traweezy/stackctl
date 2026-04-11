@@ -1,5 +1,8 @@
-tmp
+tmp/
+.tmp/
+dist/
+local/
 stackctl
-dist
 coverage.out
+docs/media/*.gif
 .DS_Store

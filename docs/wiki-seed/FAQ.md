@@ -40,7 +40,9 @@ Use:
 - [../man/man1/stackctl.1](../man/man1/stackctl.1)
 - `stackctl --help`
 
-## How do I refresh README screenshots or local demos?
+## How do I refresh the checked-in screenshot?
 
-Use [../demos.md](../demos.md). That page is for maintainers working on docs
-media, not for everyday `stackctl` use.
+Use [../../CONTRIBUTING.md](../../CONTRIBUTING.md). Validate a real rendered
+TUI window, keep scratch captures under ignored `tmp/`, `.tmp/`, or `local/`,
+and only replace `docs/media/tui-services.png` when the still actually helps
+readers.

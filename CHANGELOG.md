@@ -12,17 +12,14 @@ authoritative per-release summary.
 - a dedicated coverage gate and release-installer smoke path
 - signed release checksums, SPDX SBOM generation, and GitHub attestations
 - `SECURITY.md` and CODEOWNERS coverage for release-critical files
-- committed startup, command, and TUI benchmarks plus local `hyperfine` and
-  `pprof` evaluation helpers under `scripts/bench-cli.sh`,
-  `scripts/evaluate-pgo.sh`, and `scripts/evaluate-tui-idle.sh`
-- a versioned TUI screenshot under `docs/media/` plus a reproducible
-  `xterm`-based capture path for README and wiki refreshes
+- committed startup, command, and TUI benchmarks plus documented local
+  `hyperfine`, `pprof`, and idle-render evaluation flows
+- a versioned TUI screenshot under `docs/media/` plus contributor guidance for
+  refreshing it from a real rendered terminal window
 - Homebrew cask scaffolding in GoReleaser, kept reviewable with upload
   intentionally disabled until the tap and signing decisions are made
-- a repo-local `scripts/verify-release-asset.sh` helper for checksum,
-  attestation, and Sigstore bundle verification of tagged releases
-- a pinned `scripts/render-vhs-demo.sh` helper for reproducible CLI and TUI
-  demo rendering from the repo's VHS tapes
+- documented manual checksum, attestation, and Sigstore verification steps for
+  tagged releases
 - committed Go fuzz targets for the markdown render path so the
   `glamour`/`bluemonday` dependency chain is exercised directly in-repo
 
@@ -34,11 +31,11 @@ authoritative per-release summary.
   aggressively, cutting steady-state render cost and allocations
 - the README, docs index, and wiki seed now align on the versioned docs,
   media, role-based entry points, and release guidance expected before `1.0.0`
-- the README and wiki landing pages now point directly to the demo-capture
-  path and make the one-stack, Podman-first posture more explicit
+- the README and wiki landing pages now point directly to versioned docs and
+  make the one-stack, Podman-first posture more explicit
 - the main human-authored docs now lead with user tasks and operational
-  decisions instead of maintainer process language, and VHS is framed as local
-  maintainer tooling rather than a reader-facing feature
+  decisions instead of maintainer process language, while keeping local
+  maintainer scratch workflows out of the tracked repo surface
 - release verification docs now distinguish newer hardened tags from older
   `0.x` releases that predate attestations, Sigstore bundles, or wider
   archive coverage

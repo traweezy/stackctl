@@ -84,8 +84,9 @@ cosign verify-blob \
 For historical `0.x` tags that do not ship attestations or a Sigstore bundle,
 checksum verification is the supported baseline.
 
-Maintainers working from a repo checkout can also use
-[`../scripts/verify-release-asset.sh`](../scripts/verify-release-asset.sh).
+Even from a repo checkout, prefer this same manual flow. The published release
+artifacts are the contract, and local wrapper helpers are intentionally kept
+out of the tracked repo surface.
 
 ## Verify the installed binary
 
