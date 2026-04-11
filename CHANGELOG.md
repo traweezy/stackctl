@@ -32,7 +32,7 @@ authoritative per-release summary.
 - TUI rendering now reuses palette-filter and quiet or busy redraw work
   aggressively, cutting steady-state render cost and allocations
 - the README, docs index, and wiki seed now align on the versioned docs,
-  media, and release entry points expected before `1.0.0`
+  media, role-based entry points, and release guidance expected before `1.0.0`
 - the README and wiki landing pages now point directly to the demo-capture
   path and make the one-stack, Podman-first posture more explicit
 - release verification docs now distinguish newer hardened tags from older

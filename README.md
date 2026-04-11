@@ -12,9 +12,10 @@ stackctl start
 
 ![stackctl TUI services view](./docs/media/tui-services.png)
 
-Reproducible demo capture notes and the repo-local VHS helper live in
+![stackctl CLI help demo](./docs/media/help.gif)
+
+Reproducible screenshot and VHS demo capture notes live in
 [docs/demos.md](./docs/demos.md).
-Animated CLI help demo: [docs/media/help.gif](./docs/media/help.gif)
 
 It also gives you:
 
@@ -192,18 +193,24 @@ External stack management:
 The README is intentionally the short landing page. The deeper docs live under
 [docs/README.md](./docs/README.md).
 
-High-value entry points:
+If you are evaluating `stackctl`:
 
-- [docs/compatibility.md](./docs/compatibility.md)
 - [docs/install-and-upgrade.md](./docs/install-and-upgrade.md)
 - [docs/platform-support.md](./docs/platform-support.md)
 - [docs/demos.md](./docs/demos.md)
-- [docs/supply-chain.md](./docs/supply-chain.md)
+- [docs/compatibility.md](./docs/compatibility.md)
+
+If you are automating or operating it:
+
 - [docs/output-contract.md](./docs/output-contract.md)
 - [docs/wiki-seed/Home.md](./docs/wiki-seed/Home.md)
 - [docs/cli/stackctl.md](./docs/cli/stackctl.md)
 - [docs/man/man1/stackctl.1](./docs/man/man1/stackctl.1)
 - [docs/completions](./docs/completions)
+
+If you are verifying releases:
+
+- [docs/supply-chain.md](./docs/supply-chain.md)
 - [CHANGELOG.md](./CHANGELOG.md)
 
 ## Release verification

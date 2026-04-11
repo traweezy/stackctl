@@ -9,17 +9,31 @@ reference.
 
 ## Start here
 
+If you are evaluating or installing `stackctl`:
+
 - [../README.md](../README.md)
 - [install-and-upgrade.md](./install-and-upgrade.md)
-- [compatibility.md](./compatibility.md)
 - [platform-support.md](./platform-support.md)
-- [homebrew.md](./homebrew.md)
+- [compatibility.md](./compatibility.md)
 - [demos.md](./demos.md)
-- [performance.md](./performance.md)
-- [supply-chain.md](./supply-chain.md)
-- [output-contract.md](./output-contract.md)
-- [release-checklist.md](./release-checklist.md)
+
+If you are operating or troubleshooting it:
+
 - [wiki-seed/Home.md](./wiki-seed/Home.md)
+- [performance.md](./performance.md)
+- [homebrew.md](./homebrew.md)
+
+If you are automating against stable surfaces:
+
+- [output-contract.md](./output-contract.md)
+- [cli/stackctl.md](./cli/stackctl.md)
+- [man/man1/stackctl.1](./man/man1/stackctl.1)
+
+If you are verifying releases:
+
+- [supply-chain.md](./supply-chain.md)
+- [release-checklist.md](./release-checklist.md)
+- [../CHANGELOG.md](../CHANGELOG.md)
 
 ## Command reference
 
