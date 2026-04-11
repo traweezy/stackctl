@@ -6,6 +6,7 @@ This wiki is for narrative operating guidance around `stackctl`.
 
 If you want the reproducible screenshot and VHS demo capture path, start with
 [../demos.md](../demos.md).
+Animated CLI help demo: [../media/help.gif](../media/help.gif)
 
 Use it for:
 

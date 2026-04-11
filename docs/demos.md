@@ -5,9 +5,10 @@ reproducible CLI and TUI demos.
 
 This is an optional docs and release tool, not part of the required CI path.
 
-The repo now also carries a versioned still asset for the README and wiki seed:
+The repo now carries versioned media for the README and wiki seed:
 
 - `docs/media/tui-services.png`
+- `docs/media/help.gif`
 
 ## Why VHS
 
@@ -96,10 +97,10 @@ Good demo candidates:
 - static docs or config inspection flows
 - carefully scripted TUI paths that do not depend on host-local secrets
 
-Avoid committing generated GIFs or videos unless the repo later decides to ship
-release assets directly from source control. Still screenshots are acceptable
-when they are intentional, reproducible, and clearly support the landing-page
-docs.
+The repo intentionally versions the small `docs/media/help.gif` help demo and
+the `docs/media/tui-services.png` still. Avoid adding more generated GIFs or
+videos unless they are equally intentional, reproducible, and clearly useful to
+the landing-page docs.
 
 The starter tapes intentionally drive `./dist/stackctl` so they work from a
 repo-local build instead of depending on a globally installed binary.

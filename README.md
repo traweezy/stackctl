@@ -14,6 +14,7 @@ stackctl start
 
 Reproducible demo capture notes and the repo-local VHS helper live in
 [docs/demos.md](./docs/demos.md).
+Animated CLI help demo: [docs/media/help.gif](./docs/media/help.gif)
 
 It also gives you:
 

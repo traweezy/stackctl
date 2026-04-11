@@ -23,6 +23,7 @@ authoritative per-release summary.
   attestation, and Sigstore bundle verification of tagged releases
 - a pinned `scripts/render-vhs-demo.sh` helper for reproducible CLI and TUI
   demo rendering from the repo's VHS tapes
+- a versioned `docs/media/help.gif` CLI help demo rendered from the VHS helper
 
 ### Changed
 

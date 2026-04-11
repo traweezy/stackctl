@@ -37,7 +37,8 @@ local stack should be running at once.
 ## Where do I find the screenshot and demo capture path?
 
 Use [../demos.md](../demos.md) for the checked-in screenshot refresh flow, the
-repo-local VHS helper, and the starter tapes under `examples/vhs/`.
+repo-local VHS helper, the committed `help.gif` demo, and the starter tapes
+under `examples/vhs/`.
 
 ## Where is the real command reference?
 
