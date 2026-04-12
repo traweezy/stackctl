@@ -8,9 +8,14 @@ if ! command -v "$shellcheck_bin" >/dev/null 2>&1; then
   exit 1
 fi
 
-mapfile -t script_files < <(find scripts -maxdepth 1 -type f -name '*.sh' | sort)
+mapfile -t script_files < <(
+  {
+    find scripts -maxdepth 1 -type f -name '*.sh'
+    find .clusterfuzzlite -maxdepth 1 -type f -name '*.sh'
+  } | sort
+)
 if [[ "${#script_files[@]}" -eq 0 ]]; then
-  echo "No shell scripts found under scripts/" >&2
+  echo "No shell scripts found under scripts/ or .clusterfuzzlite/" >&2
   exit 1
 fi
 
