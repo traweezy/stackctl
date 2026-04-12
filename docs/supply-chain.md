@@ -9,6 +9,7 @@ Use it with [../SECURITY.md](../SECURITY.md).
 
 The main `ci` workflow enforces:
 
+- StepSecurity Harden-Runner audit mode on GitHub-hosted jobs
 - `gitleaks` for secret scanning
 - `gosec` for Go static security findings
 - `govulncheck` for reachable Go vulnerability checks
@@ -18,8 +19,12 @@ The main `ci` workflow enforces:
 - `golangci-lint`, `go vet`, unit tests, race tests, coverage, integration, and
   installer/runtime smoke coverage
 
+The longer Go test lanes now run through `gotestsum`, which keeps hosted logs
+more readable and emits JUnit artifacts for the unit, race, and integration
+jobs.
+
 The dedicated `codeql` workflow also runs on pushes to `master`, pull requests,
-and the weekly hosted security schedule.
+and the weekly hosted security schedule, also under Harden-Runner audit mode.
 
 ## On pull requests
 

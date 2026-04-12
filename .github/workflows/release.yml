@@ -19,6 +19,7 @@ env:
   GOVULNCHECK_VERSION: v1.1.4
   GITLEAKS_VERSION: v8.30.1
   GOLANGCI_LINT_VERSION: v2.11.4
+  GOTESTSUM_VERSION: v1.13.0
   GORELEASER_VERSION: v2.15.2
   LYCHEE_VERSION: lychee-v0.23.0
   SHELLCHECK_VERSION: v0.11.0
@@ -35,6 +36,11 @@ jobs:
     env:
       PODMAN_COMPOSE_PROVIDER: podman-compose
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d # v2.16.1
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -63,6 +69,7 @@ jobs:
           go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
           go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
           go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
+          go install "gotest.tools/gotestsum@${GOTESTSUM_VERSION}"
           go install "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}"
           go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
           go install "github.com/goreleaser/goreleaser/v2@${GORELEASER_VERSION}"
@@ -149,10 +156,21 @@ jobs:
           git diff --exit-code go.mod go.sum
 
       - name: Run unit tests
-        run: go test ./... -count=1
+        run: |
+          mkdir -p .tmp/test-reports
+          gotestsum \
+            --format standard-verbose \
+            --junitfile .tmp/test-reports/release-unit.xml \
+            -- \
+            -count=1 ./...
 
       - name: Run race tests
-        run: go test ./... -race -count=1
+        run: |
+          gotestsum \
+            --format standard-verbose \
+            --junitfile .tmp/test-reports/release-race.xml \
+            -- \
+            -race -count=1 ./...
 
       - name: Enforce coverage threshold
         env:
@@ -163,7 +181,12 @@ jobs:
         run: bash scripts/install-smoke.sh
 
       - name: Run integration tests
-        run: go test ./integration -tags=integration -count=1
+        run: |
+          gotestsum \
+            --format standard-verbose \
+            --junitfile .tmp/test-reports/release-integration.xml \
+            -- \
+            -tags=integration -count=1 ./integration
 
       - name: Build binary
         run: |
@@ -188,6 +211,11 @@ jobs:
       attestations: write
       id-token: write
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d # v2.16.1
+        with:
+          egress-policy: audit
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

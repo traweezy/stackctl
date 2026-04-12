@@ -36,6 +36,7 @@ For most changes, run:
 ```bash
 bash scripts/check-workflows.sh
 bash scripts/check-shell-scripts.sh
+gotestsum -- -count=1 ./...
 go test ./... -count=1
 go test ./... -race -count=1
 go vet ./...
@@ -44,6 +45,11 @@ bash scripts/check-coverage.sh
 
 The coverage gate is intentionally strict: `scripts/check-coverage.sh` defaults
 to `100.0%`, matching the hosted CI and release workflows.
+
+If you have `gotestsum` installed, prefer it for the broad `go test ./...`
+passes. Hosted CI and release verification use it for the unit, race, and
+integration lanes because the log output and JUnit artifacts are easier to
+inspect when something fails.
 
 When the change touches installer, release, or runtime flows, also run the
 relevant deeper checks:
