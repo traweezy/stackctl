@@ -69,6 +69,8 @@ func Validate(cfg Config) []ValidationIssue {
 			issues = append(issues, ValidationIssue{Field: "stack.compose_file", Message: fmt.Sprintf("file does not exist: %s", composePath)})
 		} else if info.IsDir() {
 			issues = append(issues, ValidationIssue{Field: "stack.compose_file", Message: fmt.Sprintf("path is a directory: %s", composePath)})
+		} else if err := validateManagedComposeFile(cfg); err != nil {
+			issues = append(issues, ValidationIssue{Field: "stack.compose_file", Message: fmt.Sprintf("managed compose file is invalid: %v", err)})
 		}
 	}
 	if cfg.EnabledStackServiceCount() == 0 {
@@ -103,6 +105,9 @@ func Validate(cfg Config) []ValidationIssue {
 		}
 		if cfg.Services.Postgres.LogMinDurationStatementMS != -1 && cfg.Services.Postgres.LogMinDurationStatementMS <= 0 {
 			issues = append(issues, ValidationIssue{Field: "services.postgres.log_min_duration_statement_ms", Message: "must be -1 or greater than zero"})
+		}
+		if issue := validateImageReference("services.postgres.image", cfg.Services.Postgres.Image); issue != nil {
+			issues = append(issues, *issue)
 		}
 	}
 
@@ -139,6 +144,9 @@ func Validate(cfg Config) []ValidationIssue {
 				issues = append(issues, ValidationIssue{Field: "connection.redis_password", Message: "must not contain whitespace when Redis ACL bootstrap is enabled"})
 			}
 		}
+		if issue := validateImageReference("services.redis.image", cfg.Services.Redis.Image); issue != nil {
+			issues = append(issues, *issue)
+		}
 	}
 
 	if cfg.NATSEnabled() {
@@ -150,6 +158,9 @@ func Validate(cfg Config) []ValidationIssue {
 			if strings.TrimSpace(value) == "" {
 				issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
 			}
+		}
+		if issue := validateImageReference("services.nats.image", cfg.Services.NATS.Image); issue != nil {
+			issues = append(issues, *issue)
 		}
 	}
 
@@ -168,6 +179,9 @@ func Validate(cfg Config) []ValidationIssue {
 		if cfg.Services.SeaweedFS.VolumeSizeLimitMB <= 0 {
 			issues = append(issues, ValidationIssue{Field: "services.seaweedfs.volume_size_limit_mb", Message: "must be greater than zero"})
 		}
+		if issue := validateImageReference("services.seaweedfs.image", cfg.Services.SeaweedFS.Image); issue != nil {
+			issues = append(issues, *issue)
+		}
 	}
 
 	if cfg.MeilisearchEnabled() {
@@ -183,6 +197,9 @@ func Validate(cfg Config) []ValidationIssue {
 		}
 		if len(strings.TrimSpace(cfg.Connection.MeilisearchMasterKey)) < 16 {
 			issues = append(issues, ValidationIssue{Field: "connection.meilisearch_master_key", Message: "must be at least 16 characters"})
+		}
+		if issue := validateImageReference("services.meilisearch.image", cfg.Services.Meilisearch.Image); issue != nil {
+			issues = append(issues, *issue)
 		}
 	}
 
@@ -210,6 +227,9 @@ func Validate(cfg Config) []ValidationIssue {
 					issues = append(issues, ValidationIssue{Field: field, Message: "must not be empty"})
 				}
 			}
+		}
+		if issue := validateImageReference("services.pgadmin.image", cfg.Services.PgAdmin.Image); issue != nil {
+			issues = append(issues, *issue)
 		}
 	}
 
