@@ -87,6 +87,36 @@ func TestScaffoldManagedStackWritesComposeFileThatLoads(t *testing.T) {
 	}
 }
 
+func TestScaffoldManagedNATSOnlyStackOmitsEmptyVolumesSection(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := DefaultForStack("nats-only")
+	cfg.Setup.IncludePostgres = false
+	cfg.Setup.IncludeRedis = false
+	cfg.Setup.IncludeSeaweedFS = false
+	cfg.Setup.IncludeMeilisearch = false
+	cfg.Setup.IncludePgAdmin = false
+	cfg.Setup.IncludeCockpit = false
+	cfg.Setup.InstallCockpit = false
+	cfg.Setup.IncludeNATS = true
+	cfg.ApplyDerivedFields()
+
+	if _, err := ScaffoldManagedStack(cfg, true); err != nil {
+		t.Fatalf("ScaffoldManagedStack returned error: %v", err)
+	}
+	if err := validateManagedComposeFile(cfg); err != nil {
+		t.Fatalf("expected nats-only scaffolded compose file to parse, got %v", err)
+	}
+
+	composeData, err := os.ReadFile(ComposePath(cfg))
+	if err != nil {
+		t.Fatalf("read scaffolded compose file: %v", err)
+	}
+	if strings.Contains(string(composeData), "\nvolumes:\n") {
+		t.Fatalf("expected nats-only scaffolded compose file to omit volumes section:\n%s", composeData)
+	}
+}
+
 func TestValidateManagedComposeFileSurfacesProjectOptionFailures(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 

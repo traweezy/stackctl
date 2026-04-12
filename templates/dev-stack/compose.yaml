@@ -143,6 +143,7 @@ services:
       - postgres
 {{- end }}
 {{- end }}
+{{- if or .Setup.IncludePostgres .Setup.IncludeRedis .Setup.IncludeSeaweedFS .Setup.IncludeMeilisearch .Setup.IncludePgAdmin }}
 
 volumes:
 {{- if .Setup.IncludePostgres }}
@@ -164,4 +165,5 @@ volumes:
 {{- if .Setup.IncludePgAdmin }}
   {{ .Services.PgAdmin.DataVolume }}:
     name: {{ printf "%q" .Services.PgAdmin.DataVolume }}
+{{- end }}
 {{- end }}
