@@ -52,7 +52,8 @@ The current safe groundwork is in place:
 
 - `.goreleaser.yaml` includes a `homebrew_casks` block
 - `skip_upload: true` keeps publish disabled
-- `goreleaser release --snapshot --clean` generates a reviewable cask in
+- `goreleaser release --snapshot --clean --skip=sign` generates a reviewable
+  cask in
   `dist/`
 - the generated cask installs the binary, root man page, and shell completions
 

@@ -32,7 +32,7 @@ go test ./integration -tags=integration -count=1
 bash scripts/check-coverage.sh
 bash scripts/install-smoke.sh
 bash scripts/journey-smoke.sh
-goreleaser release --snapshot --clean
+goreleaser release --snapshot --clean --skip=sign
 ```
 
 `scripts/check-coverage.sh` enforces a `100.0%` baseline by default. Only

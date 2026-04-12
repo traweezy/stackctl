@@ -63,7 +63,7 @@ go test ./integration -tags=integration -count=1
 If you change release packaging, also qualify the snapshot release path:
 
 ```bash
-goreleaser release --snapshot --clean
+goreleaser release --snapshot --clean --skip=sign
 ```
 
 If you change release-verification behavior or release-asset expectations, also

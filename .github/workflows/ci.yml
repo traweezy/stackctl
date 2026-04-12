@@ -788,7 +788,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          goreleaser release --snapshot --clean
+          goreleaser release --snapshot --clean --skip=sign
 
   build:
     name: Build / binary
