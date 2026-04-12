@@ -2,6 +2,7 @@ tmp/
 .tmp/
 dist/
 local/
+stacks/
 stackctl
 coverage.out
 docs/media/*.gif
