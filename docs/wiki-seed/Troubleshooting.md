@@ -12,6 +12,7 @@ stackctl services
 stackctl health
 stackctl logs --watch
 stackctl doctor
+stackctl doctor --check-images
 ```
 
 That sequence answers:
@@ -21,6 +22,7 @@ That sequence answers:
 - are the endpoints reachable
 - what are the services saying
 - is the surrounding machine healthy
+- are the configured image references still reachable
 
 ## No config exists yet
 

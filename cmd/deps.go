@@ -40,6 +40,7 @@ type commandDeps struct {
 	composePath               func(configpkg.Config) string
 	stat                      func(string) (os.FileInfo, error)
 	runDoctor                 func(context.Context) (doctorpkg.Report, error)
+	runDoctorWithOptions      func(context.Context, doctorpkg.Options) (doctorpkg.Report, error)
 	platform                  func() system.Platform
 	commandExists             func(string) bool
 	podmanVersion             func(context.Context) (string, error)
@@ -98,6 +99,7 @@ func defaultCommandDeps() commandDeps {
 		composePath:               configpkg.ComposePath,
 		stat:                      os.Stat,
 		runDoctor:                 doctorpkg.Run,
+		runDoctorWithOptions:      doctorpkg.RunWithOptions,
 		platform:                  system.CurrentPlatform,
 		commandExists:             system.CommandExists,
 		podmanVersion:             system.PodmanVersion,

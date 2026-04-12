@@ -14,11 +14,13 @@ import (
 func newDoctorCmd() *cobra.Command {
 	var fix bool
 	var yes bool
+	var checkImages bool
 
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Run diagnostics and optional fixes for the local stack",
 		Example: "  stackctl doctor\n" +
+			"  stackctl doctor --check-images\n" +
 			"  stackctl doctor --fix --yes",
 		Args:              cobra.NoArgs,
 		ValidArgsFunction: cobra.NoFileCompletions,
@@ -27,12 +29,8 @@ func newDoctorCmd() *cobra.Command {
 				return runDoctorFixes(cmd, yes)
 			}
 
-			var report doctorpkg.Report
-			if err := runSpinnerAction(cmd, "Running doctor diagnostics", func(ctx context.Context) error {
-				var runErr error
-				report, runErr = deps.runDoctor(ctx)
-				return runErr
-			}); err != nil {
+			report, err := runDoctorReport(cmd, "Running doctor diagnostics")
+			if err != nil {
 				return err
 			}
 
@@ -49,18 +47,15 @@ func newDoctorCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&fix, "fix", false, "Try to apply supported fixes for doctor findings")
+	cmd.Flags().BoolVar(&checkImages, "check-images", false, "Resolve configured service images against their registries")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Assume yes for automatic fix prompts")
 
 	return cmd
 }
 
 func runDoctorFixes(cmd *cobra.Command, yes bool) error {
-	var report doctorpkg.Report
-	if err := runSpinnerAction(cmd, "Running doctor diagnostics", func(ctx context.Context) error {
-		var runErr error
-		report, runErr = deps.runDoctor(ctx)
-		return runErr
-	}); err != nil {
+	report, err := runDoctorReport(cmd, "Running doctor diagnostics")
+	if err != nil {
 		return err
 	}
 	if err := printDoctorReport(cmd, report); err != nil {
@@ -172,12 +167,8 @@ func runDoctorFixes(cmd *cobra.Command, yes bool) error {
 	if err := plainLine(cmd, "\nPost-fix report:\n"); err != nil {
 		return err
 	}
-	var postReport doctorpkg.Report
-	if err := runSpinnerAction(cmd, "Re-running doctor diagnostics", func(ctx context.Context) error {
-		var runErr error
-		postReport, runErr = deps.runDoctor(ctx)
-		return runErr
-	}); err != nil {
+	postReport, err := runDoctorReport(cmd, "Re-running doctor diagnostics")
+	if err != nil {
 		return err
 	}
 	if err := printDoctorReport(cmd, postReport); err != nil {
@@ -247,6 +238,9 @@ func doctorRemediationMarkdown(report doctorpkg.Report) string {
 	if reportContainsMessageFragment(report, "cockpit helpers are not supported on") {
 		lines = append(lines, "- Disable `setup.include_cockpit` and `setup.install_cockpit` in your config on this host, or manage Cockpit separately outside stackctl.")
 	}
+	if reportContainsMessageFragment(report, "image could not be resolved") {
+		lines = append(lines, "- Re-check image tags and registry access, then rerun `stackctl doctor --check-images` to confirm the configured images are reachable.")
+	}
 	lines = append(lines,
 		"- Re-check the stack with `stackctl services`, `stackctl health`, and `stackctl tui` after fixes complete.",
 	)
@@ -265,6 +259,31 @@ func confirmAutomaticFix(cmd *cobra.Command, yes bool, prompt string) (bool, err
 	}
 
 	return ok, nil
+}
+
+func runDoctorReport(cmd *cobra.Command, heading string) (doctorpkg.Report, error) {
+	opts := doctorRunOptions(cmd)
+	var report doctorpkg.Report
+	err := runSpinnerAction(cmd, heading, func(ctx context.Context) error {
+		var runErr error
+		switch {
+		case opts.CheckImages && deps.runDoctorWithOptions != nil:
+			report, runErr = deps.runDoctorWithOptions(ctx, opts)
+		default:
+			report, runErr = deps.runDoctor(ctx)
+		}
+		return runErr
+	})
+	return report, err
+}
+
+func doctorRunOptions(cmd *cobra.Command) doctorpkg.Options {
+	checkImages, err := cmd.Flags().GetBool("check-images")
+	if err != nil {
+		return doctorpkg.Options{}
+	}
+
+	return doctorpkg.Options{CheckImages: checkImages}
 }
 
 func reportContainsMessageFragment(report doctorpkg.Report, fragment string) bool {

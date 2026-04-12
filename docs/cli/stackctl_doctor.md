@@ -10,15 +10,17 @@ stackctl doctor [flags]
 
 ```
   stackctl doctor
+  stackctl doctor --check-images
   stackctl doctor --fix --yes
 ```
 
 ### Options
 
 ```
-      --fix    Try to apply supported fixes for doctor findings
-  -h, --help   help for doctor
-  -y, --yes    Assume yes for automatic fix prompts
+      --check-images   Resolve configured service images against their registries
+      --fix            Try to apply supported fixes for doctor findings
+  -h, --help           help for doctor
+  -y, --yes            Assume yes for automatic fix prompts
 ```
 
 ### Options inherited from parent commands

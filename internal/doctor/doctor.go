@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/output"
 	"github.com/traweezy/stackctl/internal/system"
@@ -25,6 +28,28 @@ type Report struct {
 	FailCount int
 }
 
+type Options struct {
+	CheckImages       bool
+	ImageCheckTimeout time.Duration
+}
+
+const defaultImageCheckTimeout = 3 * time.Second
+
+var (
+	doctorDependencies        = defaultDependencies
+	parseDoctorImageReference = func(value string) (name.Reference, error) {
+		return name.ParseReference(value)
+	}
+	doctorRemoteHead = func(ctx context.Context, ref name.Reference) error {
+		_, err := remote.Head(ref, remote.WithContext(ctx))
+		return err
+	}
+	doctorRemoteGet = func(ctx context.Context, ref name.Reference) error {
+		_, err := remote.Get(ref, remote.WithContext(ctx))
+		return err
+	}
+)
+
 type dependencies struct {
 	configFilePath       func() (string, error)
 	loadConfig           func(string) (configpkg.Config, error)
@@ -42,10 +67,15 @@ type dependencies struct {
 	portInUse            func(int) (bool, error)
 	listContainers       func(context.Context) ([]system.Container, error)
 	redisOvercommit      func(context.Context) (system.OvercommitStatus, error)
+	checkImageReference  func(context.Context, string) error
 }
 
 func Run(ctx context.Context) (Report, error) {
-	return runWithDeps(ctx, defaultDependencies())
+	return RunWithOptions(ctx, Options{})
+}
+
+func RunWithOptions(ctx context.Context, opts Options) (Report, error) {
+	return runWithDepsOptions(ctx, doctorDependencies(), opts)
 }
 
 func defaultDependencies() dependencies {
@@ -67,11 +97,16 @@ func defaultDependencies() dependencies {
 		listContainers: func(ctx context.Context) ([]system.Container, error) {
 			return system.ListContainers(ctx, system.CaptureResult)
 		},
-		redisOvercommit: system.RedisOvercommitStatus,
+		redisOvercommit:     system.RedisOvercommitStatus,
+		checkImageReference: checkRemoteImageReference,
 	}
 }
 
 func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
+	return runWithDepsOptions(ctx, deps, Options{})
+}
+
+func runWithDepsOptions(ctx context.Context, deps dependencies, opts Options) (Report, error) {
 	report := Report{Checks: make([]Check, 0, 16)}
 
 	path, err := deps.configFilePath()
@@ -114,6 +149,23 @@ func runWithDeps(ctx context.Context, deps dependencies) (Report, error) {
 			report.add(output.StatusOK, fmt.Sprintf("compose file found: %s", composePath))
 		} else {
 			report.add(output.StatusFail, fmt.Sprintf("compose file missing: %s", composePath))
+		}
+
+		if opts.CheckImages && deps.checkImageReference != nil {
+			timeout := opts.ImageCheckTimeout
+			if timeout <= 0 {
+				timeout = defaultImageCheckTimeout
+			}
+			for _, service := range configuredServiceImages(cfg) {
+				checkCtx, cancel := context.WithTimeout(ctx, timeout)
+				err := deps.checkImageReference(checkCtx, service.Image)
+				cancel()
+				if err != nil {
+					report.add(output.StatusWarn, fmt.Sprintf("%s image could not be resolved: %s (%v)", service.Name, service.Image, err))
+					continue
+				}
+				report.add(output.StatusOK, fmt.Sprintf("%s image is reachable: %s", service.Name, service.Image))
+			}
 		}
 	} else {
 		report.add(output.StatusMiss, fmt.Sprintf("config file not found: %s", path))
@@ -360,8 +412,13 @@ type configuredService struct {
 	Port          int
 }
 
+type configuredImage struct {
+	Name  string
+	Image string
+}
+
 func configuredServices(cfg configpkg.Config) []configuredService {
-	services := make([]configuredService, 0, 4)
+	services := make([]configuredService, 0, 6)
 	if cfg.PostgresEnabled() {
 		services = append(services, configuredService{
 			Name:          "postgres",
@@ -383,6 +440,20 @@ func configuredServices(cfg configpkg.Config) []configuredService {
 			Port:          cfg.Ports.NATS,
 		})
 	}
+	if cfg.SeaweedFSEnabled() {
+		services = append(services, configuredService{
+			Name:          "seaweedfs",
+			ContainerName: cfg.Services.SeaweedFSContainer,
+			Port:          cfg.Ports.SeaweedFS,
+		})
+	}
+	if cfg.MeilisearchEnabled() {
+		services = append(services, configuredService{
+			Name:          "meilisearch",
+			ContainerName: cfg.Services.MeilisearchContainer,
+			Port:          cfg.Ports.Meilisearch,
+		})
+	}
 	if cfg.PgAdminEnabled() {
 		services = append(services, configuredService{
 			Name:          "pgadmin",
@@ -392,6 +463,30 @@ func configuredServices(cfg configpkg.Config) []configuredService {
 	}
 
 	return services
+}
+
+func configuredServiceImages(cfg configpkg.Config) []configuredImage {
+	images := make([]configuredImage, 0, 6)
+	if cfg.PostgresEnabled() {
+		images = append(images, configuredImage{Name: "postgres", Image: cfg.Services.Postgres.Image})
+	}
+	if cfg.RedisEnabled() {
+		images = append(images, configuredImage{Name: "redis", Image: cfg.Services.Redis.Image})
+	}
+	if cfg.NATSEnabled() {
+		images = append(images, configuredImage{Name: "nats", Image: cfg.Services.NATS.Image})
+	}
+	if cfg.SeaweedFSEnabled() {
+		images = append(images, configuredImage{Name: "seaweedfs", Image: cfg.Services.SeaweedFS.Image})
+	}
+	if cfg.MeilisearchEnabled() {
+		images = append(images, configuredImage{Name: "meilisearch", Image: cfg.Services.Meilisearch.Image})
+	}
+	if cfg.PgAdminEnabled() {
+		images = append(images, configuredImage{Name: "pgadmin", Image: cfg.Services.PgAdmin.Image})
+	}
+
+	return images
 }
 
 func configuredContainerNames(cfg configpkg.Config) []string {
@@ -410,4 +505,16 @@ func containerBindsHostPort(container system.Container, port int) bool {
 	}
 
 	return false
+}
+
+func checkRemoteImageReference(ctx context.Context, image string) error {
+	ref, err := parseDoctorImageReference(image)
+	if err != nil {
+		return err
+	}
+	if err := doctorRemoteHead(ctx, ref); err == nil {
+		return nil
+	}
+
+	return doctorRemoteGet(ctx, ref)
 }

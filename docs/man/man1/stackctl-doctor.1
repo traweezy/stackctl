@@ -14,6 +14,10 @@ Run diagnostics and optional fixes for the local stack
 
 
 .SH OPTIONS
+\fB--check-images\fP[=false]
+	Resolve configured service images against their registries
+
+.PP
 \fB--fix\fP[=false]
 	Try to apply supported fixes for doctor findings
 
@@ -62,6 +66,7 @@ Run diagnostics and optional fixes for the local stack
 .SH EXAMPLE
 .EX
   stackctl doctor
+  stackctl doctor --check-images
   stackctl doctor --fix --yes
 .EE
 

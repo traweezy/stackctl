@@ -175,6 +175,7 @@ Automation-friendly environment export:
 Troubleshooting:
 
 - `stackctl doctor`
+- `stackctl doctor --check-images`
 - `stackctl health`
 - `stackctl logs --watch`
 

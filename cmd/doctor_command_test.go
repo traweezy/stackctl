@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	doctorpkg "github.com/traweezy/stackctl/internal/doctor"
 	"github.com/traweezy/stackctl/internal/output"
@@ -198,6 +199,34 @@ func TestDoctorFixPromptDeclineLeavesSystemUntouched(t *testing.T) {
 	}
 }
 
+func TestDoctorCheckImagesUsesRunWithOptions(t *testing.T) {
+	var options doctorpkg.Options
+
+	withTestDeps(t, func(d *commandDeps) {
+		d.runDoctor = func(context.Context) (doctorpkg.Report, error) {
+			t.Fatal("expected --check-images to use runDoctorWithOptions")
+			return doctorpkg.Report{}, nil
+		}
+		d.runDoctorWithOptions = func(_ context.Context, got doctorpkg.Options) (doctorpkg.Report, error) {
+			options = got
+			return newReport(
+				doctorpkg.Check{Status: output.StatusOK, Message: "postgres image is reachable: docker.io/library/postgres:16"},
+			), nil
+		}
+	})
+
+	stdout, _, err := executeRoot(t, "doctor", "--check-images")
+	if err != nil {
+		t.Fatalf("doctor --check-images returned error: %v", err)
+	}
+	if !options.CheckImages {
+		t.Fatalf("expected check-images option to be set, got %+v", options)
+	}
+	if !strings.Contains(stdout, "postgres image is reachable") {
+		t.Fatalf("expected image check output, got:\n%s", stdout)
+	}
+}
+
 func TestDoctorRemediationMarkdownIncludesVersionUpgradeGuidance(t *testing.T) {
 	report := newReport(
 		doctorpkg.Check{Status: output.StatusWarn, Message: "podman 4.3.1 is below supported minimum 4.9.3"},
@@ -239,5 +268,22 @@ func TestDoctorRemediationMarkdownIncludesUnsupportedCockpitGuidance(t *testing.
 	markdown := doctorRemediationMarkdown(report)
 	if !strings.Contains(markdown, "Disable `setup.include_cockpit` and `setup.install_cockpit`") {
 		t.Fatalf("expected unsupported cockpit guidance, got:\n%s", markdown)
+	}
+}
+
+func TestDoctorRemediationMarkdownIncludesImageGuidance(t *testing.T) {
+	report := newReport(
+		doctorpkg.Check{Status: output.StatusWarn, Message: "postgres image could not be resolved: docker.io/library/postgres:16 (registry denied)"},
+	)
+
+	markdown := doctorRemediationMarkdown(report)
+	if !strings.Contains(markdown, "stackctl doctor --check-images") {
+		t.Fatalf("expected image diagnostic guidance, got:\n%s", markdown)
+	}
+}
+
+func TestDoctorRunOptionsHandlesMissingFlag(t *testing.T) {
+	if got := doctorRunOptions(&cobra.Command{}); got != (doctorpkg.Options{}) {
+		t.Fatalf("expected zero options for command without the flag, got %+v", got)
 	}
 }

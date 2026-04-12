@@ -3,11 +3,13 @@ package doctor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	configpkg "github.com/traweezy/stackctl/internal/config"
 	"github.com/traweezy/stackctl/internal/output"
 	"github.com/traweezy/stackctl/internal/system"
@@ -52,6 +54,35 @@ func TestRunUsesDefaultDependenciesWithoutConfig(t *testing.T) {
 	}
 }
 
+func TestRunWithOptionsUsesInjectedDependencies(t *testing.T) {
+	previous := doctorDependencies
+	doctorDependencies = func() dependencies {
+		return dependencies{
+			configFilePath:     func() (string, error) { return "/tmp/stackctl/config.yaml", nil },
+			loadConfig:         func(string) (configpkg.Config, error) { return configpkg.Config{}, configpkg.ErrNotFound },
+			validateConfig:     func(configpkg.Config) []configpkg.ValidationIssue { return nil },
+			composePath:        func(configpkg.Config) string { return "/tmp/compose.yaml" },
+			stat:               func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
+			commandExists:      func(string) bool { return false },
+			podmanComposeAvail: func(context.Context) bool { return false },
+			openCommandName:    func() string { return "" },
+			cockpitStatus:      func(context.Context) system.CockpitState { return system.CockpitState{} },
+			portInUse:          func(int) (bool, error) { return false, nil },
+			listContainers:     func(context.Context) ([]system.Container, error) { return nil, nil },
+			redisOvercommit:    func(context.Context) (system.OvercommitStatus, error) { return system.OvercommitStatus{}, nil },
+		}
+	}
+	defer func() { doctorDependencies = previous }()
+
+	report, err := RunWithOptions(context.Background(), Options{CheckImages: true})
+	if err != nil {
+		t.Fatalf("RunWithOptions returned error: %v", err)
+	}
+	if len(report.Checks) == 0 {
+		t.Fatalf("expected doctor report checks, got %+v", report)
+	}
+}
+
 func TestDefaultDependenciesPopulatesRequiredCallbacks(t *testing.T) {
 	deps := defaultDependencies()
 
@@ -72,6 +103,7 @@ func TestDefaultDependenciesPopulatesRequiredCallbacks(t *testing.T) {
 		"portInUse":            deps.portInUse,
 		"listContainers":       deps.listContainers,
 		"redisOvercommit":      deps.redisOvercommit,
+		"checkImageReference":  deps.checkImageReference,
 	}
 	for name, callback := range callbacks {
 		if callback == nil {
@@ -501,6 +533,136 @@ func TestRunWithDepsOnDarwinReportsPodmanMachineAndSkipsLinuxOnlyChecks(t *testi
 	if !foundMachineMiss {
 		t.Fatalf("expected missing podman machine check: %+v", report.Checks)
 	}
+}
+
+func TestRunWithDepsOptionsChecksReachableServiceImages(t *testing.T) {
+	cfg := configpkg.Default()
+	cfg.Setup.IncludeCockpit = false
+	cfg.Setup.InstallCockpit = false
+	cfg.Setup.IncludeSeaweedFS = true
+	cfg.Setup.IncludeMeilisearch = true
+	cfg.ApplyDerivedFields()
+
+	checked := make([]string, 0, 6)
+	report, err := runWithDepsOptions(context.Background(), dependencies{
+		configFilePath: func() (string, error) { return "/tmp/stackctl/config.yaml", nil },
+		loadConfig:     func(string) (configpkg.Config, error) { return cfg, nil },
+		validateConfig: func(configpkg.Config) []configpkg.ValidationIssue { return nil },
+		composePath:    func(configpkg.Config) string { return "/tmp/compose.yaml" },
+		stat: func(path string) (os.FileInfo, error) {
+			switch path {
+			case cfg.Stack.Dir:
+				return fakeFileInfo{dir: true}, nil
+			case "/tmp/compose.yaml":
+				return fakeFileInfo{name: "compose.yaml"}, nil
+			default:
+				return nil, errors.New("missing")
+			}
+		},
+		commandExists:        func(string) bool { return true },
+		podmanVersion:        func(context.Context) (string, error) { return system.SupportedPodmanVersion, nil },
+		podmanComposeVersion: func(context.Context) (string, error) { return system.SupportedComposeProviderVersion, nil },
+		podmanComposeAvail:   func(context.Context) bool { return true },
+		openCommandName:      func() string { return "xdg-open" },
+		cockpitStatus:        func(context.Context) system.CockpitState { return system.CockpitState{} },
+		portInUse:            func(int) (bool, error) { return false, nil },
+		listContainers:       func(context.Context) ([]system.Container, error) { return nil, nil },
+		redisOvercommit: func(context.Context) (system.OvercommitStatus, error) {
+			return system.OvercommitStatus{Supported: true, Value: 1}, nil
+		},
+		checkImageReference: func(ctx context.Context, image string) error {
+			deadline, ok := ctx.Deadline()
+			if !ok || time.Until(deadline) <= 0 {
+				t.Fatalf("expected image check context deadline for %s", image)
+			}
+			checked = append(checked, image)
+			if image == cfg.Services.NATS.Image || image == cfg.Services.Meilisearch.Image {
+				return errors.New("registry denied")
+			}
+			return nil
+		},
+	}, Options{CheckImages: true})
+	if err != nil {
+		t.Fatalf("runWithDepsOptions returned error: %v", err)
+	}
+
+	if len(checked) != 6 {
+		t.Fatalf("expected 6 image checks, got %d (%v)", len(checked), checked)
+	}
+	for _, want := range []struct {
+		status  string
+		message string
+	}{
+		{output.StatusOK, "postgres image is reachable: " + cfg.Services.Postgres.Image},
+		{output.StatusWarn, "nats image could not be resolved: " + cfg.Services.NATS.Image + " (registry denied)"},
+		{output.StatusOK, fmt.Sprintf("port %d is free for seaweedfs", cfg.Ports.SeaweedFS)},
+		{output.StatusWarn, "seaweedfs container not found"},
+		{output.StatusWarn, "meilisearch image could not be resolved: " + cfg.Services.Meilisearch.Image + " (registry denied)"},
+		{output.StatusWarn, "meilisearch container not found"},
+	} {
+		if !doctorHasCheck(report, want.status, want.message) {
+			t.Fatalf("expected doctor check %s %q, got %+v", want.status, want.message, report.Checks)
+		}
+	}
+}
+
+func TestCheckRemoteImageReferenceBranches(t *testing.T) {
+	ref, err := name.ParseReference("docker.io/library/postgres:16")
+	if err != nil {
+		t.Fatalf("parse reference: %v", err)
+	}
+
+	previousParse := parseDoctorImageReference
+	previousHead := doctorRemoteHead
+	previousGet := doctorRemoteGet
+	defer func() {
+		parseDoctorImageReference = previousParse
+		doctorRemoteHead = previousHead
+		doctorRemoteGet = previousGet
+	}()
+
+	t.Run("parse errors are returned", func(t *testing.T) {
+		parseDoctorImageReference = func(string) (name.Reference, error) { return nil, errors.New("bad image") }
+		doctorRemoteHead = previousHead
+		doctorRemoteGet = previousGet
+
+		if err := checkRemoteImageReference(context.Background(), "%%%bad%%%"); err == nil || !strings.Contains(err.Error(), "bad image") {
+			t.Fatalf("expected parse failure, got %v", err)
+		}
+	})
+
+	t.Run("head success returns nil", func(t *testing.T) {
+		parseDoctorImageReference = func(string) (name.Reference, error) { return ref, nil }
+		doctorRemoteHead = func(context.Context, name.Reference) error { return nil }
+		doctorRemoteGet = func(context.Context, name.Reference) error {
+			t.Fatal("expected get fallback to be skipped after head success")
+			return nil
+		}
+
+		if err := checkRemoteImageReference(context.Background(), "docker.io/library/postgres:16"); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("get fallback is used after head failure", func(t *testing.T) {
+		parseDoctorImageReference = func(string) (name.Reference, error) { return ref, nil }
+		doctorRemoteHead = func(context.Context, name.Reference) error { return errors.New("head failed") }
+		doctorRemoteGet = func(context.Context, name.Reference) error { return nil }
+
+		if err := checkRemoteImageReference(context.Background(), "docker.io/library/postgres:16"); err != nil {
+			t.Fatalf("expected nil error after get fallback, got %v", err)
+		}
+	})
+
+	t.Run("get fallback errors are returned", func(t *testing.T) {
+		parseDoctorImageReference = func(string) (name.Reference, error) { return ref, nil }
+		doctorRemoteHead = func(context.Context, name.Reference) error { return errors.New("head failed") }
+		doctorRemoteGet = func(context.Context, name.Reference) error { return errors.New("get failed") }
+
+		if err := checkRemoteImageReference(context.Background(), "docker.io/library/postgres:16"); err == nil || !strings.Contains(err.Error(), "get failed") {
+			t.Fatalf("expected get failure, got %v", err)
+		}
+	})
 }
 
 type fakeFileInfo struct {
