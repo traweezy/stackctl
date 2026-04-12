@@ -1,9 +1,6 @@
 package output
 
 import (
-	"bytes"
-	"io"
-	"strings"
 	"testing"
 )
 
@@ -32,28 +29,8 @@ func FuzzRenderMarkdown(f *testing.F) {
 			t.Skip()
 		}
 
-		var buffer bytes.Buffer
-		if err := RenderMarkdown(&buffer, markdown); err != nil {
-			t.Fatalf("render markdown: %v", err)
+		if err := exerciseMarkdownFuzzInput(markdown); err != nil {
+			t.Fatalf("exercise markdown fuzz input: %v", err)
 		}
-
-		trimmed := strings.TrimSpace(markdown)
-		if trimmed == "" {
-			if buffer.Len() != 0 {
-				t.Fatalf("expected empty output for blank markdown, got %q", buffer.String())
-			}
-			return
-		}
-
-		if got := buffer.String(); got != trimmed+"\n" {
-			t.Fatalf("unexpected plain-text output %q", got)
-		}
-
-		renderer, err := newMarkdownRenderer(io.Discard)
-		if err != nil {
-			t.Fatalf("build markdown renderer: %v", err)
-		}
-
-		_, _ = renderMarkdownTerminal(renderer, trimmed)
 	})
 }

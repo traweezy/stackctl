@@ -89,6 +89,7 @@ formatting paths, also exercise the fuzz targets:
 
 ```bash
 go test ./internal/output -run '^$' -fuzz '^FuzzRenderMarkdown$' -fuzztime 10s
+go test ./internal/config -run '^$' -fuzz '^FuzzConfigLoadAndRender$' -fuzztime 10s
 ```
 
 If you change README or docs links, also run:
@@ -106,7 +107,8 @@ demo material under ignored `tmp/`, `.tmp/`, or `local/`. Do not check in GIFs
 or maintainer-only demo tapes.
 
 Pull requests also run GitHub-hosted dependency review, and the default branch
-has a separate Scorecard workflow for ongoing supply-chain posture tracking.
+has separate Scorecard and ClusterFuzzLite workflows for ongoing supply-chain
+and fuzzing posture tracking.
 
 ## Generated assets
 

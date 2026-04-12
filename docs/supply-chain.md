@@ -60,16 +60,39 @@ Scorecards does not replace the repo's other security checks. It adds an
 OpenSSF view over branch protection, dependency pinning, token permissions,
 release posture, and similar supply-chain signals.
 
-## Local fuzzing
+## Fuzzing
 
-The repo carries Go fuzz targets for the markdown render path in
-[`internal/output/markdown_fuzz_test.go`](../internal/output/markdown_fuzz_test.go),
-covering the `glamour` and `bluemonday` chain behind formatted CLI output.
+The repo now carries both local Go fuzz targets and hosted ClusterFuzzLite
+workflows.
 
-Run it locally with:
+Hosted fuzzing lives in:
+
+- [../.github/workflows/cflite_pr.yml](../.github/workflows/cflite_pr.yml)
+- [../.github/workflows/cflite_build.yml](../.github/workflows/cflite_build.yml)
+- [../.github/workflows/cflite_batch.yml](../.github/workflows/cflite_batch.yml)
+- [../.github/workflows/cflite_cron.yml](../.github/workflows/cflite_cron.yml)
+
+The corresponding ClusterFuzzLite build integration lives under
+[../.clusterfuzzlite/](../.clusterfuzzlite/).
+
+Today the hosted fuzzers cover:
+
+- markdown rendering via [../internal/output/markdown_fuzz_test.go](../internal/output/markdown_fuzz_test.go)
+- config parse, normalize, marshal, and managed-compose rendering via
+  [../internal/config/config_fuzz_test.go](../internal/config/config_fuzz_test.go)
+
+### Local fuzzing
+
+Run the markdown fuzz target locally with:
 
 ```bash
 go test ./internal/output -run '^$' -fuzz '^FuzzRenderMarkdown$' -fuzztime 10s
+```
+
+Run the config fuzz target locally with:
+
+```bash
+go test ./internal/config -run '^$' -fuzz '^FuzzConfigLoadAndRender$' -fuzztime 10s
 ```
 
 ## Workflow permissions
