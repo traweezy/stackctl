@@ -84,6 +84,7 @@ Tagged releases are expected to publish:
 - Linux and macOS archives
 - `checksums.txt`
 - `checksums.txt.sigstore.json`
+- `stackctl-release.intoto.jsonl`
 - per-archive SPDX SBOMs
 - GitHub artifact attestations
 - generated docs, man pages, and shell completions in the release archives
@@ -98,8 +99,8 @@ After the release workflow completes:
 
 - walk the manual verification flow in
   [install-and-upgrade.md](./install-and-upgrade.md) against the new tag,
-  including checksum verification and, when present, `gh release verify-asset`
-  plus `cosign verify-blob`
+  including checksum verification and, when present, `gh release verify-asset`,
+  `cosign verify-blob`, and `slsa-verifier verify-artifact`
 - run `stackctl version --json` from the released binary
 - spot-check the generated docs in the archive
 - confirm the release notes and attached assets look complete

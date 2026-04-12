@@ -11,7 +11,7 @@ roll back safely.
   deterministic install, upgrade, or rollback.
 - If you download archives manually, verify `checksums.txt` before extraction.
 - Newer tags may also ship `checksums.txt.sigstore.json`, per-archive SPDX
-  SBOMs, and GitHub artifact attestations.
+  SBOMs, `stackctl-release.intoto.jsonl`, and GitHub artifact attestations.
 - Older `0.x` tags may predate those extra assets and may only publish Linux
   archives.
 
@@ -59,6 +59,7 @@ cd /tmp/stackctl-verify
 
 gh release download "${STACKCTL_VERSION}" --repo traweezy/stackctl \
   -p 'checksums.txt' \
+  -p 'stackctl-release.intoto.jsonl' \
   -p 'stackctl_Linux_x86_64.tar.gz'
 
 sha256sum -c --ignore-missing checksums.txt
@@ -81,8 +82,24 @@ cosign verify-blob \
   checksums.txt
 ```
 
+If the release also publishes `stackctl-release.intoto.jsonl`:
+
+```bash
+go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@v2.7.1
+
+slsa-verifier verify-artifact \
+  --provenance-path stackctl-release.intoto.jsonl \
+  --source-uri github.com/traweezy/stackctl \
+  --source-tag "${STACKCTL_VERSION}" \
+  stackctl_Linux_x86_64.tar.gz
+```
+
+The same provenance file can be reused for any archive or SBOM listed inside
+that release-wide statement.
+
 For historical `0.x` tags that do not ship attestations or a Sigstore bundle,
-checksum verification is the supported baseline.
+checksum verification is the supported baseline. Likewise, only verify
+`stackctl-release.intoto.jsonl` when that file is present on the release.
 
 Even from a repo checkout, prefer this same manual flow. The published release
 artifacts are the contract, and local wrapper helpers are intentionally kept

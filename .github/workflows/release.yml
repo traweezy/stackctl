@@ -206,6 +206,8 @@ jobs:
     name: Release / goreleaser
     runs-on: ubuntu-latest
     needs: [verify, platform-lab]
+    outputs:
+      slsa_subjects: ${{ steps.slsa-subjects.outputs.base64-subjects }}
     permissions:
       contents: write
       attestations: write
@@ -244,7 +246,47 @@ jobs:
         run: |
           goreleaser release --clean
 
+      - name: Generate SLSA subjects
+        id: slsa-subjects
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          subject_file="${RUNNER_TEMP}/slsa-subjects.txt"
+          : > "$subject_file"
+          for path in \
+            dist/stackctl_*.tar.gz \
+            dist/stackctl_*.tar.gz.spdx.json \
+            dist/checksums.txt \
+            dist/checksums.txt.sigstore.json
+          do
+            if [ -f "$path" ]; then
+              printf '%s  %s\n' \
+                "$(sha256sum "$path" | awk '{print $1}')" \
+                "$(basename "$path")" >> "$subject_file"
+            fi
+          done
+          if [ ! -s "$subject_file" ]; then
+            echo "no SLSA subjects were generated from dist/" >&2
+            exit 1
+          fi
+          echo "base64-subjects=$(base64 -w0 "$subject_file")" >> "$GITHUB_OUTPUT"
+
       - name: Attest release artifacts
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-checksums: ./dist/checksums.txt
+
+  provenance:
+    name: Release / provenance
+    needs: [goreleaser]
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.goreleaser.outputs.slsa_subjects }}
+      provenance-name: stackctl-release.intoto.jsonl
+      upload-assets: true
+      upload-tag-name: ${{ github.ref_name }}
