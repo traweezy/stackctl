@@ -12,7 +12,7 @@ require (
 	github.com/compose-spec/compose-go/v2 v2.10.2
 	github.com/creack/pty/v2 v2.0.1
 	github.com/google/go-containerregistry v0.21.5
-	github.com/jedib0t/go-pretty/v6 v6.7.8
+	github.com/jedib0t/go-pretty/v6 v6.7.9
 	github.com/rogpeppe/go-internal v1.14.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.42.0
